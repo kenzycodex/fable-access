@@ -1,0 +1,374 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Bricks (the original site's framework) sets the root font-size to 62.5%
+ * (1rem = 10px) and authors every rem-based token below against that base.
+ * Without this reset, every clamp() value ported from style-manager.min.css
+ * renders ~60% too large (nav/buttons/footer text wrapping, oversized
+ * spacing). Keep this in sync with the token source of truth.
+ */
+html {
+  font-size: 62.5%;
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+/*
+ * App surfaces (demo bank, institution dashboard) are built with standard
+ * Tailwind rem-based utilities, not the marketing site's Bricks-ported
+ * clamp() tokens. Restore the browser-native 16px base whenever one of
+ * those surfaces is on the page, otherwise every text/spacing/size utility
+ * renders at 62.5% of its intended size (tiny text, squeezed layouts).
+ */
+html:has([data-surface="app"]) {
+  font-size: 100%; /* 1rem = 16px on app surfaces */
+}
+
+/*
+ * Design tokens ported verbatim from reference-ui's Bricks "style manager"
+ * (wp-content/uploads/bricks/css/style-manager.min.css) and the page-level
+ * generated root vars (--gutter, --radius-*, --container-width, --ratio-*).
+ * Fluid clamp() formulas are kept exactly as authored so spacing/type scale
+ * fidelity matches the original site 1:1 across viewport widths.
+ */
+@theme {
+  /* breakpoints -- Legacy framework breakpoints, not Tailwind defaults */
+  --breakpoint-sm: 478px;
+  --breakpoint-md: 767px;
+  --breakpoint-lg: 992px;
+  --breakpoint-xl: 1320px;
+
+  /* fonts */
+  --font-sans: var(--font-inter);
+  --font-heading: var(--font-titillium);
+  --font-marker: var(--font-permanent-marker);
+
+  /* color palette -- Fable brand (ported from the HackX build brief's
+   * design system: --fable-primary #6C47FF family, --fable-accent cyan,
+   * --fable-success mint, --fable-black/--fable-card dark navy).
+   * Token NAMES kept identical to the legacy scale so no component
+   * needed touching -- only the values changed, remapped by the UI role
+   * each token actually drives in this codebase:
+   *   secondary (all CTA pill buttons)   -> electric purple  (brief: "CTAs, agent labels, key moments")
+   *   primary   (links, icons, stat vals) -> cyan             (brief: "Data, live stats, active states")
+   *   accent    (marker/script emphasis)  -> mint             (brief: "PASS actions, safe confirmations")
+   *   base      (dark section backgrounds) -> near-black with a whisper of
+   *             purple (#0A0117), per a reference fintech dark-mode design:
+   *             the base canvas should read as deep black, with purple
+   *             energy carried by accent elements (buttons, glows, blobs)
+   *             rather than the background itself being mid-tone purple.
+   *             Earlier attempts (navy-derived, then full #3B1FA8, then a
+   *             55%-to-black mix) were all still too visibly purple as a
+   *             flat background fill.
+   *   black     (darkest sections/footer)  -> pure black (#000000),
+   *             reverted from --fable-black (#0A0E1A) per direct feedback.
+   *   neutral   (secondary stat/tag color) -> amber           (brief: "FLAG actions, medium risk")
+   */
+  --color-primary: #7C3AED;
+  --color-primary-l-1: #9F67FF;
+  --color-primary-l-2: #C4A6FF;
+  --color-primary-d-1: #5B21B6;
+  --color-primary-d-2: #3B0F80;
+  --color-secondary: #7b60fd;
+  --color-secondary-l-1: #a795fe;
+  --color-secondary-l-2: #d3cafe;
+  --color-secondary-d-1: #5240a9;
+  --color-secondary-d-2: #292054;
+  --color-base: #0a0117;
+  --color-base-l-1: #5c5664;
+  --color-base-l-2: #adaab2;
+  --color-base-d-1: #07010f;
+  --color-base-d-2: #030008;
+  --color-accent: #00f5a0;
+  --color-neutral: #ffb547;
+  --color-black: #000000;
+  --color-white: #ffffff;
+  --color-light: #f5f3f5;
+  --color-tertiary: #eeeaff;
+  --color-success: #00f5a0;
+  --color-danger: #ff3b5c;
+  --color-black-t-0: hsla(0, 0%, 83%, 0.17);
+  --color-black-t-1: hsla(0, 0%, 67%, 0.33);
+  --color-black-t-2: hsla(0, 0%, 50%, 0.5);
+  --color-black-t-3: hsla(0, 0%, 33%, 0.67);
+  --color-black-t-4: hsla(0, 0%, 17%, 0.83);
+
+  /* fluid spacing scale -> p-xs, gap-m, m-xl utilities etc. */
+  --spacing-xs: clamp(1.14rem, calc(0.0018886679920477156 * (100vw - 36rem) + 1.14rem), 1.33rem);
+  --spacing-s: clamp(1.52rem, calc(0.004771371769383698 * (100vw - 36rem) + 1.52rem), 2rem);
+  --spacing-m: clamp(2.03rem, calc(0.009642147117296225 * (100vw - 36rem) + 2.03rem), 3rem);
+  --spacing-l: clamp(2.71rem, calc(0.017793240556660043 * (100vw - 36rem) + 2.71rem), 4.5rem);
+  --spacing-xl: clamp(3.61rem, calc(0.031212723658051694 * (100vw - 36rem) + 3.61rem), 6.75rem);
+  --spacing-xxl: clamp(4.81rem, calc(0.052882703777336 * (100vw - 36rem) + 4.81rem), 10.13rem);
+
+  /* fluid heading scale -> text-h1..text-h6 utilities */
+  --text-h1: clamp(4.2rem, calc(0.029821073558648114 * (100vw - 36rem) + 4.2rem), 7.2rem);
+  --text-h2: clamp(3.2rem, calc(0.019880715705765408 * (100vw - 36rem) + 3.2rem), 5.2rem);
+  --text-h3: clamp(2.4rem, calc(0.015904572564612328 * (100vw - 36rem) + 2.4rem), 4rem);
+  --text-h4: clamp(1.8rem, calc(0.005964214711729621 * (100vw - 36rem) + 1.8rem), 2.4rem);
+  --text-h5: clamp(1.6rem, calc(0.005964214711729624 * (100vw - 36rem) + 1.6rem), 2.2rem);
+  --text-h6: clamp(1.4rem, calc(0.005964214711729624 * (100vw - 36rem) + 1.4rem), 2rem);
+
+  /* fluid body-text scale -> text-2xs, text-s, text-m ... utilities */
+  --text-2xs: clamp(1.12rem, calc(0.0013916500994035777 * (100vw - 36rem) + 1.12rem), 1.26rem);
+  --text-xs: clamp(1.26rem, calc(0.001590457256461232 * (100vw - 36rem) + 1.26rem), 1.42rem);
+  --text-s: clamp(1.42rem, calc(0.0017892644135188884 * (100vw - 36rem) + 1.42rem), 1.6rem);
+  --text-m: clamp(1.6rem, calc(0.0019880715705765406 * (100vw - 36rem) + 1.6rem), 1.8rem);
+  --text-l: clamp(1.8rem, calc(0.002186878727634195 * (100vw - 36rem) + 1.8rem), 2.02rem);
+  --text-xl: clamp(2.02rem, calc(0.002584493041749501 * (100vw - 36rem) + 2.02rem), 2.28rem);
+  --text-xxl: clamp(2.28rem, calc(0.00278330019880716 * (100vw - 36rem) + 2.28rem), 2.56rem);
+
+  /* border radius scale */
+  --radius-s: 14px;
+  --radius-m: 20px;
+  --radius-l: 30px;
+  --radius-xl: 45px;
+  --radius-pill: 9999px;
+  --radius-circle: 50vw;
+  --radius-btn: 0.6em;
+
+  /* aspect ratios used by image/media containers */
+  --aspect-1-1: 1 / 1;
+  --aspect-4-3: 4 / 3;
+  --aspect-3-2: 3 / 2;
+  --aspect-16-9: 16 / 9;
+  --aspect-21-9: 21 / 9;
+  --aspect-4-5: 4 / 5;
+  --aspect-2-3: 2 / 3;
+  --aspect-9-16: 9 / 16;
+  --aspect-golden: 1.618 / 1;
+}
+
+/*
+ * Non-Tailwind-namespaced tokens: layout/section-spacing scale, container
+ * widths, and misc values consumed directly via var() in components
+ * (e.g. the shared <Section> primitive applies px-[var(--gutter)]).
+ */
+:root {
+  --gutter: clamp(2rem, calc(3.976vw + 0.568rem), 6rem);
+  --content-gap: var(--spacing-m);
+  --content-gap-s: var(--spacing-s);
+  --content-gap-xs: 1rem;
+  --container-gap: var(--spacing-xl);
+  --card-gap: var(--spacing-l);
+  --grid-gap: var(--spacing-m);
+  --paragraph-spacing: var(--spacing-xs);
+
+  --section-space-xs: clamp(2.38rem, calc(0.01610337972166998 * (100vw - 36rem) + 2.38rem), 4rem);
+  --section-space-s: clamp(3.17rem, calc(0.028131212723658053 * (100vw - 36rem) + 3.17rem), 6rem);
+  --section-space-m: clamp(4.22rem, calc(0.04751491053677933 * (100vw - 36rem) + 4.22rem), 9rem);
+  --section-space-l: clamp(5.63rem, calc(0.07823061630218689 * (100vw - 36rem) + 5.63rem), 13.5rem);
+  --section-space-xl: clamp(7.5rem, calc(0.12673956262425448 * (100vw - 36rem) + 7.5rem), 20.25rem);
+  --section-space-xxl: clamp(10rem, calc(0.2025844930417495 * (100vw - 36rem) + 10rem), 30.38rem);
+
+  --radius: 20px;
+  --radius-inside: calc(var(--radius) * 0.5);
+  --radius-outside: calc(var(--radius) * 1.4);
+
+  --container-width: 136.6rem;
+  --container-min-width: 380px;
+  --max-width: 1120px;
+  --max-width-m: 840px;
+  --max-width-l: 980px;
+  --max-width-s: 640px;
+  --logo-width: clamp(12rem, calc(12rem + 0.0889 * (100vw - 380px)), 20rem);
+
+  --hover-smooth: all 0.3s ease-in-out;
+  --text-line-height: calc(6px + 2ex);
+  --heading-line-height: calc(4px + 2ex);
+}
+
+@layer base {
+  html,
+  body {
+    /* Decorative full-bleed graphics (marquees, hero blobs) are positioned
+     * with fluid/negative offsets and must never introduce a horizontal
+     * scrollbar. */
+    overflow-x: hidden;
+  }
+
+  body {
+    color: var(--color-black);
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: var(--text-m);
+    line-height: var(--text-line-height);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    line-height: var(--heading-line-height);
+  }
+
+  h1 {
+    font-size: var(--text-h1);
+  }
+  h2 {
+    font-size: var(--text-h2);
+  }
+  h3 {
+    font-size: var(--text-h3);
+  }
+  h4 {
+    font-size: var(--text-h4);
+    font-weight: 600;
+  }
+  h5 {
+    font-size: var(--text-h5);
+  }
+  h6 {
+    font-size: var(--text-h6);
+  }
+
+  /*
+   * App surfaces (demo bank, dashboard) use standard Tailwind text utilities,
+   * NOT the marketing site's fluid clamp() heading scale. Without this reset
+   * an <h2 className="text-base"> still renders at 3.2–5.2 rem because the
+   * base-layer rule has equal specificity and appears later in the cascade.
+   */
+  [data-surface="app"] {
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  [data-surface="app"] h1,
+  [data-surface="app"] h2,
+  [data-surface="app"] h3,
+  [data-surface="app"] h4,
+  [data-surface="app"] h5,
+  [data-surface="app"] h6 {
+    font-size: inherit;
+    line-height: 1.2;
+  }
+
+  /* Custom scrollbar globally */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(156, 163, 175, 0.3); /* gray-400 with opacity */
+    border-radius: 10px;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(156, 163, 175, 0.5);
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
+
+  /* Ensure all interactive elements have a pointer cursor */
+  button, 
+  a, 
+  [role="button"] {
+    cursor: pointer;
+  }
+}
+
+@layer utilities {
+  .font-marker {
+    font-family: var(--font-marker);
+    /* Permanent Marker only ships one weight; inheriting the heading's
+     * bold (700) forces the browser to synthesize a fake bold, which
+     * looks thicker/uglier than the font's natural stroke. */
+    font-weight: 400;
+  }
+
+  @keyframes marquee-scroll {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  .animate-marquee {
+    animation: marquee-scroll 32s linear infinite;
+  }
+
+  /* ── Demo-bank dark-theme animations & utilities ────────────── */
+
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes cardEntrance {
+    from { opacity: 0; transform: translateY(18px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes pulseGlow {
+    0%, 100% { opacity: 0.5; }
+    50%      { opacity: 1; }
+  }
+  @keyframes shimmer {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(100%); }
+  }
+  @keyframes floatOrb {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33%      { transform: translate(12px, -8px) scale(1.06); }
+    66%      { transform: translate(-6px, 6px) scale(0.96); }
+  }
+
+  .animate-fade-in-up {
+    animation: fadeInUp 0.45s ease-out both;
+  }
+  .animate-card-entrance {
+    animation: cardEntrance 0.5s ease-out both;
+  }
+  .animate-pulse-glow {
+    animation: pulseGlow 3s ease-in-out infinite;
+  }
+  .animate-float-orb {
+    animation: floatOrb 8s ease-in-out infinite;
+  }
+
+  /* Reusable glass surface for dark-theme cards */
+  .glass {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+  }
+  .glass-strong {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.12);
+    backdrop-filter: blur(32px);
+    -webkit-backdrop-filter: blur(32px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [role="dialog"][aria-label="Cookie consent"] {
+    transition: none;
+  }
+  .animate-fade-in-up,
+  .animate-card-entrance,
+  .animate-pulse-glow,
+  .animate-float-orb {
+    animation: none;
+  }
+}
