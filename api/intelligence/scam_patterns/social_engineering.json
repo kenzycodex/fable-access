@@ -1,0 +1,7 @@
+[
+  { "name": "urgency_english", "keywords": ["urgent", "emergency", "immediately", "asap", "quick quick", "right now"], "risk_weight": 0.30 },
+  { "name": "urgency_pidgin", "keywords": ["abeg", "abeg help", "e don cast", "send am now", "no delay", "na emergency", "sharp sharp"], "risk_weight": 0.32 },
+  { "name": "family_impersonation", "keywords": ["mum", "dad", "mummy", "daddy", "brother", "sister", "aunty", "uncle", "dem don carry am go hospital", "mama dey sick", "accident"], "risk_weight": 0.35 },
+  { "name": "fake_alert", "keywords": ["alert don enter", "check your account", "money don land", "i don send am", "wrong transfer", "sent by mistake"], "risk_weight": 0.45 },
+  { "name": "account_blocked", "keywords": ["blocked", "frozen", "suspended", "verify", "activate", "bvn", "nin", "kyc update"], "risk_weight": 0.35 }
+]

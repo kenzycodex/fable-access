@@ -1,0 +1,4 @@
+[
+  { "name": "supplier_fraud", "keywords": ["new account", "changed account", "updated account", "supplier", "vendor", "invoice update"], "risk_weight": 0.50 },
+  { "name": "structuring", "keywords": ["small small send", "split am", "break the transfer", "several accounts"], "risk_weight": 0.30 }
+]
