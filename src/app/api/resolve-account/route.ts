@@ -62,7 +62,8 @@ export async function POST(request: Request) {
           );
         }
         return NextResponse.json({ ...resolved, status: "success" });
-      } catch {
+      } catch (err) {
+        console.error("Paystack resolution error:", err);
         // Paystack transport error — fall through to the simulator rather
         // than breaking the transfer flow.
       }

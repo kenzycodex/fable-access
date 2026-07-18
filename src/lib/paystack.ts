@@ -76,9 +76,18 @@ export async function getBankList(): Promise<{ banks: Bank[]; source: "paystack"
     });
     if (!res.ok) throw new Error(`Paystack /bank ${res.status}`);
     const body = (await res.json()) as PaystackEnvelope<{ name: string; code: string; slug: string }[]>;
-    const banks = body.data
-      .map((b) => ({ name: b.name, code: b.code, slug: b.slug }))
+    
+    // Deduplicate by bank code to prevent React duplicate key errors in the UI
+    const uniqueBanks = new Map<string, Bank>();
+    for (const b of body.data) {
+      if (!uniqueBanks.has(b.code)) {
+        uniqueBanks.set(b.code, { name: b.name, code: b.code, slug: b.slug });
+      }
+    }
+    
+    const banks = Array.from(uniqueBanks.values())
       .sort((a, b) => a.name.localeCompare(b.name));
+    
     bankCache = { banks, fetchedAt: Date.now() };
     return { banks, source: "paystack" };
   } catch {
