@@ -21,6 +21,7 @@ import {
 import { Avatar, Card, Screen } from "@/components/demo/kit";
 import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
 import { DEMO_USER } from "@/lib/fable/seed";
+import { ensureSession } from "@/lib/fable/session";
 import { useFableStore } from "@/lib/fable/store";
 import type { Transaction } from "@/lib/fable/types";
 
@@ -29,8 +30,12 @@ export default function DemoHomePage() {
   const [balanceHidden, setBalanceHidden] = useState(false);
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  
-  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    setMounted(true);
+    // Opening the banking app IS the login — the session clock starts here.
+    ensureSession();
+  }, []);
 
   const myTxns: Transaction[] = (store?.transactions ?? [])
     .filter((t) => t.customerName === DEMO_USER.name)

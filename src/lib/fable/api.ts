@@ -6,7 +6,11 @@
 // Point NEXT_PUBLIC_FABLE_API_URL at the deployed API (e.g. Railway) in prod;
 // defaults to the local FastAPI dev server.
 
+import type { BehavioralProfile } from "./biometrics";
+import type { DeviceFingerprint } from "./fingerprint";
+import type { GeoLocation } from "./geolocation";
 import { CHANNEL_LABELS } from "./scoring";
+import type { SessionContext } from "./session";
 import type { Channel, RiskAction, ScoreResult, Signal, Transaction, TransactionInput } from "./types";
 
 export const API_BASE = (process.env.NEXT_PUBLIC_FABLE_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
@@ -68,7 +72,12 @@ const SIGNAL_LABELS: Record<string, string> = {
   time_anomaly: "Unusual time",
   channel_risk: "Higher-risk channel",
   scam_pattern: "Scam-script match",
-  ml_anomaly: "Behavioral anomaly",
+  ml_anomaly: "ML anomaly",
+  device_anomaly: "Unrecognized device",
+  location_anomaly: "Location anomaly",
+  session_freshness: "Fresh session",
+  behavioral_anomaly: "Behavioral anomaly",
+  timezone_mismatch: "Timezone mismatch",
   system_error: "System notice",
 };
 const SIGNAL_WEIGHTS: Record<string, number> = {
@@ -76,8 +85,13 @@ const SIGNAL_WEIGHTS: Record<string, number> = {
   new_recipient: 0.2,
   time_anomaly: 0.12,
   channel_risk: 0.18,
-  scam_pattern: 0.35,
+  scam_pattern: 0.15,
   ml_anomaly: 0.08,
+  device_anomaly: 0.18,
+  location_anomaly: 0.22,
+  session_freshness: 0.12,
+  behavioral_anomaly: 0.15,
+  timezone_mismatch: 0.08,
 };
 
 /** FastAPI returns signals as strings ("amount_anomaly: 8x above baseline");
@@ -123,8 +137,36 @@ interface ApiShieldResponse {
   transaction_id: string;
 }
 
-/** POST /v1/shield/analyze — real Shield scoring (ML + rules + LLM explanation). */
-export async function shieldAnalyze(input: TransactionInput): Promise<RemoteScoreResult> {
+/** Everything the Fable SDK collects on the client, bundled per transfer. */
+export interface SdkTelemetry {
+  device: DeviceFingerprint | null;
+  location: GeoLocation | null;
+  session: SessionContext | null;
+  behavior: BehavioralProfile | null;
+}
+
+/** Device-local time WITH its UTC offset (e.g. 2026-07-18T21:04:11+01:00) so
+ * the backend judges time-of-day on the user's clock, not server UTC. */
+function localIsoTimestamp(): string {
+  const d = new Date();
+  const pad = (n: number) => String(Math.abs(Math.trunc(n))).padStart(2, "0");
+  const off = -d.getTimezoneOffset();
+  const sign = off >= 0 ? "+" : "-";
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
+    `${sign}${pad(off / 60)}:${pad(off % 60)}`
+  );
+}
+
+/** POST /v1/shield/analyze — real Shield scoring (ML + rules + LLM explanation).
+ * `sdk` carries the real collected context; omitted fields degrade gracefully. */
+export async function shieldAnalyze(input: TransactionInput, sdk?: Partial<SdkTelemetry>): Promise<RemoteScoreResult> {
+  const device = sdk?.device ?? null;
+  const location = sdk?.location ?? null;
+  const session = sdk?.session ?? null;
+  const behavior = sdk?.behavior ?? null;
+
   const res = await fetchJson<ApiShieldResponse>("/v1/shield/analyze", {
     method: "POST",
     body: JSON.stringify({
@@ -139,13 +181,39 @@ export async function shieldAnalyze(input: TransactionInput): Promise<RemoteScor
         narration: input.narration,
         channel: CHANNEL_TO_API[input.channel],
       },
-      device: {
-        fingerprint_id: "fp_seed_device_001",
-        timezone: "Africa/Lagos",
-        hardware_concurrency: typeof navigator !== "undefined" ? (navigator.hardwareConcurrency ?? 8) : 8,
+      device: device
+        ? { ...device, ip: location?.ip ?? null }
+        : {
+            // No fingerprint collected (SSR edge case) — legacy minimal shape.
+            fingerprint_id: "fp_unknown_device",
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? "Africa/Lagos",
+            hardware_concurrency: typeof navigator !== "undefined" ? (navigator.hardwareConcurrency ?? 8) : 8,
+          },
+      context: {
+        ...(session ?? {}),
+        latitude: location?.latitude ?? null,
+        longitude: location?.longitude ?? null,
+        accuracy_m: location?.accuracy_m ?? null,
+        city: location?.city ?? null,
+        region: location?.region ?? null,
+        country: location?.country ?? null,
+        country_code: location?.country_code ?? null,
+        location_source: location?.source ?? null,
+        typing_speed_ms: behavior?.typing_speed_ms ?? null,
+        keypress_count: behavior?.keypress_count ?? null,
+        paste_detected: behavior?.paste_detected ?? null,
+        pasted_fields: behavior?.pasted_fields ?? null,
+        pointer_avg_velocity: behavior?.pointer_avg_velocity ?? null,
+        scroll_direction_changes: behavior?.scroll_direction_changes ?? null,
+        time_to_first_input_seconds: behavior?.time_to_first_input_seconds ?? null,
+        time_to_submit_seconds: behavior?.time_to_submit_seconds ?? null,
+        client_timestamp: localIsoTimestamp(),
+        client_timezone: device?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
       },
     }),
-  });
+  // The AI explainer can take a few seconds on a cold call; don't let the
+  // default 8s abort push a real score down to the local fallback engine.
+  }, 20_000);
   return {
     riskScore: res.risk_score,
     action: res.action,
@@ -365,6 +433,155 @@ export interface DashboardCompliance {
 
 export function dashboardCompliance(): Promise<DashboardCompliance> {
   return fetchJson<DashboardCompliance>("/v1/dashboard/compliance");
+}
+
+// ---------------------------------------------------------------------------
+// Agents dashboard (agent-level analytics)
+// ---------------------------------------------------------------------------
+
+export interface AgentsOverview {
+  copilot: {
+    status: string;
+    customers_learned: number;
+    data_points: number;
+    live_data_points: number;
+    devices_tracked: number;
+    locations_tracked: number;
+    last_learned_at: string | null;
+  };
+  shield: {
+    status: string;
+    transactions_scored: number;
+    blocked: number;
+    flagged: number;
+    passed: number;
+    block_rate: number;
+    flag_rate: number;
+    avg_risk_score: number;
+    signal_layers: number;
+    thresholds: { block: number; flag: number };
+  };
+  ghost: {
+    status: string;
+    containers_created: number;
+    cancelled: number;
+    released: number;
+    held: number;
+    cancellation_rate: number;
+    money_saved_ngn: number;
+  };
+  watch: { status: string; description: string };
+}
+
+export function agentsOverview(): Promise<AgentsOverview> {
+  return fetchJson<AgentsOverview>("/v1/agents/overview");
+}
+
+export interface CopilotCustomer {
+  user_id: string;
+  has_baseline: boolean;
+  transactions_analyzed: number;
+  live_transactions: number;
+  typical_range?: string;
+  avg_amount?: number;
+  active_hours?: string;
+  trusted_recipients?: number;
+  known_devices?: number;
+  known_cities?: string[];
+  home_country?: string | null;
+  preferred_channel?: string;
+  avg_session_duration_s?: number | null;
+  avg_time_to_submit_s?: number | null;
+  last_activity: string;
+  last_updated?: string;
+}
+
+export function agentsCopilotCustomers(): Promise<{ customers: CopilotCustomer[]; total: number }> {
+  return fetchJson("/v1/agents/copilot/customers");
+}
+
+export interface ShieldPipelineStep {
+  step: number;
+  code: string;
+  label: string;
+  max_weight: number;
+  description: string;
+}
+
+export interface ShieldDecisionRow {
+  id: string;
+  user_id: string;
+  amount: number;
+  recipient_id: string | null;
+  recipient_bank: string | null;
+  channel: string | null;
+  risk_score: number | null;
+  risk_level: string | null;
+  action_taken: RiskAction | null;
+  signals: string[];
+  city: string | null;
+  country: string | null;
+  location_source: string | null;
+  auth_method: string | null;
+  session_duration_seconds: number | null;
+  typing_speed_ms: number | null;
+  paste_detected: number | null;
+  device_fingerprint: string | null;
+  is_seed: number;
+  created_at: string;
+}
+
+export interface ShieldDecisions {
+  decisions: ShieldDecisionRow[];
+  pipeline: ShieldPipelineStep[];
+  thresholds: { block: number; flag: number };
+  accuracy: {
+    transactions_scored: number;
+    pass_rate: number;
+    friction_events: number;
+    false_positive_proxy: number;
+  };
+}
+
+export function agentsShieldDecisions(limit = 25): Promise<ShieldDecisions> {
+  return fetchJson(`/v1/agents/shield/decisions?limit=${limit}`);
+}
+
+export interface GhostContainerRow {
+  ghost_id: string;
+  user_id: string;
+  amount: number;
+  recipient_id: string | null;
+  recipient_account: string | null;
+  recipient_bank: string | null;
+  status: string;
+  cooling_window_minutes: number | null;
+  risk_score: number | null;
+  explanation: string | null;
+  created_at: string;
+  expires_at: string | null;
+  resolved_at: string | null;
+}
+
+export interface GhostContainers {
+  containers: GhostContainerRow[];
+  stats: {
+    created: number;
+    held: number;
+    cancelled: number;
+    released: number;
+    cancellation_rate: number;
+    money_saved_ngn: number;
+  };
+  cooling_windows: {
+    high_risk_minutes: number;
+    medium_risk_minutes: number;
+    low_risk_minutes: number;
+  };
+}
+
+export function agentsGhostContainers(limit = 50): Promise<GhostContainers> {
+  return fetchJson(`/v1/agents/ghost/containers?limit=${limit}`);
 }
 
 export interface CopilotBaseline {

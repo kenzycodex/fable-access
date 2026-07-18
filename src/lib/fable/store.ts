@@ -20,6 +20,7 @@ import {
   ghostCreate as apiGhostCreate,
   ghostResolve,
   shieldAnalyze,
+  type SdkTelemetry,
 } from "./api";
 import { scoreTransaction } from "./scoring";
 import {
@@ -147,15 +148,16 @@ const uid = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.ran
 
 /** Score a transfer and stash it as the pending decision. Uses the Fable API
  * (real Shield scoring + persistence) when reachable, the client-side engine
- * otherwise. Returns the scored transaction so the caller can navigate. */
-export async function submitTransfer(input: TransactionInput): Promise<Transaction> {
+ * otherwise. `sdk` carries the real collected device/location/session/
+ * behavioral context. Returns the scored transaction so the caller can navigate. */
+export async function submitTransfer(input: TransactionInput, sdk?: Partial<SdkTelemetry>): Promise<Transaction> {
   let id = uid("txn");
   let remote = false;
   let result = null as ReturnType<typeof scoreTransaction> | null;
 
   if (await apiAvailable()) {
     try {
-      const api = await shieldAnalyze(input);
+      const api = await shieldAnalyze(input, sdk);
       id = api.transactionId;
       remote = true;
       result = api;
