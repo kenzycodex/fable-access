@@ -1,9 +1,13 @@
 """Fable Shield — core risk scoring pipeline.
 
-Implements the six signal layers from the build brief: amount anomaly,
-new recipient, time anomaly, channel risk, NIP response code, and
-Nigerian scam pattern matching (English + Pidgin), plus a small
-Isolation Forest anomaly boost drawn from the user's own history.
+Twelve signal layers: the original six from the build brief (amount anomaly,
+new recipient, time anomaly, channel risk, NIP response code, scam pattern),
+the Isolation Forest anomaly boost, and five new context layers driven by the
+real SDK data (device anomaly, location anomaly, session freshness, behavioral
+anomaly, timezone mismatch).
+
+Narration scanning is deliberately de-prioritized (most users skip the field);
+the behavioral/device/location layers carry the weight users can't opt out of.
 """
 from datetime import datetime
 
@@ -17,23 +21,54 @@ from agents.shield.explainer import generate_explanation
 
 PCI_FIELDS = ("card_number", "cvv", "pin", "track_data")
 
+# Narration is the weakest layer — useful when present, but most users leave
+# the field empty, so its pattern weights are halved (0.5 → ~0.25 max).
+NARRATION_WEIGHT_SCALE = 0.5
+
+# "Large" relative to the user's own normal (or an absolute floor with no
+# baseline). Context signals only boost on large transfers so everyday small
+# payments from a new laptop don't get flagged.
+LARGE_ABSOLUTE_FLOOR = 100_000
+
 
 def sanitize_transaction(transaction: dict) -> dict:
     """Strip PCI fields before any processing or logging touches them."""
     return {k: v for k, v in transaction.items() if k not in PCI_FIELDS}
 
 
+def _client_local_hour(context: dict) -> int | None:
+    """Device-local hour from the SDK's client_timestamp (sent as local time
+    with its UTC offset), or None when the SDK didn't send one."""
+    ts = context.get("client_timestamp")
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).hour
+    except ValueError:
+        return None
+
+
 def analyze_transaction(user_id: str, transaction: dict, device: dict, context: dict) -> dict:
     transaction = sanitize_transaction(transaction)
+    device = device or {}
+    context = context or {}
     baseline = get_user_baseline(user_id)
 
     signals: list[str] = []
     score = 0.0
-    now_hour = datetime.utcnow().hour
+    amount = transaction["amount"]
+
+    # Step 12 groundwork: judge time-of-day on the device's clock, not server UTC.
+    client_hour = _client_local_hour(context)
+    now_hour = client_hour if client_hour is not None else datetime.utcnow().hour
+
+    is_large = amount >= LARGE_ABSOLUTE_FLOOR or (
+        baseline is not None and amount > baseline["avg_amount"] * 3
+    )
 
     # Step 1: Amount anomaly (progressive)
-    if baseline and transaction["amount"] > baseline["avg_amount"] * 3:
-        mult = round(transaction["amount"] / max(baseline["avg_amount"], 1))
+    if baseline and amount > baseline["avg_amount"] * 3:
+        mult = round(amount / max(baseline["avg_amount"], 1))
         signals.append(f"amount_anomaly: {mult}x above your baseline")
         score += 0.25 if mult >= 10 else 0.20 if mult >= 5 else 0.15
 
@@ -43,10 +78,11 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         signals.append("new_recipient: first transfer to this account")
         score += 0.20
 
-    # Step 3: Time anomaly
+    # Step 3: Time anomaly — device-local hour vs the user's typical hours
     typical_hours = baseline["typical_hours"] if baseline else list(range(8, 22))
     if baseline and now_hour not in typical_hours:
-        signals.append("time_anomaly: outside your typical active hours")
+        source = "device time" if client_hour is not None else "server time"
+        signals.append(f"time_anomaly: outside your typical active hours ({source})")
         score += 0.12
 
     # Step 4: Channel risk weight
@@ -63,19 +99,70 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         signals.append(f"nip_{nip_code}: {nip['description']}")
         score += nip["shield_score_boost"]
 
-    # Step 6: Nigerian scam pattern (English + Pidgin)
+    # Step 6: Nigerian scam pattern (English + Pidgin) — de-prioritized
     pattern = match_scam_pattern(transaction.get("narration", ""))
     if pattern:
-        signals.append(f"scam_pattern: {pattern['name']}")
-        score += pattern["risk_weight"]
+        boost = round(pattern["risk_weight"] * NARRATION_WEIGHT_SCALE, 3)
+        signals.append(f"scam_pattern: {pattern['name']} (+{boost})")
+        score += boost
 
     # Step 7 (auxiliary): Isolation Forest anomaly boost from own history
     if baseline:
         history_amounts, history_hours = get_user_history_arrays(user_id)
-        ml_boost = score_anomaly(history_amounts, history_hours, transaction["amount"], now_hour)
+        ml_boost = score_anomaly(history_amounts, history_hours, amount, now_hour)
         if ml_boost > 0.02:
             signals.append(f"ml_anomaly: isolation forest deviation (+{ml_boost})")
             score += ml_boost
+
+    # Step 8: Device anomaly — unrecognized fingerprint (weight scales with amount)
+    fingerprint = device.get("fingerprint_id")
+    if baseline and fingerprint and baseline["known_devices"] and fingerprint not in baseline["known_devices"]:
+        boost = 0.18 if is_large else 0.08
+        signals.append(f"device_anomaly: unrecognized device (+{boost})")
+        score += boost
+
+    # Step 9: Location anomaly — not in any known city / outside home country
+    city = context.get("city")
+    country = context.get("country")
+    known_cities = baseline.get("known_cities", set()) if baseline else set()
+    home_country = baseline.get("home_country") if baseline else None
+    if home_country and country and country != home_country:
+        signals.append(f"location_anomaly: transacting from {city or 'unknown city'}, {country} — usually {home_country} (+0.22)")
+        score += 0.22
+    elif known_cities and city and city not in known_cities:
+        boost = 0.12 if is_large else 0.06
+        signals.append(f"location_anomaly: new city {city} (+{boost})")
+        score += boost
+
+    # Step 10: Session freshness — login-to-transfer under 30s on a large amount
+    session_seconds = context.get("session_duration_seconds")
+    if session_seconds is not None and session_seconds < 30 and is_large:
+        signals.append(f"session_freshness: transfer {session_seconds}s after login (+0.12)")
+        score += 0.12
+
+    # Step 11: Behavioral anomaly — pasted account + zero hesitation + large amount
+    pasted = context.get("paste_detected")
+    pasted_fields = set(context.get("pasted_fields") or [])
+    submit_seconds = context.get("time_to_submit_seconds")
+    behavioral_boost = 0.0
+    behavioral_reasons = []
+    if pasted and ("account_number" in pasted_fields or not pasted_fields):
+        behavioral_boost += 0.06
+        behavioral_reasons.append("account number pasted")
+    if submit_seconds is not None and submit_seconds < 10 and is_large:
+        behavioral_boost += 0.09
+        behavioral_reasons.append(f"submitted in {submit_seconds}s")
+    if behavioral_boost > 0 and is_large:
+        behavioral_boost = round(behavioral_boost, 3)
+        signals.append(f"behavioral_anomaly: {', '.join(behavioral_reasons)} (+{behavioral_boost})")
+        score += behavioral_boost
+
+    # Step 12: Timezone mismatch — device timezone disagrees with the baseline
+    device_tz = context.get("client_timezone") or device.get("timezone")
+    typical_tz = baseline.get("typical_timezone") if baseline else None
+    if typical_tz and device_tz and device_tz != typical_tz:
+        signals.append(f"timezone_mismatch: device in {device_tz}, usually {typical_tz} (+0.08)")
+        score += 0.08
 
     score = min(round(score, 3), 1.0)
 
@@ -86,7 +173,7 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     action = "BLOCK" if score >= BLOCK_THRESHOLD else "FLAG" if score >= FLAG_THRESHOLD else "PASS"
     risk_level = "HIGH" if score >= BLOCK_THRESHOLD else "MEDIUM" if score >= FLAG_THRESHOLD else "LOW"
 
-    explanation = generate_explanation(signals, transaction["amount"], action)
+    explanation = generate_explanation(signals, amount, action)
 
     return {
         "risk_score": score,
