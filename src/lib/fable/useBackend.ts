@@ -9,16 +9,24 @@
 import useSWR from "swr";
 import { summarize, type FeedSummary } from "./analytics";
 import {
+  agentsCopilotCustomers,
+  agentsGhostContainers,
+  agentsOverview,
+  agentsShieldDecisions,
   apiAvailable,
   copilotBaseline,
   dashboardAlerts,
   dashboardCompliance,
   dashboardIntelligence,
   dashboardTransactions,
+  type AgentsOverview,
   type CopilotBaseline,
+  type CopilotCustomer,
   type DashboardAlerts,
   type DashboardCompliance,
   type DashboardIntelligence,
+  type GhostContainers,
+  type ShieldDecisions,
 } from "./api";
 import { useFableStore } from "./store";
 import type { Transaction } from "./types";
@@ -87,6 +95,39 @@ export function useCompliance(pollMs = 10_000) {
 /** Copilot's learned baseline for the demo user (what Fable actually knows). */
 export function useCopilotBaseline() {
   return useSWR<CopilotBaseline>("fable:copilot-baseline", () => copilotBaseline(), {
+    keepPreviousData: true,
+  });
+}
+
+/** Agents overview: live stats for Copilot, Shield, Ghost, Watch. */
+export function useAgentsOverview(pollMs = 6_000) {
+  return useSWR<AgentsOverview>("fable:agents-overview", () => agentsOverview(), {
+    refreshInterval: pollMs,
+    keepPreviousData: true,
+  });
+}
+
+/** Copilot deep-dive: per-customer learned baselines. */
+export function useCopilotCustomers(pollMs = 8_000) {
+  return useSWR<{ customers: CopilotCustomer[]; total: number }>(
+    "fable:agents-copilot",
+    () => agentsCopilotCustomers(),
+    { refreshInterval: pollMs, keepPreviousData: true },
+  );
+}
+
+/** Shield deep-dive: pipeline config + recent decisions with full signals. */
+export function useShieldDecisions(pollMs = 5_000) {
+  return useSWR<ShieldDecisions>("fable:agents-shield", () => agentsShieldDecisions(40), {
+    refreshInterval: pollMs,
+    keepPreviousData: true,
+  });
+}
+
+/** Ghost deep-dive: containers, resolution stats, cooling windows. */
+export function useGhostContainers(pollMs = 5_000) {
+  return useSWR<GhostContainers>("fable:agents-ghost", () => agentsGhostContainers(60), {
+    refreshInterval: pollMs,
     keepPreviousData: true,
   });
 }
