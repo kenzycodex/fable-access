@@ -60,13 +60,16 @@ To the bank, it looks like a perfect transaction. To the user, it is a catastrop
 
 **Fable** is an API-first AI security and intelligence infrastructure layer that sits dynamically between the user and the transaction.
 
-Rather than looking solely at the technical payload, Fable looks at the **context**. It knows each user's genuine behavioral habits so deeply that safe transfers go through with zero friction, while anomalous, suspicious transfers get caught before money leaves the account.
+Rather than looking solely at the technical payload, Fable looks at the **context**. While existing platforms focus on *Identity Intelligence* (answering "Is this person who they say they are?"), Fable focuses on **Behavioral Intelligence** (answering "Is this person acting under manipulation or duress?").
+
+It knows each user's genuine behavioral habits so deeply that safe transfers go through with zero friction, while anomalous, suspicious transfers get caught before money leaves the account.
 
 ### Why Fable is Different:
-1. **Security Without Friction:** Safe users get *fewer* prompts than today, not more.
-2. **Context, Not Just Credentials:** It reads the "room" (device velocity, recipient age, narration semantics).
-3. **Transparency by Design:** Every intervention is explained in plain English. No black-box rejections.
-4. **Containment over Cancellation:** When users override warnings, Fable contains the blast radius rather than failing open.
+1. **Behavioral over Identity:** We assume the user is logged in perfectly. We secure their *intent*, not just their credentials.
+2. **Security Without Friction:** Safe users get *fewer* prompts than today, not more.
+3. **Context, Not Just Payload:** It reads the "room" (device velocity, recipient age, narration semantics).
+4. **Transparency by Design:** Every intervention is explained in plain English. No black-box rejections.
+5. **Containment over Cancellation:** When users override warnings, Fable contains the blast radius rather than failing open.
 
 <br />
 
