@@ -49,5 +49,6 @@ next-env.d.ts
 # Python and AI tools
 /api/.venv
 /api/venv
-/api/__pycache__
+__pycache__/
+*.pyc
 /.claude
