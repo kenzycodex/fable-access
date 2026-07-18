@@ -1,4 +1,10 @@
 import { NextResponse } from "next/server";
+import { findBank, paystackKey, resolveAccount } from "@/lib/paystack";
+
+// With PAYSTACK_SECRET_KEY set (.env.local), this resolves real account
+// holders via the Paystack NUBAN lookup (free on test keys). Without a key it
+// falls back to the deterministic name generator below, so the demo never
+// breaks — the response's `source` field says which path answered.
 
 const FIRST_NAMES = [
   "Bello", "Chioma", "Emeka", "Adeola", "Oluwaseun", "Fatima", "Aisha", "Chinedu", "Ngozi", "Ibrahim",
@@ -16,21 +22,16 @@ const LAST_NAMES = [
   "Afolabi", "Salawu", "Igbokwe", "Abiola", "Oluwasegun", "Adebisi", "Fashola", "Oyekan", "Oni", "Nwachukwu"
 ];
 
-/**
- * Deterministically hash a 10-digit account number to pick a name.
- * This ensures the same account number always resolves to the same person.
- */
+/** Deterministically hash a 10-digit account number to pick a name, so the
+ * same account number always resolves to the same person (fallback mode). */
 function hashAccountToName(accountNumber: string): string {
   let hash = 0;
   for (let i = 0; i < accountNumber.length; i++) {
     hash = Math.imul(31, hash) + accountNumber.charCodeAt(i) | 0;
   }
   const positiveHash = Math.abs(hash);
-  
   const firstIdx = positiveHash % FIRST_NAMES.length;
-  // Use a slightly different multiplier for the last name so it's not always the same combination
   const lastIdx = (positiveHash * 17) % LAST_NAMES.length;
-
   return `${FIRST_NAMES[firstIdx]} ${LAST_NAMES[lastIdx]}`;
 }
 
@@ -44,20 +45,34 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
     if (!bankCode) {
-      return NextResponse.json(
-        { error: "Bank code is required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Bank code is required." }, { status: 400 });
     }
 
-    // Simulate real-world network latency (300ms - 1200ms) to feel like a real NUBAN lookup
+    // Older clients send the bank *name*; map either form to a real code.
+    const bank = await findBank(String(bankCode));
+
+    if (paystackKey() && bank) {
+      try {
+        const resolved = await resolveAccount(accountNumber, bank.code);
+        if (!resolved) {
+          return NextResponse.json(
+            { error: "Account number could not be resolved. Please check and try again." },
+            { status: 404 }
+          );
+        }
+        return NextResponse.json({ ...resolved, status: "success" });
+      } catch {
+        // Paystack transport error — fall through to the simulator rather
+        // than breaking the transfer flow.
+      }
+    }
+
+    // ---- Fallback: deterministic simulator (no key configured) ----
+    // Feels like a real NUBAN lookup (300–1200ms), fails a known test pattern.
     const delay = Math.floor(Math.random() * 900) + 300;
     await new Promise((resolve) => setTimeout(resolve, delay));
 
-    // Simulate a failure rate (e.g. 5% of the time, the account doesn't exist)
-    // We deterministically fail certain specific patterns to allow for testing
     if (accountNumber.startsWith("0000")) {
       return NextResponse.json(
         { error: "Account number could not be resolved. Please check and try again." },
@@ -65,15 +80,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const accountName = hashAccountToName(accountNumber);
-
     return NextResponse.json({
       accountNumber,
-      accountName,
-      bankCode,
-      status: "success"
+      accountName: hashAccountToName(accountNumber),
+      bankCode: bank?.code ?? String(bankCode),
+      bankName: bank?.name ?? String(bankCode),
+      source: "simulated",
+      status: "success",
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: "Internal server error during account resolution." },
       { status: 500 }
