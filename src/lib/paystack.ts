@@ -103,21 +103,53 @@ export interface ResolveResult {
   source: "paystack" | "simulated";
 }
 
+/** Why a Paystack call could not be used. `ip_blocked` is the one that bites
+ * in practice: Paystack enforces its IP allowlist per endpoint, so /bank can
+ * succeed while /bank/resolve is rejected, which makes a broken integration
+ * look healthy. */
+export type PaystackFailure = "no_key" | "ip_blocked" | "unauthorized" | "transport";
+
+export class PaystackError extends Error {
+  constructor(readonly reason: PaystackFailure, message: string) {
+    super(message);
+    this.name = "PaystackError";
+  }
+}
+
+function classifyFailure(status: number, message: string): PaystackFailure {
+  if (/ip address is not allowed/i.test(message)) return "ip_blocked";
+  if (status === 401 || status === 403) return "unauthorized";
+  return "transport";
+}
+
 /** Resolve a NUBAN account number to the real account holder's name via
  * Paystack. Returns null when the account genuinely doesn't resolve (so the
- * caller can 404), throws on transport/config errors. */
+ * caller can 404), throws PaystackError on config/transport failures. */
 export async function resolveAccount(accountNumber: string, bankCode: string): Promise<ResolveResult | null> {
   const key = paystackKey();
-  if (!key) throw new Error("PAYSTACK_SECRET_KEY not configured");
+  if (!key) throw new PaystackError("no_key", "PAYSTACK_SECRET_KEY not configured");
 
   const url = `${PAYSTACK_BASE}/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` }, cache: "no-store" });
 
-  // Paystack answers 422 for an account that doesn't resolve.
-  if (res.status === 422 || res.status === 404) return null;
-  if (!res.ok) throw new Error(`Paystack /bank/resolve ${res.status}`);
+  // Paystack answers 422 for an account that doesn't resolve. But it also
+  // returns non-2xx for IP rejection, so read the body before deciding.
+  const raw = await res.text();
+  let parsed: { status?: boolean; message?: string; data?: { account_number: string; account_name: string } } = {};
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new PaystackError("transport", `Paystack /bank/resolve ${res.status}: unparseable response`);
+  }
 
-  const body = (await res.json()) as PaystackEnvelope<{ account_number: string; account_name: string }>;
+  const message = parsed.message ?? "";
+  if (/ip address is not allowed/i.test(message)) {
+    throw new PaystackError("ip_blocked", message);
+  }
+  if (res.status === 422 || res.status === 404) return null;
+  if (!res.ok) throw new PaystackError(classifyFailure(res.status, message), `Paystack /bank/resolve ${res.status}: ${message}`);
+
+  const body = parsed as PaystackEnvelope<{ account_number: string; account_name: string }>;
   if (!body.status || !body.data?.account_name) return null;
 
   const { banks } = await getBankList();
@@ -128,6 +160,72 @@ export async function resolveAccount(accountNumber: string, bankCode: string): P
     bankCode,
     bankName: bank?.name ?? bankCode,
     source: "paystack",
+  };
+}
+
+export interface PaystackStatus {
+  keyConfigured: boolean;
+  bankList: { ok: boolean; count: number; detail: string };
+  /** The endpoint that actually matters, and the one the allowlist blocks. */
+  resolve: { ok: boolean; reason?: PaystackFailure; detail: string };
+  publicIp: string | null;
+  advice: string | null;
+}
+
+/** Probe both Paystack endpoints so a half-working integration is visible.
+ * /bank succeeding tells you nothing about /bank/resolve — they are gated
+ * separately, which is exactly how a blocked IP hides behind a live bank list. */
+export async function paystackStatus(): Promise<PaystackStatus> {
+  const key = paystackKey();
+  if (!key) {
+    return {
+      keyConfigured: false,
+      bankList: { ok: false, count: 0, detail: "No key configured" },
+      resolve: { ok: false, reason: "no_key", detail: "No key configured" },
+      publicIp: null,
+      advice: "Set PAYSTACK_SECRET_KEY in .env.local, then restart the dev server.",
+    };
+  }
+
+  const publicIp = await fetch("https://api.ipify.org?format=json", { cache: "no-store" })
+    .then((r) => r.json())
+    .then((j: { ip: string }) => j.ip)
+    .catch(() => null);
+
+  const list = await getBankList();
+
+  // Paystack's own documented test account, so a failure here is the
+  // integration, never a bad account number.
+  let resolve: PaystackStatus["resolve"];
+  try {
+    const r = await resolveAccount("0000000000", "058");
+    resolve = { ok: true, detail: r ? "Resolved" : "Reachable (test account not found, which is expected)" };
+  } catch (err) {
+    const reason = err instanceof PaystackError ? err.reason : "transport";
+    resolve = { ok: false, reason, detail: err instanceof Error ? err.message : String(err) };
+  }
+
+  let advice: string | null = null;
+  if (resolve.reason === "ip_blocked") {
+    advice =
+      `Paystack is rejecting this machine's IP (${publicIp ?? "unknown"}) on /bank/resolve. ` +
+      "Dynamic ISP addresses rotate, so pinning one IP will break again. In the Paystack " +
+      "dashboard go to Settings -> API Keys & Webhooks and CLEAR the Test IP allowlist box " +
+      "entirely (empty = allow all), then Save.";
+  } else if (resolve.reason === "unauthorized") {
+    advice = "Paystack rejected the key itself. Confirm you copied the Test Secret Key (sk_test_...).";
+  }
+
+  return {
+    keyConfigured: true,
+    bankList: {
+      ok: list.source === "paystack",
+      count: list.banks.length,
+      detail: list.source === "paystack" ? "Live from Paystack" : "Using built-in fallback list",
+    },
+    resolve,
+    publicIp,
+    advice,
   };
 }
 

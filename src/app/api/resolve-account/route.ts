@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { findBank, paystackKey, resolveAccount } from "@/lib/paystack";
+import { findBank, paystackKey, PaystackError, resolveAccount, type PaystackFailure } from "@/lib/paystack";
 
 // With PAYSTACK_SECRET_KEY set (.env.local), this resolves real account
 // holders via the Paystack NUBAN lookup (free on test keys). Without a key it
@@ -52,6 +52,10 @@ export async function POST(request: Request) {
     // Older clients send the bank *name*; map either form to a real code.
     const bank = await findBank(String(bankCode));
 
+    // Why we fell back, so the UI can label a simulated name honestly instead
+    // of passing it off as a real NUBAN lookup.
+    let fallbackReason: PaystackFailure = "no_key";
+
     if (paystackKey() && bank) {
       try {
         const resolved = await resolveAccount(accountNumber, bank.code);
@@ -63,9 +67,17 @@ export async function POST(request: Request) {
         }
         return NextResponse.json({ ...resolved, status: "success" });
       } catch (err) {
-        console.error("Paystack resolution error:", err);
-        // Paystack transport error — fall through to the simulator rather
-        // than breaking the transfer flow.
+        fallbackReason = err instanceof PaystackError ? err.reason : "transport";
+        if (fallbackReason === "ip_blocked") {
+          console.error(
+            "[paystack] /bank/resolve rejected this server's IP. The bank list may still " +
+              "work — they are gated separately. Clear the Test IP allowlist in the Paystack " +
+              "dashboard (empty = allow all). GET /api/paystack-status for details."
+          );
+        } else {
+          console.error(`[paystack] resolve failed (${fallbackReason}):`, err);
+        }
+        // Fall through to the simulator rather than breaking the transfer flow.
       }
     }
 
@@ -87,6 +99,7 @@ export async function POST(request: Request) {
       bankCode: bank?.code ?? String(bankCode),
       bankName: bank?.name ?? String(bankCode),
       source: "simulated",
+      fallbackReason,
       status: "success",
     });
   } catch {

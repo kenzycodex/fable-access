@@ -22,6 +22,16 @@ interface Bank {
 const CHANNELS: Channel[] = ["app", "ussd", "web"];
 type VerifyState = "idle" | "verifying" | "verified" | "error";
 
+/** Why a name is simulated rather than a real NUBAN lookup. Surfaced on the
+ * badge so a degraded integration is never mistaken for a working one. */
+const FALLBACK_HINTS: Record<string, string> = {
+  no_key: "No Paystack key configured — set PAYSTACK_SECRET_KEY in .env.local.",
+  ip_blocked:
+    "Paystack is blocking this machine's IP on /bank/resolve. Clear the Test IP allowlist in the Paystack dashboard (empty = allow all). See /api/paystack-status.",
+  unauthorized: "Paystack rejected the key. Check you copied the Test Secret Key (sk_test_...).",
+  transport: "Could not reach Paystack. Check your connection.",
+};
+
 // One passive biometrics tracker per transfer-page visit (module scope keeps
 // it out of React's render path; the mount effect owns its lifecycle).
 let tracker: BehavioralTracker | null = null;
@@ -34,6 +44,7 @@ export default function TransferPage() {
   const [contact, setContact] = useState<Recipient | null>(null);
   const [verify, setVerify] = useState<VerifyState>("idle");
   const [resolveSource, setResolveSource] = useState<string | null>(null);
+  const [fallbackReason, setFallbackReason] = useState<string | null>(null);
   const [accountNumber, setAccountNumber] = useState("");
   const [banks, setBanks] = useState<Bank[]>([]);
   const [bankSource, setBankSource] = useState<"paystack" | "fallback">("fallback");
@@ -138,6 +149,7 @@ export default function TransferPage() {
     setVerify("verifying");
     setContact(null);
     setResolveSource(null);
+    setFallbackReason(null);
 
     try {
       const res = await fetch("/api/resolve-account", {
@@ -161,6 +173,7 @@ export default function TransferPage() {
         known: false,
       });
       setResolveSource(data.source ?? null);
+      setFallbackReason(data.fallbackReason ?? null);
       setVerify("verified");
     } catch {
       setVerify("error");
@@ -306,8 +319,15 @@ export default function TransferPage() {
                     <Check size={16} weight="bold" />
                     <span>
                       <span className="font-semibold">{contact.name}</span> · {contact.bank}
-                      {resolveSource === "paystack" && (
+                      {resolveSource === "paystack" ? (
                         <span className="ml-1.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">NUBAN verified</span>
+                      ) : (
+                        <span
+                          className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+                          title={FALLBACK_HINTS[fallbackReason ?? "no_key"]}
+                        >
+                          Simulated name
+                        </span>
                       )}
                     </span>
                   </>
