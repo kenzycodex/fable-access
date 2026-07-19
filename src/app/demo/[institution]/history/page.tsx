@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { MagnifyingGlass, Faders } from "@phosphor-icons/react";
+import { DemoSheet } from "@/components/demo/DemoSheet";
+import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { Avatar, Card, Screen, ScreenHeader } from "@/components/demo/kit";
 import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
 import { DEMO_USER } from "@/lib/fable/seed";
@@ -10,29 +12,62 @@ import type { Transaction } from "@/lib/fable/types";
 import { riskTone } from "@/lib/fable/ui";
 
 type FilterMode = "all" | "credit" | "debit";
+type Period = "all" | "week" | "month";
+type SortMode = "newest" | "oldest" | "largest";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export default function HistoryPage() {
   const store = useFableStore();
+  const { customer } = useInstitution();
   const [filter, setFilter] = useState<FilterMode>("all");
   const [search, setSearch] = useState("");
 
-  const myTxns: Transaction[] = (store?.transactions ?? [])
-    .filter((t) => t.customerName === DEMO_USER.name)
-    .sort((a, b) => b.timestamp - a.timestamp);
+  // Advanced filters, behind the Faders button.
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [period, setPeriod] = useState<Period>("all");
+  const [sort, setSort] = useState<SortMode>("newest");
+  const [riskOnly, setRiskOnly] = useState(false);
 
-  const filteredTxns = myTxns.filter((t) => {
-    if (filter === "credit" && t.direction !== "credit") return false;
-    if (filter === "debit" && t.direction !== "debit") return false;
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      if (!t.recipientName.toLowerCase().includes(q) && !t.narration?.toLowerCase().includes(q)) {
-        return false;
+  // Whoever is selected in the switcher owns this feed.
+  const displayName = customer?.name ?? DEMO_USER.name;
+
+  const myTxns: Transaction[] = (store?.transactions ?? []).filter(
+    (t) => t.customerName === displayName,
+  );
+
+  const filteredTxns = myTxns
+    .filter((t) => {
+      if (filter === "credit" && t.direction !== "credit") return false;
+      if (filter === "debit" && t.direction !== "debit") return false;
+      if (riskOnly && t.action === "PASS") return false;
+      if (period !== "all") {
+        const cutoff = Date.now() - (period === "week" ? 7 : 30) * DAY_MS;
+        if (t.timestamp < cutoff) return false;
       }
-    }
-    return true;
-  });
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        if (!t.recipientName.toLowerCase().includes(q) && !t.narration?.toLowerCase().includes(q)) {
+          return false;
+        }
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sort === "largest") return b.amount - a.amount;
+      if (sort === "oldest") return a.timestamp - b.timestamp;
+      return b.timestamp - a.timestamp;
+    });
 
-  const groups = groupByDay(filteredTxns);
+  // Day grouping only reads correctly in date order.
+  const groups = groupByDay(sort === "largest" ? [...filteredTxns].sort((a, b) => b.timestamp - a.timestamp) : filteredTxns);
+  const activeCount = (period !== "all" ? 1 : 0) + (sort !== "newest" ? 1 : 0) + (riskOnly ? 1 : 0);
+
+  function resetFilters() {
+    setPeriod("all");
+    setSort("newest");
+    setRiskOnly(false);
+  }
 
   return (
     <Screen>
@@ -51,8 +86,22 @@ export default function HistoryPage() {
               className="w-full rounded-xl bg-gray-50 dark:bg-[#1a1a1a] py-2.5 pl-9 pr-3 text-[13px] text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-white/25 focus:ring-1 focus:ring-[#7C3AED]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
             />
           </div>
-          <button type="button" className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gray-50 dark:bg-[#1a1a1a] text-gray-500 dark:text-white/50 transition-colors hover:bg-gray-100 dark:hover:bg-[#222] border border-gray-200 dark:border-white/[0.04]">
+          <button
+            type="button"
+            onClick={() => setSheetOpen(true)}
+            aria-label={activeCount ? `Filters (${activeCount} active)` : "Filters"}
+            className={`relative flex size-10 shrink-0 items-center justify-center rounded-xl border transition-colors ${
+              activeCount
+                ? "border-[#7C3AED]/30 bg-[#7C3AED]/10 text-[#7C3AED]"
+                : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 dark:border-white/[0.04] dark:bg-[#1a1a1a] dark:text-white/50 dark:hover:bg-[#222]"
+            }`}
+          >
             <Faders size={18} />
+            {activeCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-[#7C3AED] text-[9px] font-bold text-white">
+                {activeCount}
+              </span>
+            )}
           </button>
         </div>
 
@@ -91,7 +140,76 @@ export default function HistoryPage() {
           ))}
         </div>
       )}
+
+      <DemoSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title="Filters"
+        subtitle={`${filteredTxns.length} of ${myTxns.length} transactions`}
+      >
+        <div className="flex flex-col gap-5">
+          <FilterGroup label="Period">
+            <FilterChip active={period === "all"} onClick={() => setPeriod("all")}>All time</FilterChip>
+            <FilterChip active={period === "week"} onClick={() => setPeriod("week")}>Last 7 days</FilterChip>
+            <FilterChip active={period === "month"} onClick={() => setPeriod("month")}>Last 30 days</FilterChip>
+          </FilterGroup>
+
+          <FilterGroup label="Sort by">
+            <FilterChip active={sort === "newest"} onClick={() => setSort("newest")}>Newest</FilterChip>
+            <FilterChip active={sort === "oldest"} onClick={() => setSort("oldest")}>Oldest</FilterChip>
+            <FilterChip active={sort === "largest"} onClick={() => setSort("largest")}>Largest</FilterChip>
+          </FilterGroup>
+
+          <FilterGroup label="Risk">
+            <FilterChip active={!riskOnly} onClick={() => setRiskOnly(false)}>All transfers</FilterChip>
+            <FilterChip active={riskOnly} onClick={() => setRiskOnly(true)}>Flagged &amp; blocked</FilterChip>
+          </FilterGroup>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={resetFilters}
+              disabled={activeCount === 0}
+              className="rounded-xl border border-gray-200 px-4 py-3 text-[13px] font-bold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-40 dark:border-white/[0.08] dark:text-white/50 dark:hover:bg-white/[0.04]"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={() => setSheetOpen(false)}
+              className="flex-1 rounded-xl bg-[#7C3AED] py-3 text-[13px] font-bold text-white transition-opacity hover:opacity-90"
+            >
+              Show {filteredTxns.length} result{filteredTxns.length === 1 ? "" : "s"}
+            </button>
+          </div>
+        </div>
+      </DemoSheet>
     </Screen>
+  );
+}
+
+function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-white/25">{label}</p>
+      <div className="flex flex-wrap gap-2">{children}</div>
+    </div>
+  );
+}
+
+function FilterChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-xl border px-3.5 py-2 text-[12px] font-semibold transition-colors ${
+        active
+          ? "border-[#7C3AED] bg-[#7C3AED] text-white"
+          : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 dark:border-white/[0.06] dark:bg-[#141414] dark:text-white/50 dark:hover:bg-[#1c1c1c]"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

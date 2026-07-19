@@ -605,6 +605,20 @@ export function agentsGhostContainers(limit = 50, institution?: string | null): 
   return fetchJson(`/v1/agents/ghost/containers?limit=${limit}${tenantParam(institution)}`);
 }
 
+export interface InstitutionCredentials {
+  institution_id: string;
+  api_key: string | null;
+  masked_key: string | null;
+  created_at: string | null;
+}
+
+/** GET /v1/institutions/{id}/credentials — the tenant's own live API key. */
+export function institutionCredentials(institutionId: string): Promise<InstitutionCredentials> {
+  return fetchJson<InstitutionCredentials>(
+    `/v1/institutions/${encodeURIComponent(institutionId)}/credentials`,
+  );
+}
+
 export interface CopilotBaseline {
   typical_transfer_range: string;
   active_hours: string;

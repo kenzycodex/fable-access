@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { BrainIcon, EyeIcon, GhostIcon, ShieldIcon } from "@/components/app-icons";
 import { Card, PageHeader } from "@/components/dashboard/primitives";
+import { institutionCredentials, type InstitutionCredentials } from "@/lib/fable/api";
 import { INSTITUTION } from "@/lib/fable/seed";
-import { login, resetDemo } from "@/lib/fable/store";
+import { login, resetDemo, useFableStore } from "@/lib/fable/store";
 
 const AGENTS = [
   { name: "Copilot", role: "Behavioral baseline. Always on.", icon: BrainIcon, locked: true },
@@ -20,6 +21,24 @@ export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const [agents, setAgents] = useState({ Shield: true, Ghost: true, Watch: true });
   const [copied, setCopied] = useState(false);
+
+  // The signed-in institution's real API key, not a placeholder. Falls back to
+  // a clear "unavailable" state when the API is down rather than inventing one.
+  const store = useFableStore();
+  const institutionId = store?.session.institutionId ?? null;
+  const [creds, setCreds] = useState<InstitutionCredentials | null>(null);
+  const [credsError, setCredsError] = useState(false);
+
+  useEffect(() => {
+    if (!institutionId) return;
+    let cancelled = false;
+    institutionCredentials(institutionId)
+      .then((c) => !cancelled && setCreds(c))
+      .catch(() => !cancelled && setCredsError(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [institutionId]);
 
   // Change password state
   const [cpEmail, setCpEmail] = useState(INSTITUTION.contactEmail);
@@ -59,7 +78,8 @@ export default function SettingsPage() {
   }
 
   function copyKey() {
-    navigator.clipboard?.writeText("fbl_live_9c2a77e1b4d0f3a91").then(() => {
+    if (!creds?.api_key) return;
+    navigator.clipboard?.writeText(creds.api_key).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -155,18 +175,21 @@ export default function SettingsPage() {
           <h2 className="mb-4 text-[16px] font-bold text-gray-900 dark:text-white">API access</h2>
           <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Live secret key</label>
           <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/[0.04] bg-gray-50 dark:bg-white/[0.02] px-4 py-3">
-            <code className="flex-1 truncate text-[13px] text-gray-700 dark:text-white/70">fbl_live_9c2a•••••••••4a91</code>
+            <code className="flex-1 truncate text-[13px] text-gray-700 dark:text-white/70">
+              {creds?.masked_key ?? (credsError ? "Unavailable — API offline" : "Loading…")}
+            </code>
             <button
               type="button"
               onClick={copyKey}
-              className="rounded-md bg-gray-200 dark:bg-white/[0.04] px-3 py-1.5 text-[12px] font-bold text-gray-600 dark:text-white/70 transition-colors hover:bg-gray-300 dark:hover:bg-white/[0.08]"
+              disabled={!creds?.api_key}
+              className="rounded-md bg-gray-200 dark:bg-white/[0.04] px-3 py-1.5 text-[12px] font-bold text-gray-600 dark:text-white/70 transition-colors hover:bg-gray-300 dark:hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
           <p className="mt-4 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Webhook endpoint</p>
           <code className="mt-1.5 block truncate rounded-lg bg-gray-50 dark:bg-white/[0.02] px-4 py-3 text-[13px] text-gray-600 dark:text-white/60 border border-gray-200 dark:border-white/[0.04]">
-            https://risk.meridian.ng/hooks/fable
+            {institutionId ? `https://risk.${institutionId.replace(/_/g, "-")}.ng/hooks/fable` : "Not configured"}
           </code>
         </Card>
 

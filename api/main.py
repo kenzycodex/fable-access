@@ -80,13 +80,34 @@ def ensure_default_admin() -> None:
 
         with cursor() as cur:
             cur.execute("SELECT 1 FROM admins WHERE email = ?", (DEFAULT_ADMIN_EMAIL,))
-            if cur.fetchone():
-                return
+            if not cur.fetchone():
+                cur.execute(
+                    "INSERT INTO admins (email, institution_id, hashed_password) VALUES (?, ?, ?)",
+                    (DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_INSTITUTION, hash_password(DEFAULT_ADMIN_PASSWORD)),
+                )
+                logger.info("Seeded default demo admin: %s", DEFAULT_ADMIN_EMAIL)
+
+            # The default tenant predates provisioning — it comes from the
+            # multi-tenancy backfill — so it has no API key unless we issue
+            # one. Without it the console shows an empty credentials panel
+            # and the demo bank can't authenticate as Meridian.
             cur.execute(
-                "INSERT INTO admins (email, institution_id, hashed_password) VALUES (?, ?, ?)",
-                (DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_INSTITUTION, hash_password(DEFAULT_ADMIN_PASSWORD)),
+                "SELECT 1 FROM api_keys WHERE institution_id = ?", (DEFAULT_ADMIN_INSTITUTION,)
             )
-        logger.info("Seeded default demo admin: %s", DEFAULT_ADMIN_EMAIL)
+            if not cur.fetchone():
+                import secrets
+
+                cur.execute(
+                    """INSERT INTO api_keys (key, institution_name, admin_email, institution_id)
+                       VALUES (?, ?, ?, ?)""",
+                    (
+                        f"fbl_live_{secrets.token_hex(16)}",
+                        "Meridian MFB",
+                        DEFAULT_ADMIN_EMAIL,
+                        DEFAULT_ADMIN_INSTITUTION,
+                    ),
+                )
+                logger.info("Issued API key for the default institution.")
     except Exception as exc:  # noqa: BLE001 — never let seeding crash boot
         logger.warning("Could not seed default admin: %s", exc)
 

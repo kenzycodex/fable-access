@@ -12,7 +12,7 @@ email = "risk@meridian.ng"
 password = "fable-demo"
 institution_id = "meridian"
 institution_name = "Meridian MFB"
-api_key = f"fable_live_{secrets.token_hex(16)}"
+api_key = f"fbl_live_{secrets.token_hex(16)}"
 
 with cursor() as cur:
     cur.execute("SELECT * FROM admins WHERE email = ?", (email,))

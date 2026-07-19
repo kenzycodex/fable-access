@@ -45,7 +45,7 @@ mid-pitch. The dashboard shows an offline notice instead of blank panels.
 POST /admin/provision  { institution_name, admin_email }
         │
         ├─ slugify name        →  "Zenith Test Bank" → zenith_test_bank
-        ├─ generate API key    →  fable_live_a87c82a4...
+        ├─ generate API key    →  fbl_live_da3c8f21...
         ├─ generate password   →  temp password, hashed
         ├─ register tenant     →  institutions table
         ├─ SEED the tenant     →  3 customers × 90 days of history + threats
@@ -55,7 +55,7 @@ POST /admin/provision  { institution_name, admin_email }
 The welcome email contains three things:
 
 1. **Dashboard URL** + admin email + temporary password
-2. **API key** (`fable_live_...`) — the real integration credential
+2. **API key** (`fbl_live_...`) — the real integration credential
 3. **Demo bank URL** — `/demo/zenith_test_bank`, pre-loaded with customers
 
 Seeding at provisioning time is deliberate: a new tenant logs into a *populated*

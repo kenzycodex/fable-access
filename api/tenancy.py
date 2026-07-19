@@ -2,7 +2,7 @@
 
 Every write carries an institution: either explicitly (the demo bank sends the
 institution slug from its URL) or via the API key a provisioned institution was
-issued (`Authorization: Bearer fable_live_...` / `X-API-Key`), which is how a
+issued (`Authorization: Bearer fbl_live_...` / `X-API-Key`), which is how a
 real bank integrates. The key wins when both are present — it's authenticated,
 the slug is only asserted.
 

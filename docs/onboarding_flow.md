@@ -22,7 +22,7 @@ curl -X POST http://localhost:8000/admin/provision \
 
 **What the script does:**
 - Creates the institution record in the FastAPI backend database
-- Generates API credentials (`fable_live_xxxx` secret key)
+- Generates API credentials (`fbl_live_xxxx` secret key)
 - Saves the API key securely into the local `fable.db` SQLite database
 - Generates an admin user with a random secure password
 - Sends a welcome email via SMTP with login credentials

@@ -199,7 +199,7 @@ export function PowerConnect() {
                 value={keyInput}
                 onChange={(e) => setKeyInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && save()}
-                placeholder={connected ? "Replace the connected key…" : "fable_live_..."}
+                placeholder={connected ? "Replace the connected key…" : "fbl_live_..."}
                 autoComplete="off"
                 spellCheck={false}
                 className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 font-mono text-[12px] text-gray-900 outline-none transition-shadow focus:ring-2 focus:ring-[#7C3AED]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"

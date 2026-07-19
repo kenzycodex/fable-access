@@ -21,7 +21,7 @@ def generate_temp_password(length=12):
     return "".join(secrets.choice(alphabet) for i in range(length))
 
 def generate_api_key():
-    return f"fable_live_{secrets.token_hex(16)}"
+    return f"fbl_live_{secrets.token_hex(16)}"
 
 def send_provision_email(admin_email: str, institution_name: str, temp_password: str, api_key: str, institution_id: str):
     if not config.SMTP_USERNAME or not config.SMTP_PASSWORD:
