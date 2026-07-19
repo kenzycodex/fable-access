@@ -23,6 +23,7 @@ import {
   type SdkTelemetry,
 } from "./api";
 import { scoreTransaction } from "./scoring";
+import { enqueue, startAutoSync } from "./syncQueue";
 import { DEFAULT_INSTITUTION } from "./constants";
 import { getTenant, subscribeTenant } from "./tenant";
 import {
@@ -127,6 +128,8 @@ function subscribe(cb: () => void): () => void {
   // First subscriber on an app surface: make sure the backend has Ada's
   // 90-day baseline (no-op when the API is down or already seeded).
   void ensureBackendSeeded();
+  // Replay anything captured while the API was unreachable.
+  const stopAutoSync = startAutoSync();
   const onChange = () => {
     snapshotCache = read();
     cb();
@@ -149,6 +152,7 @@ function subscribe(cb: () => void): () => void {
     window.removeEventListener(CHANGE_EVENT, onChange);
     window.removeEventListener("storage", onStorage);
     unsubscribeTenant();
+    stopAutoSync();
   };
 }
 
@@ -189,7 +193,22 @@ export async function submitTransfer(input: TransactionInput, sdk?: Partial<SdkT
       result = null; // fall through to the local engine
     }
   }
-  if (!result) result = scoreTransaction(input);
+
+  if (!result) {
+    // Offline. The local engine keeps the bank usable, but the decision would
+    // otherwise never leave the browser: the institution's console wouldn't
+    // see the transfer and Copilot wouldn't learn from it. Queue it so the
+    // server receives it once the API is reachable again.
+    result = scoreTransaction(input);
+    const tenant = getTenant();
+    enqueue({
+      reference: id,
+      institutionId: tenant.institutionId,
+      userId: tenant.customerId ?? `${tenant.institutionId}_ada`,
+      input,
+      sdk: sdk ?? null,
+    });
+  }
 
   const txn: Transaction = {
     ...result,

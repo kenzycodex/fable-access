@@ -178,7 +178,20 @@ function localIsoTimestamp(): string {
 
 /** POST /v1/shield/analyze — real Shield scoring (ML + rules + LLM explanation).
  * `sdk` carries the real collected context; omitted fields degrade gracefully. */
-export async function shieldAnalyze(input: TransactionInput, sdk?: Partial<SdkTelemetry>): Promise<RemoteScoreResult> {
+/** Replay options. A queued offline transfer must be scored as the customer
+ * and institution it was made for, not whoever is active now, and carries a
+ * stable reference so the server recognises a retry. */
+export interface ReplayOptions {
+  clientReference?: string;
+  userId?: string;
+  institutionId?: string;
+}
+
+export async function shieldAnalyze(
+  input: TransactionInput,
+  sdk?: Partial<SdkTelemetry>,
+  replay?: ReplayOptions,
+): Promise<RemoteScoreResult> {
   const device = sdk?.device ?? null;
   const location = sdk?.location ?? null;
   const session = sdk?.session ?? null;
@@ -187,8 +200,9 @@ export async function shieldAnalyze(input: TransactionInput, sdk?: Partial<SdkTe
   const res = await fetchJson<ApiShieldResponse>("/v1/shield/analyze", {
     method: "POST",
     body: JSON.stringify({
-      user_id: activeUserId(),
-      institution_id: activeInstitution(),
+      user_id: replay?.userId ?? activeUserId(),
+      institution_id: replay?.institutionId ?? activeInstitution(),
+      client_reference: replay?.clientReference ?? null,
       transaction: {
         amount: input.amount,
         currency: "NGN",

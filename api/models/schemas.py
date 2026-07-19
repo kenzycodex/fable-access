@@ -89,6 +89,9 @@ class ShieldAnalyzeRequest(BaseModel):
     # Institution the calling app belongs to. An authenticated API key
     # overrides this; see tenancy.resolve_institution.
     institution_id: Optional[str] = None
+    # Stable id from the client. Present when a transfer was scored offline
+    # and is being replayed; lets the server ignore a duplicate.
+    client_reference: Optional[str] = None
 
 
 class ShieldAnalyzeResponse(BaseModel):

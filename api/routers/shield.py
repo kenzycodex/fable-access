@@ -24,6 +24,31 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         device["ip"] = request.client.host
 
     institution_id = resolve_institution(request, payload.institution_id)
+
+    # A replayed offline transfer must be recognised, not re-scored. Returning
+    # the original decision keeps the customer's history and the console
+    # consistent no matter how many times the client retries.
+    if payload.client_reference:
+        from db import cursor, loads
+
+        with cursor() as cur:
+            cur.execute(
+                """SELECT id, risk_score, risk_level, action_taken, shield_signals
+                   FROM transactions WHERE client_reference = ?""",
+                (payload.client_reference,),
+            )
+            existing = cur.fetchone()
+        if existing:
+            return ShieldAnalyzeResponse(
+                risk_score=existing["risk_score"] or 0.0,
+                risk_level=existing["risk_level"] or "LOW",
+                action=existing["action_taken"] or "PASS",
+                signals=loads(existing["shield_signals"], []) or [],
+                explanation="Previously scored offline; synced without rescoring.",
+                latency_ms=0.0,
+                transaction_id=existing["id"],
+            )
+
     result = analyze_transaction_safe(payload.user_id, transaction, device, context, institution_id)
 
     transaction_id = f"txn_{uuid.uuid4().hex[:12]}"
@@ -40,6 +65,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         device=device,
         context=context,
         institution_id=institution_id,
+        client_reference=payload.client_reference,
     )
 
     latency_ms = (time.perf_counter() - start) * 1000

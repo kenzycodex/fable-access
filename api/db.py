@@ -224,6 +224,11 @@ MIGRATIONS = {
         # was previously reconstructed from recipient_id, a lowercased slug,
         # so the actual account holder's name never survived the round trip.
         "recipient_name": "TEXT",
+        # Client-generated id for offline transfers. A queued transfer is
+        # replayed on reconnect, and without a stable reference each retry
+        # would book a fresh row — the customer's history would grow every
+        # time the network flapped.
+        "client_reference": "TEXT",
     },
     "ghost_containers": {
         "institution_id": "TEXT",
