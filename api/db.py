@@ -126,6 +126,24 @@ CREATE TABLE IF NOT EXISTS institutions (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Per-institution branding the demo bank renders instead of Fable defaults.
+-- Kept as columns rather than a key/value bag because every field is known,
+-- typed and read together on each page load.
+CREATE TABLE IF NOT EXISTS institution_branding (
+    institution_id TEXT PRIMARY KEY,
+    display_name TEXT,
+    logo_url TEXT,
+    primary_color TEXT,
+    accent_color TEXT,
+    slug TEXT,                        -- vanity URL, distinct from institution_id
+    support_email TEXT,
+    tagline TEXT,
+    updated_at TEXT,
+    -- Renaming the public URL breaks every link already handed out, so a
+    -- change locks the slug for a configurable cooling period.
+    slug_locked_until TEXT
+);
+
 -- Registered WebAuthn passkeys. The private key never leaves the
 -- authenticator; we hold only the public key and the signature counter.
 CREATE TABLE IF NOT EXISTS user_credentials (

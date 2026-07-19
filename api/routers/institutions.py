@@ -4,9 +4,10 @@ The demo bank calls this to validate the institution slug in its URL
 (/demo/{institution}) and to render the tenant's name and customer roster.
 """
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from db import cursor
-from tenancy import get_institution, list_institutions
+from tenancy import get_institution, institution_from_api_key, list_institutions
 from agents.copilot.demo_customers import customers_for_institution
 
 router = APIRouter(prefix="/v1/institutions", tags=["institutions"])
@@ -25,6 +26,31 @@ def detail(institution_id: str):
     # Deliberately no credentials here: the demo bank calls this endpoint, and
     # it must never be able to read an institution's secret key.
     return {**inst, "customers": customers_for_institution(institution_id)}
+
+
+class ResolveKeyRequest(BaseModel):
+    api_key: str
+
+
+@router.post("/resolve-key")
+def resolve_key(payload: ResolveKeyRequest):
+    """Which institution does this API key belong to?
+
+    The demo bank calls this when a key is pasted into "Connect institution".
+    Without it the field accepted any string and reported success, while the
+    backend quietly attributed writes elsewhere — the UI said one tenant and
+    the data went to another.
+    """
+    institution_id = institution_from_api_key(payload.api_key.strip())
+    if not institution_id:
+        raise HTTPException(status_code=401, detail="That API key isn't recognised.")
+
+    inst = get_institution(institution_id)
+    return {
+        "institution_id": institution_id,
+        "name": (inst or {}).get("name", institution_id),
+        "demo_url": f"/demo/{institution_id}",
+    }
 
 
 def _mask(key: str) -> str:

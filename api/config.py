@@ -46,6 +46,15 @@ CORS_ORIGINS = ["*"] if _raw_origins.strip() == "*" else [o.strip() for o in _ra
 # Optional Sentry error monitoring.
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 
+# --- Institution branding ---
+# Days a vanity URL is locked after being changed. The slug is a public link
+# already shared with customers, so renaming it breaks live URLs; the lock
+# makes that deliberate. Set 0 to allow immediate changes.
+BRANDING_SLUG_LOCK_DAYS = int(os.getenv("BRANDING_SLUG_LOCK_DAYS", "7"))
+# Cap on uploaded logos (bytes). Kept small: these are inlined into the demo
+# bank's HTML as data URIs, so a large file would bloat every page load.
+BRANDING_MAX_LOGO_BYTES = int(os.getenv("BRANDING_MAX_LOGO_BYTES", "512000"))
+
 # --- WebAuthn (step-up identity verification) ---
 # The Relying Party ID must be the site's registered domain (no scheme/port),
 # and every origin the browser may present from must be listed. localhost is a
