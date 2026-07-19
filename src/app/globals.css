@@ -194,8 +194,8 @@ html:has([data-surface="app"]) {
   body {
     /* Decorative full-bleed graphics (marquees, hero blobs) are positioned
      * with fluid/negative offsets and must never introduce a horizontal
-     * scrollbar. */
-    overflow-x: hidden;
+     * scrollbar. Using clip instead of hidden so it doesn't break position: sticky. */
+    overflow-x: clip;
   }
 
   body {

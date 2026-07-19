@@ -54,7 +54,7 @@ export function DocsShell({ sections }: { sections: DocSection[] }) {
     <div className="min-h-dvh bg-white text-gray-900 dark:bg-[#08080b] dark:text-white">
       {/* Top bar */}
       <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur-xl dark:border-white/[0.06] dark:bg-[#08080b]/90">
-        <div className="mx-auto flex max-w-6xl items-center gap-3 px-5 py-3.5">
+        <div className="mx-auto flex w-full max-w-[1600px] items-center gap-3 px-5 lg:px-10 py-3.5">
           <Link
             href="/"
             className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 transition-colors hover:text-gray-900 dark:text-white/45 dark:hover:text-white"
@@ -76,12 +76,12 @@ export function DocsShell({ sections }: { sections: DocSection[] }) {
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-6xl gap-10 px-5">
+      <div className="mx-auto flex w-full max-w-[1600px] items-start gap-10 px-5 lg:px-10">
         {/* Contents */}
         <aside
           className={`${
             navOpen ? "block" : "hidden"
-          } fixed inset-x-0 top-[57px] z-30 max-h-[70dvh] overflow-y-auto border-b border-gray-200 bg-white p-5 dark:border-white/[0.06] dark:bg-[#08080b] lg:sticky lg:top-[57px] lg:block lg:h-[calc(100dvh-57px)] lg:w-60 lg:shrink-0 lg:border-0 lg:bg-transparent lg:p-0 lg:pt-8 dark:lg:bg-transparent`}
+          } fixed inset-x-0 top-[57px] z-30 max-h-[70dvh] overflow-y-auto border-b border-gray-200 bg-white p-5 dark:border-white/[0.06] dark:bg-[#08080b] lg:sticky lg:top-[57px] lg:block lg:h-[calc(100dvh-57px)] lg:w-64 lg:shrink-0 lg:border-0 lg:bg-transparent lg:p-0 lg:pt-8 dark:lg:bg-transparent`}
         >
           <nav className="flex flex-col gap-0.5">
             {sections.map((section) => (
@@ -117,7 +117,7 @@ export function DocsShell({ sections }: { sections: DocSection[] }) {
         </aside>
 
         {/* Content */}
-        <main className="min-w-0 flex-1 py-10">
+        <main className="min-w-0 flex-1 py-10 lg:pl-10 max-w-5xl">
           {sections.map((section) => (
             <section key={section.id} id={section.id} data-doc-anchor className="scroll-mt-20">
               <ReactMarkdown
