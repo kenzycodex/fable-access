@@ -16,6 +16,8 @@ export interface DemoCustomer {
   persona: string;
   description: string;
   typical_range: string;
+  /** Starting float; the home screen derives the live balance from it. */
+  opening_balance: number;
   city: string;
 }
 

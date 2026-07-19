@@ -10,10 +10,10 @@ import { cancelGhost, confirmGhost, useFableStore } from "@/lib/fable/store";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 
 const STEPS = [
-  "Money frozen — not sent yet",
+  "Money frozen, not sent",
   "Recipient sees nothing",
-  "Cancel anytime to get it back",
-  "Confirm only if you're sure",
+  "Cancel to get it back",
+  "Confirm only if sure",
 ];
 
 export default function GhostPage() {
@@ -54,8 +54,8 @@ export default function GhostPage() {
               <Ghost size={36} weight="fill" />
             </span>
             <p className="relative mt-4 text-[24px] font-bold tabular-nums">{formatNaira(ghost.amount)} held safely</p>
-            <p className="relative mx-auto mt-1 max-w-xs text-[13px] text-white/50">
-              Even if this is a scam, the scammer gets nothing. Your money stays with you until confirmed.
+            <p className="relative mx-auto mt-1 max-w-[22rem] text-[13px] text-white/50">
+              If this is a scam, the scammer gets nothing.
             </p>
           </div>
 

@@ -19,6 +19,7 @@ import {
   ShieldCheck
 } from "@phosphor-icons/react";
 import { Avatar, Card, Screen } from "@/components/demo/kit";
+import { summarizeCustomer } from "@/lib/fable/analytics";
 import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
 import { DEMO_USER } from "@/lib/fable/seed";
 import { ensureSession } from "@/lib/fable/session";
@@ -46,10 +47,14 @@ export default function DemoHomePage() {
     ensureSession();
   }, []);
 
-  const myTxns: Transaction[] = (store?.transactions ?? [])
+  const allMyTxns: Transaction[] = (store?.transactions ?? [])
     .filter((t) => t.customerName === displayName)
-    .sort((a, b) => b.timestamp - a.timestamp)
-    .slice(0, 5);
+    .sort((a, b) => b.timestamp - a.timestamp);
+  const myTxns = allMyTxns.slice(0, 5);
+
+  // Balance, income, spend and categories are derived from this customer's own
+  // feed — the same history Copilot builds its baseline from.
+  const summary = summarizeCustomer(allMyTxns, customer?.opening_balance ?? DEMO_USER.balance);
 
   return (
     <Screen>
@@ -106,7 +111,7 @@ export default function DemoHomePage() {
                 </button>
               </div>
               <p className="mt-1 text-[32px] font-bold leading-none tracking-tight tabular-nums">
-                {balanceHidden ? "••••••" : formatNaira(DEMO_USER.balance)}
+                {balanceHidden ? "••••••" : formatNaira(summary.balance)}
               </p>
               <div className="mt-5 flex items-center justify-between">
                 <div className="flex flex-col">
@@ -161,8 +166,12 @@ export default function DemoHomePage() {
                 </span>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-400/50">Income</p>
               </div>
-              <p className="mt-1 text-[20px] font-bold text-gray-900 dark:text-white tabular-nums">₦124,500</p>
-              <p className="text-[10px] text-gray-500 dark:text-white/30">↑ 12% vs last month</p>
+              <p className="mt-1 text-[20px] font-bold text-gray-900 dark:text-white tabular-nums">{formatNaira(summary.income)}</p>
+              <p className="text-[10px] text-gray-500 dark:text-white/30">
+                {summary.incomeDeltaPct === null
+                  ? "No prior month to compare"
+                  : `${summary.incomeDeltaPct >= 0 ? "↑" : "↓"} ${Math.abs(summary.incomeDeltaPct)}% vs last month`}
+              </p>
             </Card>
             <Card className="flex flex-col gap-1.5 border-rose-100 dark:border-rose-500/10">
               <div className="flex items-center gap-2">
@@ -171,8 +180,10 @@ export default function DemoHomePage() {
                 </span>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-rose-600/70 dark:text-rose-400/50">Spent</p>
               </div>
-              <p className="mt-1 text-[20px] font-bold text-gray-900 dark:text-white tabular-nums">₦78,200</p>
-              <p className="text-[10px] text-gray-500 dark:text-white/30">63% of income</p>
+              <p className="mt-1 text-[20px] font-bold text-gray-900 dark:text-white tabular-nums">{formatNaira(summary.spent)}</p>
+              <p className="text-[10px] text-gray-500 dark:text-white/30">
+                {summary.income > 0 ? `${summary.spentPctOfIncome}% of income` : "No income recorded"}
+              </p>
             </Card>
           </div>
 
@@ -182,12 +193,17 @@ export default function DemoHomePage() {
               <p className="text-[13px] font-bold text-gray-900 dark:text-white">Spending Analytics</p>
               <span className="text-[10px] text-gray-500 dark:text-white/25">This month</span>
             </div>
-            <div className="flex flex-col gap-3">
-              <SpendBar label="🍔 Food & Dining" amount="₦35,400" pct={72} />
-              <SpendBar label="🚗 Transport" amount="₦18,200" pct={45} />
-              <SpendBar label="⚡ Utilities" amount="₦15,400" pct={38} />
-              <SpendBar label="🛍️ Shopping" amount="₦8,600" pct={20} />
-            </div>
+            {summary.categories.length === 0 ? (
+              <p className="py-4 text-center text-[12px] text-gray-400 dark:text-white/25">
+                No spending this month yet.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {summary.categories.map((c) => (
+                  <SpendBar key={c.label} label={c.label} amount={formatNaira(c.amount)} pct={c.pct} />
+                ))}
+              </div>
+            )}
           </Card>
         </div>
 
@@ -206,23 +222,40 @@ export default function DemoHomePage() {
             </div>
           </Card>
 
+          {/* What Fable has learned about this customer — the same baseline
+              Shield scores against, surfaced to the person it describes. */}
           <Card>
-            <div className="flex items-center justify-between">
-              <p className="text-[13px] font-bold text-gray-900 dark:text-white">Savings Target</p>
-              <span className="rounded-full bg-purple-100 dark:bg-[#7C3AED]/15 px-2 py-0.5 text-[10px] font-bold text-purple-700 dark:text-[#7C3AED]">49%</span>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-[13px] font-bold text-gray-900 dark:text-white">Your Fable profile</p>
+              <Link href={href("/transparency")} className="text-[11px] font-medium text-[#7C3AED]">
+                Details
+              </Link>
             </div>
-            <p className="mt-1 text-[11px] text-gray-500 dark:text-white/40 font-medium">New MacBook Pro</p>
-            <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-white/[0.04]">
-              <div className="h-full w-[49%] rounded-full bg-[#7C3AED] shadow-[0_0_10px_rgba(124,58,237,0.5)]" />
-            </div>
-            <div className="mt-2 flex items-center justify-between">
-              <p className="text-[13px] font-bold text-gray-900 dark:text-white tabular-nums">₦420,000</p>
-              <p className="text-[11px] text-gray-400 dark:text-white/25">of ₦850,000</p>
-            </div>
+            {customer ? (
+              <div className="flex flex-col gap-2.5">
+                <ProfileRow label="Typical transfer" value={customer.typical_range} />
+                <ProfileRow label="Profile" value={customer.persona} />
+                <ProfileRow label="Usual location" value={customer.city} />
+                <ProfileRow label="Transactions learned" value={String(allMyTxns.length)} />
+              </div>
+            ) : (
+              <p className="py-3 text-center text-[12px] text-gray-400 dark:text-white/25">
+                Building your baseline…
+              </p>
+            )}
           </Card>
         </div>
       </div>
     </Screen>
+  );
+}
+
+function ProfileRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-[12px]">
+      <span className="shrink-0 text-gray-500 dark:text-white/40">{label}</span>
+      <span className="truncate text-right font-semibold text-gray-900 dark:text-white/80">{value}</span>
+    </div>
   );
 }
 
@@ -245,11 +278,13 @@ function TxnRow({ txn }: { txn: Transaction }) {
   return (
     <div className="flex items-center gap-3 border-b border-gray-100 dark:border-white/[0.04] py-3 last:border-0 hover:bg-gray-50 dark:hover:bg-white/[0.02] px-2 rounded-lg transition-colors -mx-2">
       <Avatar name={txn.recipientName} size="sm" />
-      <div className="flex min-w-0 flex-col gap-0.5">
+      {/* min-w-0 lets the name truncate; the amount must never shrink, or a
+          long resolved account name splits it across two lines. */}
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-[13px] font-semibold text-gray-900 dark:text-white">{txn.recipientName}</span>
         <span className="truncate text-[11px] text-gray-500 dark:text-white/35 font-medium">{formatRelativeTime(txn.timestamp)}</span>
       </div>
-      <span className={`ml-auto text-[13px] font-bold tabular-nums ${credit ? "text-emerald-600 dark:text-emerald-400" : "text-gray-900 dark:text-white/60"}`}>
+      <span className={`shrink-0 whitespace-nowrap text-[13px] font-bold tabular-nums ${credit ? "text-emerald-600 dark:text-emerald-400" : "text-gray-900 dark:text-white/60"}`}>
         {credit ? "+" : "-"}{formatNaira(txn.amount)}
       </span>
     </div>

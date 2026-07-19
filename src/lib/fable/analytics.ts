@@ -97,3 +97,88 @@ export function signalBreakdown(txns: Transaction[]): PatternStat[] {
 export function alerts(txns: Transaction[]): Transaction[] {
   return txns.filter((t) => t.action !== "PASS").sort((a, b) => b.timestamp - a.timestamp);
 }
+
+// ---------------------------------------------------------------------------
+// Customer-level rollups for the demo bank's home screen.
+//
+// These were hardcoded literals. They are now derived from the customer's real
+// transaction feed, which matters beyond cosmetics: balance, income, spend and
+// category mix are exactly the datapoints Copilot builds a baseline from, so
+// showing invented numbers next to a real risk engine was misleading.
+// ---------------------------------------------------------------------------
+
+/** Coarse spend categories inferred from who was paid and what for. */
+const CATEGORY_RULES: { label: string; test: RegExp }[] = [
+  { label: "🍔 Food & Dining", test: /food|vendor|biggs|restaurant|eat|lunch|shoprite|grocer/i },
+  { label: "🚗 Transport", test: /transport|fuel|uber|bolt|haulage|logistics|petrol/i },
+  { label: "⚡ Utilities", test: /nepa|light|electric|power|dstv|water|utility|bill/i },
+  { label: "📱 Airtime & Data", test: /airtime|data|mtn|glo|airtel|9mobile|recharge/i },
+  { label: "🏠 Rent & Housing", test: /rent|landlord|shop_rent|accommodation|service charge/i },
+  { label: "🛍️ Shopping", test: /jumia|konga|slot|shopping|store|order|laptop/i },
+];
+
+function categorize(txn: Transaction): string {
+  const haystack = `${txn.recipientName} ${txn.narration ?? ""}`;
+  for (const rule of CATEGORY_RULES) {
+    if (rule.test.test(haystack)) return rule.label;
+  }
+  return "💸 Transfers";
+}
+
+export interface CustomerSummary {
+  balance: number;
+  income: number;
+  spent: number;
+  spentPctOfIncome: number;
+  incomeDeltaPct: number | null;
+  categories: { label: string; amount: number; pct: number }[];
+}
+
+const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Everything the home screen shows, computed from one customer's feed.
+ * `openingBalance` is the customer's starting float; settled debits reduce it
+ * and credits raise it, so a transfer visibly moves the balance.
+ */
+export function summarizeCustomer(txns: Transaction[], openingBalance: number): CustomerSummary {
+  const now = Date.now();
+  const thisMonth = txns.filter((t) => now - t.timestamp <= MONTH_MS);
+  const lastMonth = txns.filter((t) => now - t.timestamp > MONTH_MS && now - t.timestamp <= 2 * MONTH_MS);
+
+  const sum = (list: Transaction[], dir: "credit" | "debit") =>
+    list.filter((t) => t.direction === dir).reduce((acc, t) => acc + t.amount, 0);
+
+  const income = sum(thisMonth, "credit");
+  const spent = sum(thisMonth, "debit");
+
+  // Money only leaves the account once a transfer settles. Held, cancelled and
+  // blocked transfers are precisely the ones Ghost keeps recoverable.
+  const settled = txns.filter((t) => t.status === "completed" || t.status === "released");
+  const balance = openingBalance + sum(settled, "credit") - sum(settled, "debit");
+
+  const lastMonthIncome = sum(lastMonth, "credit");
+  const incomeDeltaPct =
+    lastMonthIncome > 0 ? Math.round(((income - lastMonthIncome) / lastMonthIncome) * 100) : null;
+
+  const byCategory = new Map<string, number>();
+  for (const t of thisMonth) {
+    if (t.direction !== "debit") continue;
+    const label = categorize(t);
+    byCategory.set(label, (byCategory.get(label) ?? 0) + t.amount);
+  }
+  const largest = Math.max(...byCategory.values(), 0);
+  const categories = [...byCategory.entries()]
+    .map(([label, amount]) => ({ label, amount, pct: largest ? Math.round((amount / largest) * 100) : 0 }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 4);
+
+  return {
+    balance,
+    income,
+    spent,
+    spentPctOfIncome: income > 0 ? Math.round((spent / income) * 100) : 0,
+    incomeDeltaPct,
+    categories,
+  };
+}

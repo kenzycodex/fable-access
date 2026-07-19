@@ -20,6 +20,7 @@ DEMO_CUSTOMERS = [
         "persona": "Salaried professional",
         "description": "Mid-size transfers, mostly evenings.",
         "amount_range": (8_000, 55_000),
+        "opening_balance": 847_320,
         "hours": [9, 10, 18, 19, 20, 21],
         "city": "Lagos",
         "recipients": [
@@ -35,6 +36,7 @@ DEMO_CUSTOMERS = [
         "persona": "Trader / business owner",
         "description": "Large supplier payments. Big numbers are normal.",
         "amount_range": (80_000, 400_000),
+        "opening_balance": 4_182_900,
         "hours": [8, 9, 10, 11, 12, 13, 14, 15, 16],
         "city": "Lagos",
         "recipients": [
@@ -50,6 +52,7 @@ DEMO_CUSTOMERS = [
         "persona": "Student",
         "description": "Frequent small transfers. Five figures is unusual.",
         "amount_range": (1_500, 9_000),
+        "opening_balance": 63_450,
         "hours": [7, 11, 13, 15, 17, 19, 22, 23],
         "city": "Enugu",
         "recipients": [
@@ -76,6 +79,7 @@ def customers_for_institution(institution_id: str) -> list[dict]:
             "persona": c["persona"],
             "description": c["description"],
             "typical_range": f"₦{c['amount_range'][0]:,} – ₦{c['amount_range'][1]:,}",
+            "opening_balance": c["opening_balance"],
             "city": c["city"],
         }
         for c in DEMO_CUSTOMERS

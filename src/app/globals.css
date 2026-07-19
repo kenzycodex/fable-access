@@ -36,6 +36,13 @@ html:has([data-surface="app"]) {
  * fidelity matches the original site 1:1 across viewport widths.
  */
 @theme {
+  /* HAZARD: the fluid --spacing-xs/s/m/l/xl scale defined further down shares
+   * its key names with Tailwind's max-width scale, and Tailwind resolves
+   * max-w-<name> against spacing when the name matches. So `max-w-xs` compiles
+   * to ~1.2rem, not 20rem, and silently collapses a paragraph to one word per
+   * line. Adding --container-* here does NOT win. Use an arbitrary value
+   * (max-w-[22rem]) for any width in the xs/s/m/l/xl namespace. */
+
   /* breakpoints -- Legacy framework breakpoints, not Tailwind defaults */
   --breakpoint-sm: 478px;
   --breakpoint-md: 767px;

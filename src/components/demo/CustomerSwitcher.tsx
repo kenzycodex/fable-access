@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { CaretDown, CheckCircle, SignOut } from "@phosphor-icons/react";
+import { ArrowLeft, CaretDown, CheckCircle } from "@phosphor-icons/react";
 import { Avatar } from "@/components/demo/kit";
 import { DemoSheet } from "@/components/demo/DemoSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
@@ -112,8 +112,8 @@ export function CustomerSwitcher({ greeting = "Good morning 👋" }: { greeting?
           href="/"
           className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-gray-200 py-3 text-[13px] font-semibold text-gray-600 transition-colors hover:bg-gray-50 dark:border-white/[0.08] dark:text-white/50 dark:hover:bg-white/[0.04]"
         >
-          <SignOut size={15} weight="bold" />
-          Exit demo bank
+          <ArrowLeft size={15} weight="bold" />
+          Exit
         </Link>
       </DemoSheet>
     </>
