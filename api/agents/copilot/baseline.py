@@ -11,6 +11,13 @@ from db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict, loads
 
 MIN_TRANSACTIONS_FOR_BASELINE = 3
 
+# A brand-new account is precisely when mule and takeover activity happens, so
+# "no history" must not mean "no scrutiny". Below the personal threshold Shield
+# falls back to how this institution's customers behave in aggregate, and
+# treats the account's newness as a risk factor in its own right.
+COLD_START_PREMIUM = 0.15
+POPULATION_MIN_TRANSACTIONS = 20
+
 
 def get_user_baseline(user_id: str) -> dict | None:
     ninety_days_ago = (datetime.utcnow() - timedelta(days=90)).isoformat()
@@ -65,6 +72,60 @@ def get_user_baseline(user_id: str) -> dict | None:
         "avg_session_duration": statistics.mean(session_durations) if session_durations else None,
         "avg_time_to_submit": statistics.mean(submit_times) if submit_times else None,
         "preferred_channel": preferred_channel,
+        "transaction_count": len(rows),
+        "last_updated": datetime.utcnow().isoformat(),
+    }
+
+
+def get_population_baseline(institution_id: str | None) -> dict | None:
+    """How this institution's customers behave in aggregate.
+
+    Used when a customer has too little history for a personal baseline.
+    Judging a first transfer against the population is far better than
+    judging it against nothing: without this, six of the twelve layers
+    silently skipped and a new account could move almost any amount.
+    """
+    where = "WHERE confirmed_legitimate = 1 AND created_at >= ?"
+    params: list = [(datetime.utcnow() - timedelta(days=90)).isoformat()]
+    if institution_id:
+        where += " AND institution_id = ?"
+        params.append(institution_id)
+
+    with cursor() as cur:
+        cur.execute(f"SELECT amount, hour_of_day, city, country FROM transactions {where}", params)
+        rows = [row_to_dict(r) for r in cur.fetchall()]
+
+    if len(rows) < POPULATION_MIN_TRANSACTIONS:
+        return None
+
+    amounts = [r["amount"] for r in rows]
+    hours = [r["hour_of_day"] for r in rows if r["hour_of_day"] is not None]
+    countries = [r["country"] for r in rows if r.get("country")]
+
+    avg_amount = statistics.mean(amounts)
+    # The median resists the long tail of large business transfers, which
+    # would otherwise drag the "normal" amount up and hide real anomalies.
+    median_amount = statistics.median(amounts)
+
+    hour_counts: dict[int, int] = {}
+    for h in hours:
+        hour_counts[h] = hour_counts.get(h, 0) + 1
+    typical_hours = sorted(hour_counts, key=hour_counts.get, reverse=True)
+    typical_hours = sorted(typical_hours[: max(8, len(typical_hours) // 2 + 1)]) or list(range(6, 23))
+
+    return {
+        "is_population": True,
+        "avg_amount": median_amount,
+        "max_typical_amount": avg_amount * 3,
+        "typical_hours": typical_hours,
+        "known_recipients": set(),
+        "known_devices": set(),
+        "known_cities": set(),
+        "home_country": max(set(countries), key=countries.count) if countries else "Nigeria",
+        "typical_timezone": None,
+        "avg_session_duration": None,
+        "avg_time_to_submit": None,
+        "preferred_channel": "mobile_app",
         "transaction_count": len(rows),
         "last_updated": datetime.utcnow().isoformat(),
     }

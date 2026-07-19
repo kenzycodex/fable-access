@@ -12,7 +12,12 @@ the behavioral/device/location layers carry the weight users can't opt out of.
 from datetime import datetime
 
 from config import BLOCK_THRESHOLD, FLAG_THRESHOLD
-from agents.copilot.baseline import get_user_baseline, get_user_history_arrays
+from agents.copilot.baseline import (
+    COLD_START_PREMIUM,
+    get_population_baseline,
+    get_user_baseline,
+    get_user_history_arrays,
+)
 from agents.shield.channel_risk import get_channel_risk
 from agents.shield.nip_codes import get_nip_risk_signal
 from agents.shield.patterns import match_scam_pattern
@@ -48,15 +53,38 @@ def _client_local_hour(context: dict) -> int | None:
         return None
 
 
-def analyze_transaction(user_id: str, transaction: dict, device: dict, context: dict) -> dict:
+def analyze_transaction(user_id: str, transaction: dict, device: dict, context: dict,
+                        institution_id: str | None = None) -> dict:
     transaction = sanitize_transaction(transaction)
     device = device or {}
     context = context or {}
+
     baseline = get_user_baseline(user_id)
+
+    # Cold start. A customer with too little history used to get *no* baseline,
+    # which silently disabled six of the twelve layers — amount, time, ML,
+    # device, location and timezone all need something to compare against. A
+    # new account could therefore move almost any sum unchallenged, which is
+    # exactly the shape of mule and takeover activity. Fall back to how this
+    # institution's customers behave, and price the newness itself.
+    cold_start = baseline is None
+    if cold_start:
+        baseline = get_population_baseline(institution_id)
 
     signals: list[str] = []
     score = 0.0
     amount = transaction["amount"]
+
+    if cold_start:
+        if baseline:
+            signals.append(
+                f"cold_start: no personal history yet — judged against this bank's norms (+{COLD_START_PREMIUM})"
+            )
+        else:
+            signals.append(
+                f"cold_start: no history for this customer or institution (+{COLD_START_PREMIUM})"
+            )
+        score += COLD_START_PREMIUM
 
     # Step 12 groundwork: judge time-of-day on the device's clock, not server UTC.
     client_hour = _client_local_hour(context)
@@ -131,7 +159,9 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
 
     # Step 8: Device anomaly — unrecognized fingerprint (weight scales with amount)
     fingerprint = device.get("fingerprint_id")
-    if baseline and fingerprint and baseline["known_devices"] and fingerprint not in baseline["known_devices"]:
+    # A population baseline carries no known devices, so this layer only
+    # applies once the customer has their own history to contradict.
+    if baseline and not cold_start and fingerprint and baseline["known_devices"] and fingerprint not in baseline["known_devices"]:
         boost = 0.18 if is_large else 0.08
         signals.append(f"device_anomaly: unrecognized device (+{boost})")
         score += boost
@@ -218,10 +248,11 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     }
 
 
-def analyze_transaction_safe(user_id: str, transaction: dict, device: dict, context: dict) -> dict:
+def analyze_transaction_safe(user_id: str, transaction: dict, device: dict, context: dict,
+                             institution_id: str | None = None) -> dict:
     """Never fail open: if analysis throws, return a conservative FLAG."""
     try:
-        return analyze_transaction(user_id, transaction, device, context)
+        return analyze_transaction(user_id, transaction, device, context, institution_id)
     except Exception as exc:
         return {
             "risk_score": 0.55,

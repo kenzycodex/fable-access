@@ -24,8 +24,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         device["ip"] = request.client.host
 
     institution_id = resolve_institution(request, payload.institution_id)
-
-    result = analyze_transaction_safe(payload.user_id, transaction, device, context)
+    result = analyze_transaction_safe(payload.user_id, transaction, device, context, institution_id)
 
     transaction_id = f"txn_{uuid.uuid4().hex[:12]}"
     log_transaction(
