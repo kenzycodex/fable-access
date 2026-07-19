@@ -3,11 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { PaperPlaneRight, Sparkle, X } from "@phosphor-icons/react";
 import { assistantChat } from "@/lib/fable/api";
+import { useFableStore } from "@/lib/fable/store";
 
 interface Turn {
   role: "user" | "assistant";
   content: string;
   engine?: string;
+  /** Follow-ups the backend derived from this institution's own data. */
+  suggestions?: string[];
 }
 
 const SUGGESTIONS = [
@@ -27,6 +30,11 @@ export function AskFable() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Scope every question to the signed-in institution, so the assistant can
+  // never ground an answer in another tenant's numbers.
+  const store = useFableStore();
+  const institution = store?.session.institutionId ?? null;
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [turns, busy, open]);
@@ -39,8 +47,11 @@ export function AskFable() {
     setInput("");
     setBusy(true);
     try {
-      const res = await assistantChat(message, history);
-      setTurns((prev) => [...prev, { role: "assistant", content: res.reply, engine: res.engine }]);
+      const res = await assistantChat(message, history, institution);
+      setTurns((prev) => [
+        ...prev,
+        { role: "assistant", content: res.reply, engine: res.engine, suggestions: res.suggestions },
+      ]);
     } catch {
       setTurns((prev) => [
         ...prev,
@@ -100,24 +111,46 @@ export function AskFable() {
                 </p>
               </div>
             )}
-            {turns.map((t, i) => (
-              <div key={i} className={`flex ${t.role === "user" ? "justify-end" : "justify-start"} animate-card-entrance`}>
-                <div
-                  className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
-                    t.role === "user"
-                      ? "bg-[#7C3AED] text-white"
-                      : "border border-gray-200 dark:border-white/[0.06] bg-gray-50 dark:bg-white/[0.04] text-gray-800 dark:text-white/85"
-                  }`}
-                >
-                  {t.content}
-                  {t.engine && t.engine !== "deterministic" && (
-                    <span className="mt-1 block text-[9px] font-bold uppercase tracking-wider text-emerald-500 dark:text-[#00f5a0]">
-                      via {t.engine}
-                    </span>
+            {turns.map((t, i) => {
+              // Only the newest answer offers follow-ups; older ones would
+              // stack stale chips up the transcript.
+              const isLatestAnswer = t.role === "assistant" && i === turns.length - 1;
+              return (
+                <div key={i} className="flex flex-col gap-2 animate-card-entrance">
+                  <div className={`flex ${t.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
+                        t.role === "user"
+                          ? "bg-[#7C3AED] text-white"
+                          : "border border-gray-200 dark:border-white/[0.06] bg-gray-50 dark:bg-white/[0.04] text-gray-800 dark:text-white/85"
+                      }`}
+                    >
+                      {t.content}
+                      {t.engine && t.engine !== "deterministic" && (
+                        <span className="mt-1 block text-[9px] font-bold uppercase tracking-wider text-emerald-500 dark:text-[#00f5a0]">
+                          via {t.engine}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {isLatestAnswer && !busy && (t.suggestions?.length ?? 0) > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {t.suggestions!.map((q) => (
+                        <button
+                          key={q}
+                          type="button"
+                          onClick={() => send(q)}
+                          className="rounded-full border border-[#7C3AED]/25 bg-[#7C3AED]/[0.06] px-3 py-1.5 text-left text-[11px] font-medium text-[#7C3AED] transition-colors hover:bg-[#7C3AED]/[0.12]"
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {busy && (
               <div className="flex justify-start animate-fade-in-up">
                 <div className="flex gap-1 rounded-2xl border border-gray-200 dark:border-white/[0.06] bg-gray-50 dark:bg-white/[0.04] px-4 py-3">

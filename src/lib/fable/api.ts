@@ -384,18 +384,21 @@ export function apiChannelLabel(channel: string): string {
 
 export interface AssistantReply {
   reply: string;
-  /** "openai" | "anthropic" | "deterministic" — which engine answered. */
+  /** "openai" | "anthropic" | "deterministic" | "guard" — which path answered. */
   engine: string;
+  /** Follow-up questions this institution's data can actually answer. */
+  suggestions?: string[];
 }
 
 /** POST /v1/assistant/chat — the grounded analyst assistant. */
 export async function assistantChat(
   message: string,
   history: { role: "user" | "assistant"; content: string }[] = [],
+  institution?: string | null,
 ): Promise<AssistantReply> {
   return fetchJson<AssistantReply>("/v1/assistant/chat", {
     method: "POST",
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message, history, institution_id: institution ?? null }),
   }, 30_000);
 }
 
