@@ -22,7 +22,7 @@ export function Sidebar() {
     <aside className="flex shrink-0 flex-col gap-6 border-gray-200 bg-white text-gray-900 dark:border-white/[0.04] dark:bg-black dark:text-white lg:sticky lg:top-0 lg:h-dvh lg:w-64 lg:border-r z-50 transition-colors duration-300">
       {/* Brand */}
       <div className="flex items-center justify-between px-6 pt-5 lg:pt-8">
-        <Link href="/dashboard" className="flex items-center gap-3">
+        <Link href="/" className="flex items-center gap-3">
           <img
             src="/images/brand/fable-logo-white.png"
             alt="Fable"
