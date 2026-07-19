@@ -193,6 +193,9 @@ export async function shieldAnalyze(input: TransactionInput, sdk?: Partial<SdkTe
         amount: input.amount,
         currency: "NGN",
         recipient_id: input.recipient.name.toLowerCase(),
+        // The account holder exactly as resolved. recipient_id is a lowercased
+        // slug, so deriving display from it lost the real NUBAN name.
+        recipient_name: input.recipient.name,
         recipient_account: input.recipient.accountNumber,
         recipient_bank: input.recipient.bank,
         recipient_bank_code: input.recipient.bankCode,
@@ -268,6 +271,7 @@ export async function ghostCreate(txn: Transaction): Promise<{ id: string; expir
       transaction: {
         amount: txn.amount,
         recipient_id: txn.recipientName.toLowerCase(),
+        recipient_name: txn.recipientName,
         recipient_account: txn.recipientAccount,
         recipient_bank: txn.recipientBank,
         narration: txn.narration,
@@ -338,6 +342,7 @@ interface ApiTransactionRow {
   id: string;
   amount: number;
   recipient_id: string | null;
+  recipient_name?: string | null;
   recipient_account: string | null;
   recipient_bank: string | null;
   narration: string | null;
@@ -370,7 +375,9 @@ function mapApiRow(r: ApiTransactionRow): Transaction {
     signals: parseApiSignals(r.signals ?? []),
     explanation: "",
     latencyMs: 143,
-    recipientName: prettyRecipient(r.recipient_id, r.recipient_account),
+    // The stored name wins; prettyRecipient only reconstructs a label for
+    // older rows and seeded recipients that never had one.
+    recipientName: r.recipient_name || prettyRecipient(r.recipient_id, r.recipient_account),
     recipientBank: r.recipient_bank ?? "—",
     recipientAccount: r.recipient_account ?? "",
     customerName: "Ada Obi",
@@ -613,6 +620,7 @@ export interface GhostContainerRow {
   user_id: string;
   amount: number;
   recipient_id: string | null;
+  recipient_name?: string | null;
   recipient_account: string | null;
   recipient_bank: string | null;
   status: string;

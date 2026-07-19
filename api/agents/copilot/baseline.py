@@ -134,9 +134,10 @@ def log_transaction(
                 action_taken, shield_signals, confirmed_legitimate, is_seed, created_at,
                 client_ip, latitude, longitude, city, country, location_source,
                 session_duration_seconds, auth_method, typing_speed_ms, paste_detected,
-                time_to_submit_seconds, client_timestamp, client_timezone, institution_id)
+                time_to_submit_seconds, client_timestamp, client_timezone, institution_id,
+                recipient_name)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 transaction_id,
                 user_id,
@@ -170,6 +171,7 @@ def log_transaction(
                 context.get("client_timestamp"),
                 context.get("client_timezone") or device.get("timezone"),
                 institution_id or DEFAULT_INSTITUTION_ID,
+                transaction.get("recipient_name"),
             ),
         )
 

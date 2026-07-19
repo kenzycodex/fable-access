@@ -220,6 +220,10 @@ MIGRATIONS = {
         "client_timestamp": "TEXT",
         "client_timezone": "TEXT",
         "institution_id": "TEXT",
+        # The recipient's real resolved name (Paystack NUBAN lookup). Display
+        # was previously reconstructed from recipient_id, a lowercased slug,
+        # so the actual account holder's name never survived the round trip.
+        "recipient_name": "TEXT",
     },
     "ghost_containers": {
         "institution_id": "TEXT",

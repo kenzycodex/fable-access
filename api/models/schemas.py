@@ -9,6 +9,8 @@ class Transaction(BaseModel):
     recipient_account: str
     recipient_bank_code: Optional[str] = None
     recipient_bank: Optional[str] = None
+    # The resolved account holder, exactly as the bank returned it.
+    recipient_name: Optional[str] = None
     narration: str = ""
     channel: Literal["mobile_app", "ussd", "pos", "internet", "atm", "qr", "branch", "unknown"] = "mobile_app"
     nip_response_code: Optional[str] = None

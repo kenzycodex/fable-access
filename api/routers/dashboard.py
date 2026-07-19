@@ -128,7 +128,8 @@ def transactions(
         total = cur.fetchone()["n"]
 
         cur.execute(
-            f"""SELECT id, user_id, amount, recipient_id, recipient_account, recipient_bank, narration,
+            f"""SELECT id, user_id, amount, recipient_id, recipient_name, recipient_account,
+                       recipient_bank, narration,
                        channel, device_fingerprint, risk_score, risk_level, action_taken,
                        shield_signals, created_at
                 FROM transactions {where}
