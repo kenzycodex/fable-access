@@ -270,9 +270,16 @@ export function cancelGhost(ghostId: string): void {
   resolvePending("cancelled");
 }
 
-export function confirmGhost(ghostId: string): void {
+/** Release money out of containment. Requires proof of a completed step-up
+ * factor when the container is remote — the server refuses otherwise, and the
+ * caller is expected to run the factor and retry with a token. */
+export async function confirmGhost(ghostId: string, stepupToken?: string | null): Promise<void> {
   const ghost = read().ghosts.find((g) => g.id === ghostId);
-  if (ghost?.remote) void ghostResolve(ghostId, "confirm").catch(() => {});
+  if (ghost?.remote) {
+    // Deliberately not swallowed: a refusal must reach the UI so it can run
+    // the factor, rather than silently marking the transfer released locally.
+    await ghostResolve(ghostId, "confirm", stepupToken);
+  }
   mutate((s) => ({
     ...s,
     ghosts: s.ghosts.map((g) => (g.id === ghostId ? { ...g, status: "released" } : g)),

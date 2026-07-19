@@ -1,10 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Ghost, ShieldWarning, HandPointing } from "@phosphor-icons/react";
 import { Card, Screen, ScreenHeader } from "@/components/demo/kit";
 import { GhostTimer } from "@/components/demo/GhostTimer";
+import { StepUpDialog } from "@/components/demo/StepUpDialog";
+import { StepUpRequiredError } from "@/lib/fable/api";
+import { stepUpRequirement, type StepUpRequirement } from "@/lib/fable/webauthn";
 import { formatNaira } from "@/lib/fable/format";
 import { cancelGhost, confirmGhost, useFableStore } from "@/lib/fable/store";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
@@ -17,10 +20,17 @@ const STEPS = [
 ];
 
 export default function GhostPage() {
-  const { href } = useInstitution();
+  const { href, customer, institutionId } = useInstitution();
   const router = useRouter();
   const store = useFableStore();
   const ghost = store?.ghosts.find((g) => g.status === "held") ?? null;
+
+  // Releasing money out of containment is the one action an attacker in the
+  // session actually wants, so it costs a factor the session can't produce.
+  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [requirement, setRequirement] = useState<StepUpRequirement | null>(null);
+  const [releasing, setReleasing] = useState(false);
+  const [releaseError, setReleaseError] = useState<string | null>(null);
 
   useEffect(() => {
     if (store !== null && !ghost) router.replace(href());
@@ -36,10 +46,57 @@ export default function GhostPage() {
     router.push(href());
   }
 
-  function confirm() {
-    if (!ghost) return;
-    confirmGhost(ghost.id);
-    router.push(href());
+  async function confirm(token?: string) {
+    if (!ghost || releasing) return;
+    setReleasing(true);
+    setReleaseError(null);
+    try {
+      await confirmGhost(ghost.id, token ?? null);
+      router.push(href());
+    } catch (err) {
+      if (err instanceof StepUpRequiredError) {
+        // The server named the factor it wants; go and collect it.
+        try {
+          const req = await stepUpRequirement({
+            userId: customer?.user_id ?? "",
+            riskScore: 0,
+            signals: [],
+            purpose: "ghost_release",
+          });
+          setRequirement({ ...req, level: err.level, ...describeFallback(err.level, req) });
+        } catch {
+          setRequirement(null);
+        }
+        setStepUpOpen(true);
+      } else {
+        setReleaseError(
+          err instanceof Error ? err.message : "Could not release this transfer.",
+        );
+      }
+    } finally {
+      setReleasing(false);
+    }
+  }
+
+  /** The requirement endpoint answers for a hypothetical risk; the refusal
+   * carries the real level, so prefer the server's copy for that level. */
+  function describeFallback(level: string, req: StepUpRequirement) {
+    if (level === req.level) return {};
+    const copy: Record<string, { label: string; detail: string; factors: string[] }> = {
+      pin: { label: "Transaction PIN", detail: "Confirm with a code to release this transfer.", factors: ["otp"] },
+      passkey: { label: "Device biometric", detail: "Confirm with this device's fingerprint or face unlock.", factors: ["passkey"] },
+      passkey_and_otp: {
+        label: "Biometric + emailed code",
+        detail: "Confirm on this device, then enter the code sent to your registered email.",
+        factors: ["passkey", "otp"],
+      },
+      identity_check: {
+        label: "Identity verification",
+        detail: "This transfer needs a liveness check against your registered ID.",
+        factors: ["identity_check"],
+      },
+    };
+    return copy[level] ?? {};
   }
 
   return (
@@ -97,7 +154,7 @@ export default function GhostPage() {
             </button>
             <button
               type="button"
-              onClick={confirm}
+              onClick={() => confirm()}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1a1a1a] py-3 text-[13px] font-semibold text-white/40 transition-colors hover:bg-[#222] hover:text-white/60"
             >
               <HandPointing size={16} />
@@ -106,6 +163,20 @@ export default function GhostPage() {
           </div>
         </div>
       </div>
+      <StepUpDialog
+        open={stepUpOpen}
+        onClose={() => setStepUpOpen(false)}
+        onVerified={(token) => {
+          setStepUpOpen(false);
+          void confirm(token);
+        }}
+        requirement={requirement}
+        userId={customer?.user_id ?? ""}
+        displayName={customer?.name ?? "Customer"}
+        institutionId={institutionId}
+        purpose="ghost_release"
+        reference={ghost.id}
+      />
     </Screen>
   );
 }

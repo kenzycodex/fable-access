@@ -275,6 +275,9 @@ export async function ghostCreate(txn: Transaction): Promise<{ id: string; expir
       },
       risk_score: txn.riskScore,
       explanation: txn.explanation,
+      // The signals travel with the container so release can demand a stronger
+      // factor when the hold was caused by identity signals, not just amount.
+      signals: txn.signals.map((sig) => sig.code),
     }),
   });
   return {
@@ -285,12 +288,46 @@ export async function ghostCreate(txn: Transaction): Promise<{ id: string; expir
 }
 
 /** POST /v1/ghost/{id}/cancel|confirm — money back / release. */
-export async function ghostResolve(ghostId: string, action: "cancel" | "confirm"): Promise<void> {
+/** Thrown when releasing money needs a factor the session hasn't proved. */
+export class StepUpRequiredError extends Error {
+  constructor(readonly level: string, message: string) {
+    super(message);
+    this.name = "StepUpRequiredError";
+  }
+}
+
+export async function ghostResolve(
+  ghostId: string,
+  action: "cancel" | "confirm",
+  stepupToken?: string | null,
+): Promise<void> {
   const endpoint = action === "cancel" ? "cancel" : "confirm";
-  await fetchJson(`/v1/ghost/${ghostId}/${endpoint}`, {
+  // Not routed through fetchJson: a 401 here is meaningful (which factor is
+  // needed), not a generic failure, so the body has to be read before throwing.
+  const res = await fetch(`${API_BASE}/v1/ghost/${ghostId}/${endpoint}`, {
     method: "POST",
-    body: JSON.stringify({ user_id: activeUserId() }),
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ user_id: activeUserId(), stepup_token: stepupToken ?? null }),
   });
+  if (res.status === 401) {
+    const body = await res.json().catch(() => ({}));
+    const detail = body?.detail ?? {};
+    throw new StepUpRequiredError(
+      detail.level ?? "passkey",
+      detail.message ?? "Verification required before this transfer can be released.",
+    );
+  }
+  if (!res.ok) throw new Error(`Fable API ${res.status} on ghost/${endpoint}`);
+}
+
+/** Ghost container detail, including the signals that justified the hold. */
+export function ghostDetail(ghostId: string): Promise<{
+  ghost_id: string;
+  risk_score: number | null;
+  signals?: string[];
+  status: string;
+}> {
+  return fetchJson(`/v1/ghost/${ghostId}`);
 }
 
 // ---------------------------------------------------------------------------
