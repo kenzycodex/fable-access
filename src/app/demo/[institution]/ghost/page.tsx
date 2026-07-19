@@ -7,6 +7,7 @@ import { Card, Screen, ScreenHeader } from "@/components/demo/kit";
 import { GhostTimer } from "@/components/demo/GhostTimer";
 import { formatNaira } from "@/lib/fable/format";
 import { cancelGhost, confirmGhost, useFableStore } from "@/lib/fable/store";
+import { useInstitution } from "@/components/demo/InstitutionProvider";
 
 const STEPS = [
   "Money frozen — not sent yet",
@@ -16,12 +17,13 @@ const STEPS = [
 ];
 
 export default function GhostPage() {
+  const { href } = useInstitution();
   const router = useRouter();
   const store = useFableStore();
   const ghost = store?.ghosts.find((g) => g.status === "held") ?? null;
 
   useEffect(() => {
-    if (store !== null && !ghost) router.replace("/demo");
+    if (store !== null && !ghost) router.replace(href());
   }, [store, ghost, router]);
 
   if (!ghost) {
@@ -31,18 +33,18 @@ export default function GhostPage() {
   function cancel() {
     if (!ghost) return;
     cancelGhost(ghost.id);
-    router.push("/demo");
+    router.push(href());
   }
 
   function confirm() {
     if (!ghost) return;
     confirmGhost(ghost.id);
-    router.push("/demo");
+    router.push(href());
   }
 
   return (
     <Screen>
-      <ScreenHeader title="Containment" subtitle="Transfer on hold" backHref="/demo" />
+      <ScreenHeader title="Containment" subtitle="Transfer on hold" />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
         <div className="flex flex-col gap-5 lg:col-span-3">

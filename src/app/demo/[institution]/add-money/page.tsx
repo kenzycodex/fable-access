@@ -4,8 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, Bank, CreditCard, SpinnerGap } from "@phosphor-icons/react";
 import { Screen, ScreenHeader, Card } from "@/components/demo/kit";
+import { useInstitution } from "@/components/demo/InstitutionProvider";
 
 export default function AddMoneyPage() {
+  const { href } = useInstitution();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [method, setMethod] = useState<"card" | "transfer">("card");
@@ -14,7 +16,7 @@ export default function AddMoneyPage() {
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
-      router.push("/demo");
+      router.push(href());
     }, 1500);
   }
 

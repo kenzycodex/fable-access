@@ -24,12 +24,20 @@ import { DEMO_USER } from "@/lib/fable/seed";
 import { ensureSession } from "@/lib/fable/session";
 import { useFableStore } from "@/lib/fable/store";
 import type { Transaction } from "@/lib/fable/types";
+import { useInstitution } from "@/components/demo/InstitutionProvider";
+import { CustomerSwitcher } from "@/components/demo/CustomerSwitcher";
 
 export default function DemoHomePage() {
+  const { href, customer } = useInstitution();
   const store = useFableStore();
   const [balanceHidden, setBalanceHidden] = useState(false);
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+
+  // The active customer drives the whole screen; fall back to the seed user
+  // on the first paint before the roster has loaded.
+  const displayName = customer?.name ?? DEMO_USER.name;
+  const firstName = displayName.split(" ")[0];
 
   useEffect(() => {
     setMounted(true);
@@ -38,19 +46,21 @@ export default function DemoHomePage() {
   }, []);
 
   const myTxns: Transaction[] = (store?.transactions ?? [])
-    .filter((t) => t.customerName === DEMO_USER.name)
+    .filter((t) => t.customerName === displayName)
     .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, 5);
 
   return (
     <Screen>
+      <CustomerSwitcher />
+
       {/* Top bar */}
       <div className="mb-5 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Avatar name={DEMO_USER.firstName} size="lg" />
+          <Avatar name={firstName} size="lg" />
           <div>
             <p className="text-[12px] text-gray-500 dark:text-white/40">Good morning 👋</p>
-            <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{DEMO_USER.name}</p>
+            <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{displayName}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -65,7 +75,7 @@ export default function DemoHomePage() {
             </button>
           )}
           <Link
-            href="/demo/notifications"
+            href={href("/notifications")}
             className="relative flex size-10 items-center justify-center rounded-xl bg-gray-200 text-gray-600 transition-colors hover:bg-gray-300 dark:bg-white/[0.04] dark:text-white/50 dark:hover:bg-white/[0.08] cursor-pointer"
             aria-label="Notifications"
           >
@@ -118,28 +128,28 @@ export default function DemoHomePage() {
 
           {/* Quick actions */}
           <div className="grid grid-cols-4 gap-2">
-            <Link href="/demo/add-money" className="group flex flex-col items-center gap-1.5 cursor-pointer">
+            <Link href={href("/add-money")} className="group flex flex-col items-center gap-1.5 cursor-pointer">
               <span className="flex size-12 items-center justify-center rounded-xl transition-colors bg-gray-100 text-gray-500 border border-gray-200 group-hover:bg-gray-200 dark:bg-white/[0.04] dark:text-white/50 dark:group-hover:bg-white/[0.08] dark:group-hover:text-white/70 dark:border-white/[0.04]">
                 <ArrowDown size={22} weight="regular" />
               </span>
               <span className="text-[11px] font-medium text-gray-500 dark:text-white/45">Add money</span>
             </Link>
 
-            <Link href="/demo/transfer" className="group flex flex-col items-center gap-1.5">
+            <Link href={href("/transfer")} className="group flex flex-col items-center gap-1.5">
               <span className="flex size-12 items-center justify-center rounded-xl transition-all bg-[#7C3AED] text-white shadow-lg shadow-[#7C3AED]/20 hover:opacity-90">
                 <PaperPlaneTilt size={22} weight="fill" />
               </span>
               <span className="text-[11px] font-medium text-gray-500 dark:text-white/45">Transfer</span>
             </Link>
 
-            <Link href="/demo/cards" className="group flex flex-col items-center gap-1.5 cursor-pointer">
+            <Link href={href("/cards")} className="group flex flex-col items-center gap-1.5 cursor-pointer">
               <span className="flex size-12 items-center justify-center rounded-xl transition-colors bg-gray-100 text-gray-500 border border-gray-200 group-hover:bg-gray-200 dark:bg-white/[0.04] dark:text-white/50 dark:group-hover:bg-white/[0.08] dark:group-hover:text-white/70 dark:border-white/[0.04]">
                 <CreditCard size={22} weight="regular" />
               </span>
               <span className="text-[11px] font-medium text-gray-500 dark:text-white/45">Cards</span>
             </Link>
 
-            <Link href="/demo/history" className="group flex flex-col items-center gap-1.5">
+            <Link href={href("/history")} className="group flex flex-col items-center gap-1.5">
               <span className="flex size-12 items-center justify-center rounded-xl transition-colors bg-gray-100 text-gray-500 border border-gray-200 group-hover:bg-gray-200 dark:bg-white/[0.04] dark:text-white/50 dark:group-hover:bg-white/[0.08] dark:group-hover:text-white/70 dark:border-white/[0.04]">
                 <DotsThreeOutline size={22} weight="regular" />
               </span>
@@ -191,7 +201,7 @@ export default function DemoHomePage() {
           <Card>
             <div className="mb-3 flex items-center justify-between">
               <p className="text-[13px] font-bold text-gray-900 dark:text-white">Recent Activity</p>
-              <Link href="/demo/history" className="flex items-center gap-1 text-[11px] font-medium text-[#7C3AED]">
+              <Link href={href("/history")} className="flex items-center gap-1 text-[11px] font-medium text-[#7C3AED]">
                 <ClockCounterClockwise size={12} weight="bold" />
                 See all
               </Link>

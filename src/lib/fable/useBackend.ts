@@ -38,16 +38,26 @@ export interface DashboardFeed {
   transactions: Transaction[];
 }
 
-const fetcher = () => dashboardTransactions(300);
+/** The institution the console is signed in as. Every read is scoped to it so
+ * one tenant can never see another's transactions. */
+function useTenant(): string | null {
+  const store = useFableStore();
+  return store?.session.institutionId ?? null;
+}
 
 export function useDashboardFeed(pollMs = 4_000): DashboardFeed {
   const store = useFableStore();
-  const { data, error } = useSWR<Transaction[]>("fable:dashboard-transactions", fetcher, {
-    refreshInterval: pollMs,
-    revalidateOnFocus: true,
-    keepPreviousData: true,
-    shouldRetryOnError: true,
-  });
+  const institution = store?.session.institutionId ?? null;
+  const { data, error } = useSWR<Transaction[]>(
+    ["fable:dashboard-transactions", institution],
+    () => dashboardTransactions(300, institution),
+    {
+      refreshInterval: pollMs,
+      revalidateOnFocus: true,
+      keepPreviousData: true,
+      shouldRetryOnError: true,
+    },
+  );
 
   // Backend is serving.
   if (data && !error) {
@@ -70,7 +80,8 @@ export function useDashboardFeed(pollMs = 4_000): DashboardFeed {
 
 /** Intelligence rollups (scam patterns, channel risk, signal frequency). */
 export function useIntelligence(pollMs = 8_000) {
-  return useSWR<DashboardIntelligence>("fable:intelligence", () => dashboardIntelligence(), {
+  const institution = useTenant();
+  return useSWR<DashboardIntelligence>(["fable:intelligence", institution], () => dashboardIntelligence(institution), {
     refreshInterval: pollMs,
     keepPreviousData: true,
   });
@@ -78,7 +89,8 @@ export function useIntelligence(pollMs = 8_000) {
 
 /** Watch Alerts feed (flagged/blocked transfers). */
 export function useAlerts(pollMs = 5_000) {
-  return useSWR<DashboardAlerts>("fable:alerts", () => dashboardAlerts(60), {
+  const institution = useTenant();
+  return useSWR<DashboardAlerts>(["fable:alerts", institution], () => dashboardAlerts(60, institution), {
     refreshInterval: pollMs,
     keepPreviousData: true,
   });
@@ -86,7 +98,8 @@ export function useAlerts(pollMs = 5_000) {
 
 /** Compliance rollups (audit, CSAT proxy, incident log, frameworks). */
 export function useCompliance(pollMs = 10_000) {
-  return useSWR<DashboardCompliance>("fable:compliance", () => dashboardCompliance(), {
+  const institution = useTenant();
+  return useSWR<DashboardCompliance>(["fable:compliance", institution], () => dashboardCompliance(institution), {
     refreshInterval: pollMs,
     keepPreviousData: true,
   });
@@ -101,7 +114,8 @@ export function useCopilotBaseline() {
 
 /** Agents overview: live stats for Copilot, Shield, Ghost, Watch. */
 export function useAgentsOverview(pollMs = 6_000) {
-  return useSWR<AgentsOverview>("fable:agents-overview", () => agentsOverview(), {
+  const institution = useTenant();
+  return useSWR<AgentsOverview>(["fable:agents-overview", institution], () => agentsOverview(institution), {
     refreshInterval: pollMs,
     keepPreviousData: true,
   });
@@ -109,16 +123,18 @@ export function useAgentsOverview(pollMs = 6_000) {
 
 /** Copilot deep-dive: per-customer learned baselines. */
 export function useCopilotCustomers(pollMs = 8_000) {
+  const institution = useTenant();
   return useSWR<{ customers: CopilotCustomer[]; total: number }>(
-    "fable:agents-copilot",
-    () => agentsCopilotCustomers(),
+    ["fable:agents-copilot", institution],
+    () => agentsCopilotCustomers(institution),
     { refreshInterval: pollMs, keepPreviousData: true },
   );
 }
 
 /** Shield deep-dive: pipeline config + recent decisions with full signals. */
 export function useShieldDecisions(pollMs = 5_000) {
-  return useSWR<ShieldDecisions>("fable:agents-shield", () => agentsShieldDecisions(40), {
+  const institution = useTenant();
+  return useSWR<ShieldDecisions>(["fable:agents-shield", institution], () => agentsShieldDecisions(40, institution), {
     refreshInterval: pollMs,
     keepPreviousData: true,
   });
@@ -126,7 +142,8 @@ export function useShieldDecisions(pollMs = 5_000) {
 
 /** Ghost deep-dive: containers, resolution stats, cooling windows. */
 export function useGhostContainers(pollMs = 5_000) {
-  return useSWR<GhostContainers>("fable:agents-ghost", () => agentsGhostContainers(60), {
+  const institution = useTenant();
+  return useSWR<GhostContainers>(["fable:agents-ghost", institution], () => agentsGhostContainers(60, institution), {
     refreshInterval: pollMs,
     keepPreviousData: true,
   });

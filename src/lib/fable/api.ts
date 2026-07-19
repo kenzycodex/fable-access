@@ -11,9 +11,13 @@ import type { DeviceFingerprint } from "./fingerprint";
 import type { GeoLocation } from "./geolocation";
 import { CHANNEL_LABELS } from "./scoring";
 import type { SessionContext } from "./session";
+import { activeInstitution, activeUserId, authHeaders } from "./tenant";
 import type { Channel, RiskAction, ScoreResult, Signal, Transaction, TransactionInput } from "./types";
 
 export const API_BASE = (process.env.NEXT_PUBLIC_FABLE_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
+/** Legacy single-tenant user id. Still the fallback for dashboard reads that
+ * predate multi-tenancy; live demo transfers use the customer picked in the
+ * demo bank (see tenant.ts). */
 export const DEMO_USER_ID = "demo_user_001";
 
 async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs = 8000): Promise<T> {
@@ -23,13 +27,26 @@ async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs = 8000):
     const res = await fetch(`${API_BASE}${path}`, {
       ...init,
       signal: controller.signal,
-      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      headers: {
+        "Content-Type": "application/json",
+        // Sends the institution's API key when the demo bank has been
+        // connected, which is how a real integrating bank authenticates.
+        ...authHeaders(),
+        ...(init?.headers ?? {}),
+      },
     });
     if (!res.ok) throw new Error(`Fable API ${res.status} on ${path}`);
     return (await res.json()) as T;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Query fragment scoping a dashboard read to one institution. `first`
+ * omits the leading ampersand when it opens the query string. */
+function tenantParam(institution?: string | null, first = false): string {
+  if (!institution) return "";
+  return `${first ? "" : "&"}institution=${encodeURIComponent(institution)}`;
 }
 
 let availabilityCache = { at: 0, ok: false };
@@ -170,7 +187,8 @@ export async function shieldAnalyze(input: TransactionInput, sdk?: Partial<SdkTe
   const res = await fetchJson<ApiShieldResponse>("/v1/shield/analyze", {
     method: "POST",
     body: JSON.stringify({
-      user_id: DEMO_USER_ID,
+      user_id: activeUserId(),
+      institution_id: activeInstitution(),
       transaction: {
         amount: input.amount,
         currency: "NGN",
@@ -245,7 +263,8 @@ export async function ghostCreate(txn: Transaction): Promise<{ id: string; expir
   const res = await fetchJson<ApiGhostResponse>("/v1/ghost/create", {
     method: "POST",
     body: JSON.stringify({
-      user_id: DEMO_USER_ID,
+      user_id: activeUserId(),
+      institution_id: activeInstitution(),
       transaction: {
         amount: txn.amount,
         recipient_id: txn.recipientName.toLowerCase(),
@@ -270,7 +289,7 @@ export async function ghostResolve(ghostId: string, action: "cancel" | "confirm"
   const endpoint = action === "cancel" ? "cancel" : "confirm";
   await fetchJson(`/v1/ghost/${ghostId}/${endpoint}`, {
     method: "POST",
-    body: JSON.stringify({ user_id: DEMO_USER_ID }),
+    body: JSON.stringify({ user_id: activeUserId() }),
   });
 }
 
@@ -324,9 +343,11 @@ function mapApiRow(r: ApiTransactionRow): Transaction {
 
 /** GET /v1/dashboard/transactions — the institution feed (frontend shape).
  * Clamped to the API's max page size (200) so an over-large limit can't 422. */
-export async function dashboardTransactions(limit = 200): Promise<Transaction[]> {
+export async function dashboardTransactions(limit = 200, institution?: string | null): Promise<Transaction[]> {
   const capped = Math.min(Math.max(1, limit), 200);
-  const res = await fetchJson<{ transactions: ApiTransactionRow[] }>(`/v1/dashboard/transactions?limit=${capped}`);
+  const res = await fetchJson<{ transactions: ApiTransactionRow[] }>(
+    `/v1/dashboard/transactions?limit=${capped}${tenantParam(institution)}`,
+  );
   return res.transactions.map(mapApiRow);
 }
 
@@ -397,8 +418,8 @@ export interface DashboardIntelligence {
   signals: { label: string; count: number }[];
 }
 
-export function dashboardIntelligence(): Promise<DashboardIntelligence> {
-  return fetchJson<DashboardIntelligence>("/v1/dashboard/intelligence");
+export function dashboardIntelligence(institution?: string | null): Promise<DashboardIntelligence> {
+  return fetchJson<DashboardIntelligence>(`/v1/dashboard/intelligence?${tenantParam(institution, true)}`);
 }
 
 export interface AlertRow {
@@ -419,8 +440,8 @@ export interface DashboardAlerts {
   counts: { blocked: number; flagged: number; open: number };
 }
 
-export function dashboardAlerts(limit = 50): Promise<DashboardAlerts> {
-  return fetchJson<DashboardAlerts>(`/v1/dashboard/alerts?limit=${limit}`);
+export function dashboardAlerts(limit = 50, institution?: string | null): Promise<DashboardAlerts> {
+  return fetchJson<DashboardAlerts>(`/v1/dashboard/alerts?limit=${limit}${tenantParam(institution)}`);
 }
 
 export interface DashboardCompliance {
@@ -431,8 +452,8 @@ export interface DashboardCompliance {
   frameworks: { name: string; status: string }[];
 }
 
-export function dashboardCompliance(): Promise<DashboardCompliance> {
-  return fetchJson<DashboardCompliance>("/v1/dashboard/compliance");
+export function dashboardCompliance(institution?: string | null): Promise<DashboardCompliance> {
+  return fetchJson<DashboardCompliance>(`/v1/dashboard/compliance?${tenantParam(institution, true)}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -473,8 +494,8 @@ export interface AgentsOverview {
   watch: { status: string; description: string };
 }
 
-export function agentsOverview(): Promise<AgentsOverview> {
-  return fetchJson<AgentsOverview>("/v1/agents/overview");
+export function agentsOverview(institution?: string | null): Promise<AgentsOverview> {
+  return fetchJson<AgentsOverview>(`/v1/agents/overview?${tenantParam(institution, true)}`);
 }
 
 export interface CopilotCustomer {
@@ -496,8 +517,8 @@ export interface CopilotCustomer {
   last_updated?: string;
 }
 
-export function agentsCopilotCustomers(): Promise<{ customers: CopilotCustomer[]; total: number }> {
-  return fetchJson("/v1/agents/copilot/customers");
+export function agentsCopilotCustomers(institution?: string | null): Promise<{ customers: CopilotCustomer[]; total: number }> {
+  return fetchJson(`/v1/agents/copilot/customers?${tenantParam(institution, true)}`);
 }
 
 export interface ShieldPipelineStep {
@@ -543,8 +564,8 @@ export interface ShieldDecisions {
   };
 }
 
-export function agentsShieldDecisions(limit = 25): Promise<ShieldDecisions> {
-  return fetchJson(`/v1/agents/shield/decisions?limit=${limit}`);
+export function agentsShieldDecisions(limit = 25, institution?: string | null): Promise<ShieldDecisions> {
+  return fetchJson(`/v1/agents/shield/decisions?limit=${limit}${tenantParam(institution)}`);
 }
 
 export interface GhostContainerRow {
@@ -580,8 +601,8 @@ export interface GhostContainers {
   };
 }
 
-export function agentsGhostContainers(limit = 50): Promise<GhostContainers> {
-  return fetchJson(`/v1/agents/ghost/containers?limit=${limit}`);
+export function agentsGhostContainers(limit = 50, institution?: string | null): Promise<GhostContainers> {
+  return fetchJson(`/v1/agents/ghost/containers?limit=${limit}${tenantParam(institution)}`);
 }
 
 export interface CopilotBaseline {

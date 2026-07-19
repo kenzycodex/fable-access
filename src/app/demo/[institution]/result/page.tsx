@@ -8,14 +8,16 @@ import { RiskScoreCounter } from "@/components/demo/RiskScoreCounter";
 import { SignalCard } from "@/components/demo/SignalCard";
 import { formatNaira, formatRiskScore } from "@/lib/fable/format";
 import { commitPass, createGhost, resolvePending, useFableStore } from "@/lib/fable/store";
+import { useInstitution } from "@/components/demo/InstitutionProvider";
 
 export default function ResultPage() {
+  const { href } = useInstitution();
   const router = useRouter();
   const store = useFableStore();
   const pending = store?.pending ?? null;
 
   useEffect(() => {
-    if (store !== null && !pending) router.replace("/demo");
+    if (store !== null && !pending) router.replace(href());
   }, [store, pending, router]);
 
   if (!pending) {
@@ -30,10 +32,11 @@ export default function ResultPage() {
 
 function PassResult({ amount, recipient, score }: { amount: number; recipient: string; score: number }) {
   const router = useRouter();
+  const { href } = useInstitution();
 
   function done() {
     commitPass();
-    router.push("/demo");
+    router.push(href());
   }
 
   return (
@@ -81,6 +84,7 @@ function PassResult({ amount, recipient, score }: { amount: number; recipient: s
 
 function FlagBlockResult() {
   const router = useRouter();
+  const { href } = useInstitution();
   const store = useFableStore();
   const pending = store?.pending ?? null;
   if (!pending) return null;
@@ -89,17 +93,17 @@ function FlagBlockResult() {
 
   function cancel() {
     resolvePending(isBlock ? "blocked" : "cancelled");
-    router.push("/demo");
+    router.push(href());
   }
 
   async function sendAnyway() {
     await createGhost();
-    router.push("/demo/ghost");
+    router.push(href("/ghost"));
   }
 
   return (
     <Screen>
-      <ScreenHeader title="Fable Shield" subtitle="Real-time review" backHref="/demo" />
+      <ScreenHeader title="Fable Shield" subtitle="Real-time review" />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
         <div className="flex flex-col gap-5 lg:col-span-3">

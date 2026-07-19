@@ -23,6 +23,7 @@ import {
   type SdkTelemetry,
 } from "./api";
 import { scoreTransaction } from "./scoring";
+import { getTenant } from "./tenant";
 import {
   DEMO_USER,
   INSTITUTION,
@@ -179,7 +180,7 @@ export async function submitTransfer(input: TransactionInput, sdk?: Partial<SdkT
     recipientName: input.recipient.name,
     recipientBank: input.recipient.bank,
     recipientAccount: input.recipient.accountNumber,
-    customerName: DEMO_USER.name,
+    customerName: getTenant().customerName ?? DEMO_USER.name,
     live: true,
     remote,
   };
@@ -283,9 +284,15 @@ export function setTransparency(patch: Partial<TransparencyState>): void {
   mutate((s) => ({ ...s, transparency: { ...s.transparency, ...patch } }));
 }
 
-export function login(): void {
+/** Sign the console in as a specific institution. The id comes from
+ * /auth/login and scopes every dashboard query; it falls back to the seeded
+ * demo tenant so the offline/local path still works. */
+export function login(institutionId?: string | null): void {
   if (canUseDom()) document.cookie = "fable_auth=1; path=/; max-age=86400";
-  mutate((s) => ({ ...s, session: { loggedIn: true, institutionId: INSTITUTION.id } }));
+  mutate((s) => ({
+    ...s,
+    session: { loggedIn: true, institutionId: institutionId ?? INSTITUTION.id },
+  }));
 }
 
 export function logout(): void {

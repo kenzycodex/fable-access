@@ -52,7 +52,7 @@ export default function TransparencyPage() {
   if (!state) {
     return (
       <Screen>
-        <ScreenHeader title="Security" subtitle="Privacy & fraud protection" backHref="/demo" />
+        <ScreenHeader title="Security" subtitle="Privacy & fraud protection" />
         <div className="flex min-h-[300px] items-center justify-center text-[13px] text-white/50">Loading…</div>
       </Screen>
     );
@@ -60,7 +60,7 @@ export default function TransparencyPage() {
 
   return (
     <Screen>
-      <ScreenHeader title="Security" subtitle="Privacy & fraud protection" backHref="/demo" />
+      <ScreenHeader title="Security" subtitle="Privacy & fraud protection" />
 
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-5 lg:gap-5">
         {/* Main column */}

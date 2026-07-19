@@ -36,7 +36,7 @@ export default function HistoryPage() {
 
   return (
     <Screen>
-      <ScreenHeader title="Activity" backHref="/demo" />
+      <ScreenHeader title="Activity" />
 
       <div className="mb-5 flex flex-col gap-3">
         {/* Search bar */}

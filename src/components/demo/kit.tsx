@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowLeftIcon } from "@/components/app-icons";
+import { useInstitution } from "@/components/demo/InstitutionProvider";
 
 /** Page wrapper — consistent padding across breakpoints. */
 export function Screen({ children, className = "" }: { children: ReactNode; className?: string }) {
@@ -13,11 +14,12 @@ export function Screen({ children, className = "" }: { children: ReactNode; clas
   );
 }
 
-/** Page header with back arrow on mobile. */
+/** Page header with back arrow on mobile. Back defaults to the current
+ * institution's home, so callers never hardcode a tenant-less /demo link. */
 export function ScreenHeader({
   title,
   subtitle,
-  backHref = "/demo",
+  backHref,
   right,
 }: {
   title: string;
@@ -25,11 +27,13 @@ export function ScreenHeader({
   backHref?: string;
   right?: ReactNode;
 }) {
+  const { href } = useInstitution();
+  const target = backHref ?? href();
   return (
     <header className="mb-5 flex items-center gap-3">
-      {backHref && (
+      {target && (
         <Link
-          href={backHref}
+          href={target}
           aria-label="Back"
           className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-600 transition-colors hover:bg-gray-200 dark:bg-[#1a1a1a] dark:text-white/60 dark:hover:bg-[#222] lg:hidden"
         >

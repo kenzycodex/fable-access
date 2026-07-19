@@ -13,6 +13,7 @@ import { CONTACTS, QUICK_AMOUNTS } from "@/lib/fable/seed";
 import { ensureSession, getSessionContext, type BankingSession } from "@/lib/fable/session";
 import { submitTransfer } from "@/lib/fable/store";
 import type { Channel, Recipient } from "@/lib/fable/types";
+import { useInstitution } from "@/components/demo/InstitutionProvider";
 
 interface Bank {
   name: string;
@@ -39,6 +40,7 @@ const recordKey = (field: string) => () => tracker?.recordKey(field);
 const recordPaste = (field: string) => () => tracker?.recordPaste(field);
 
 export default function TransferPage() {
+  const { href } = useInstitution();
   const router = useRouter();
   const [mode, setMode] = useState<"beneficiary" | "new">("beneficiary");
   const [contact, setContact] = useState<Recipient | null>(null);
@@ -200,12 +202,12 @@ export default function TransferPage() {
       submitTransfer({ amount: amountValue, recipient: contact, narration, channel }, sdk),
       minDelay,
     ]);
-    router.push("/demo/result");
+    router.push(href("/result"));
   }
 
   return (
     <Screen>
-      <ScreenHeader title="Send money" backHref="/demo" />
+      <ScreenHeader title="Send money" />
 
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-5 lg:gap-5">
         <div className="flex flex-col gap-4 lg:col-span-3">
