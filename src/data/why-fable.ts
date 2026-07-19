@@ -90,6 +90,14 @@ export const industryTabs: IndustryTab[] = [
     learnMoreHref: "#technology",
     caseStudies: [],
   },
+  {
+    label: "Remittance & MTOs",
+    panelTitle: "Remittance & Money Transfer Operators",
+    icon: { src: "/images/why-fable/ind-gambling.png", alt: "", width: 80, height: 80 },
+    body: "Cross-border payouts are where a sudden change of destination country or beneficiary is the whole signal. Shield reads location and device context on the payout leg, and Ghost holds the transfer while it is still recallable rather than after settlement.",
+    learnMoreHref: "#technology",
+    caseStudies: [],
+  },
 ];
 
 // "Technology" section: the actual pitch. Every bank's fraud system kicks

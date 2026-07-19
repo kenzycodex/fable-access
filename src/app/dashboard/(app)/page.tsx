@@ -28,7 +28,7 @@ export default function OverviewPage() {
 
   return (
     <>
-      <div className="relative mb-6 rounded-3xl overflow-hidden border border-gray-200 dark:border-white/[0.04] bg-white dark:bg-black p-8 lg:p-10 shadow-sm dark:shadow-none">
+      <div className="relative mb-3 rounded-3xl overflow-hidden border border-gray-200 dark:border-white/[0.04] bg-white dark:bg-black p-8 lg:p-10 shadow-sm dark:shadow-none">
         {/* Abstract SVG Background Illustration */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-40">
           <svg className="absolute left-[10%] top-0 h-[200%] w-auto -translate-y-1/4 animate-[spin_60s_linear_infinite]" viewBox="0 0 800 800" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -58,7 +58,7 @@ export default function OverviewPage() {
       </div>
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 mt-2">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 mt-0">
         <StatCard label="Transactions" value={String(s.total)} sub="Scored by Fable" />
         <StatCard
           label="Threats blocked"
