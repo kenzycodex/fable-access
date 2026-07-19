@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from config import GHOST_COOLING_HIGH, GHOST_COOLING_MED, GHOST_COOLING_LOW
-from db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict, dumps
+from db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict, dumps, loads
 
 
 def calculate_cooling_window(risk_score: float) -> int:
@@ -27,6 +27,7 @@ def create_ghost_container(
     risk_score: float,
     explanation: str,
     institution_id: str | None = None,
+    signals: list[str] | None = None,
 ) -> dict:
     ghost_id = f"ghost_{uuid.uuid4().hex[:12]}"
     cooling_minutes = calculate_cooling_window(risk_score)
@@ -38,8 +39,8 @@ def create_ghost_container(
             """INSERT INTO ghost_containers
                (ghost_id, user_id, amount, recipient_id, recipient_account, recipient_bank,
                 status, cooling_window_minutes, risk_score, explanation, created_at, expires_at,
-                institution_id)
-               VALUES (?, ?, ?, ?, ?, ?, 'HELD', ?, ?, ?, ?, ?, ?)""",
+                institution_id, signals)
+               VALUES (?, ?, ?, ?, ?, ?, 'HELD', ?, ?, ?, ?, ?, ?, ?)""",
             (
                 ghost_id,
                 user_id,
@@ -53,6 +54,7 @@ def create_ghost_container(
                 created_at.isoformat(),
                 expires_at.isoformat(),
                 institution_id or DEFAULT_INSTITUTION_ID,
+                dumps(signals or []),
             ),
         )
 
@@ -100,7 +102,18 @@ def cancel_ghost(ghost_id: str, user_id: str) -> dict:
     }
 
 
-def release_ghost(ghost_id: str, user_id: str) -> dict:
+class StepUpRequired(Exception):
+    """Release refused because the caller hasn't proved who they are.
+
+    Carries the level demanded so the client can start the right flow.
+    """
+
+    def __init__(self, level: str, message: str):
+        super().__init__(message)
+        self.level = level
+
+
+def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) -> dict:
     container = get_ghost_container(ghost_id)
     if not container:
         raise ValueError("Ghost container not found")
@@ -108,6 +121,28 @@ def release_ghost(ghost_id: str, user_id: str) -> dict:
         raise PermissionError("Unauthorized")
     if container["status"] != "HELD":
         raise ValueError(f"Container already resolved: {container['status']}")
+
+    # The whole point of containment. Ghost holds money precisely because the
+    # transfer looked wrong, so "release" is the most attacker-valuable button
+    # in the product — and until now it was guarded only by a user_id the
+    # client supplies about itself. An attacker holding the session could
+    # simply press it. Releasing now costs a factor the session alone can't
+    # produce; cancelling stays free, because returning money is always safe.
+    from agents.shield import assurance, stepup as stepup_service
+
+    signals = loads(container.get("signals"), []) if container.get("signals") else []
+    required = assurance.release_level(container.get("risk_score") or 0.0, signals)
+    proved = stepup_service.verify_token(stepup_token, user_id, "ghost_release", ghost_id)
+
+    if not assurance.satisfies(proved, required):
+        stepup_service.record_failure(user_id, "ghost_release", f"missing_{required}")
+        raise StepUpRequired(
+            required,
+            "This transfer can't be released until you verify it's you.",
+        )
+
+    if stepup_token:
+        stepup_service.consume_token(stepup_token)
 
     with cursor() as cur:
         cur.execute(

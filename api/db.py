@@ -125,6 +125,59 @@ CREATE TABLE IF NOT EXISTS institutions (
     contact_email TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 );
+
+-- Registered WebAuthn passkeys. The private key never leaves the
+-- authenticator; we hold only the public key and the signature counter.
+CREATE TABLE IF NOT EXISTS user_credentials (
+    credential_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    institution_id TEXT,
+    public_key TEXT NOT NULL,
+    sign_count INTEGER DEFAULT 0,
+    transports TEXT,
+    device_label TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    last_used_at TEXT
+);
+
+-- Short-lived challenges: WebAuthn nonces and emailed OTP codes. Rows are
+-- single-use and expire; a consumed or stale row can never be replayed.
+CREATE TABLE IF NOT EXISTS stepup_challenges (
+    challenge_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL,               -- 'webauthn_register' | 'webauthn_auth' | 'otp'
+    payload TEXT NOT NULL,            -- challenge bytes (b64) or hashed OTP
+    purpose TEXT,                     -- 'transfer' | 'ghost_release'
+    reference TEXT,                   -- ghost_id / transaction id the step-up is bound to
+    attempts INTEGER DEFAULT 0,
+    consumed INTEGER DEFAULT 0,
+    expires_at TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Proof that a factor was completed. Presented when releasing money; bound to
+-- one user, one purpose and one reference so a token minted for a small
+-- transfer cannot be replayed against a large one.
+CREATE TABLE IF NOT EXISTS stepup_tokens (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    level TEXT NOT NULL,
+    purpose TEXT,
+    reference TEXT,
+    consumed INTEGER DEFAULT 0,
+    expires_at TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Failed factor attempts, so Shield can treat "three failed biometrics before
+-- a large transfer" as the evidence it plainly is.
+CREATE TABLE IF NOT EXISTS stepup_failures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    kind TEXT,
+    reason TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
 """
 
 # The tenant every pre-multi-tenant row belongs to. Existing databases were
@@ -152,6 +205,10 @@ MIGRATIONS = {
     },
     "ghost_containers": {
         "institution_id": "TEXT",
+        # The signals that caused the hold. Needed at release time: a container
+        # held because of an unfamiliar device demands a stronger factor than
+        # one held purely on amount.
+        "signals": "TEXT",
     },
     "api_keys": {
         "institution_id": "TEXT",

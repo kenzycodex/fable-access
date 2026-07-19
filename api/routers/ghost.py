@@ -6,6 +6,7 @@ from agents.ghost.account import (
     get_ghost_container,
     cancel_ghost,
     release_ghost,
+    StepUpRequired,
 )
 from tenancy import resolve_institution
 
@@ -17,7 +18,8 @@ def create(payload: GhostCreateRequest, request: Request):
     transaction = payload.transaction.model_dump()
     institution_id = resolve_institution(request, payload.institution_id)
     return create_ghost_container(
-        payload.user_id, transaction, payload.risk_score, payload.explanation, institution_id
+        payload.user_id, transaction, payload.risk_score, payload.explanation,
+        institution_id, payload.signals,
     )
 
 
@@ -42,7 +44,14 @@ def cancel(ghost_id: str, payload: GhostActionRequest):
 @router.post("/{ghost_id}/confirm")
 def confirm(ghost_id: str, payload: GhostActionRequest):
     try:
-        return release_ghost(ghost_id, payload.user_id)
+        return release_ghost(ghost_id, payload.user_id, payload.stepup_token)
+    except StepUpRequired as e:
+        # 401 with the demanded level, so the client knows which factor to run
+        # rather than just being told no.
+        raise HTTPException(
+            status_code=401,
+            detail={"error": "step_up_required", "level": e.level, "message": str(e)},
+        )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except PermissionError as e:

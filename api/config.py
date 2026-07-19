@@ -46,6 +46,14 @@ CORS_ORIGINS = ["*"] if _raw_origins.strip() == "*" else [o.strip() for o in _ra
 # Optional Sentry error monitoring.
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 
+# --- WebAuthn (step-up identity verification) ---
+# The Relying Party ID must be the site's registered domain (no scheme/port),
+# and every origin the browser may present from must be listed. localhost is a
+# secure context for WebAuthn, so passkeys work in local development.
+WEBAUTHN_RP_ID = os.getenv("WEBAUTHN_RP_ID", "localhost")
+_raw_origins_wa = os.getenv("WEBAUTHN_ORIGINS", "http://localhost:3000,http://localhost:3001")
+WEBAUTHN_ORIGINS = [o.strip() for o in _raw_origins_wa.split(",") if o.strip()]
+
 # Risk thresholds
 BLOCK_THRESHOLD = 0.8
 FLAG_THRESHOLD = 0.5

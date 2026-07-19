@@ -106,10 +106,14 @@ class GhostCreateRequest(BaseModel):
     risk_score: float
     explanation: str = ""
     institution_id: Optional[str] = None
+    # Why Shield held it — decides how strong the release factor must be.
+    signals: list[str] = Field(default_factory=list)
 
 
 class GhostActionRequest(BaseModel):
     user_id: str
+    # Proof of a completed step-up factor. Required to release, never to cancel.
+    stepup_token: Optional[str] = None
 
 
 class FeedbackRequest(BaseModel):

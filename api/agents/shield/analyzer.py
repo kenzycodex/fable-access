@@ -172,6 +172,25 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         signals.append(f"behavioral_anomaly: {', '.join(behavioral_reasons)} (+{behavioral_boost})")
         score += behavioral_boost
 
+    # Step 13: Failed identity checks. previous_failed_attempts has sat in the
+    # schema unused; a customer who just failed biometrics three times before
+    # reaching for a large transfer is the clearest signal in the whole
+    # pipeline, so it is read from the recorded failures rather than trusted
+    # from the client.
+    try:
+        from agents.shield.stepup import recent_failure_count
+        failed = recent_failure_count(user_id)
+    except Exception:
+        failed = 0
+    failed = max(failed, int(context.get("previous_failed_attempts") or 0))
+    if failed >= 3:
+        boost = 0.25 if is_large else 0.15
+        signals.append(f"failed_verification: {failed} failed identity checks recently (+{boost})")
+        score += boost
+    elif failed > 0 and is_large:
+        signals.append(f"failed_verification: {failed} failed identity check(s) (+0.08)")
+        score += 0.08
+
     # Step 12: Timezone mismatch — device timezone disagrees with the baseline
     device_tz = context.get("client_timezone") or device.get("timezone")
     typical_tz = baseline.get("typical_timezone") if baseline else None
