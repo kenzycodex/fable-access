@@ -11,7 +11,7 @@ import {
 import { Card, PageHeader, RiskBadge, StatCard } from "@/components/dashboard/primitives";
 import { formatNaira, formatNairaCompact, formatRelativeTime } from "@/lib/fable/format";
 import { INSTITUTION } from "@/lib/fable/seed";
-import { useDashboardFeed } from "@/lib/fable/useBackend";
+import { useDashboardFeed, useIntelligence } from "@/lib/fable/useBackend";
 import type { Transaction } from "@/lib/fable/types";
 
 const AGENTS = [
@@ -25,6 +25,13 @@ export default function OverviewPage() {
   const feed = useDashboardFeed();
   const s = feed.stats;
   const recent = feed.transactions.slice(0, 8);
+
+  // Money protected comes from the server's canonical figure, the same one
+  // Copilot quotes. Computing it separately on the client produced a different
+  // number under the same label, which is the fastest way to lose trust in a
+  // fraud console. The client-side sum stays as the offline fallback only.
+  const { data: intel } = useIntelligence();
+  const amountProtected = intel?.summary.fraud_prevented_ngn ?? s.amountProtected;
 
   return (
     <>
@@ -69,7 +76,7 @@ export default function OverviewPage() {
         />
         <StatCard
           label="Amount protected"
-          value={formatNairaCompact(s.amountProtected)}
+          value={formatNairaCompact(amountProtected)}
           sub="Kept out of fraud"
           accent="text-emerald-400"
         />
