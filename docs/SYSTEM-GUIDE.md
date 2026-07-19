@@ -285,7 +285,8 @@ curl -X POST http://localhost:8000/v1/demo/seed-institution \
 - **Ghost is simulated containment.** It models the cooling window in SQLite;
   production would wire it to a real Open Banking holds endpoint.
 - **`fable.db` is SQLite.** Fine for a demo and for real load in the small; the
-  schema deliberately mirrors Postgres so it can be swapped.
+  schema deliberately mirrors Postgres, but swapping it requires driver and query
+  rewrites, rather than being a drop-in configuration change.
 
 ---
 

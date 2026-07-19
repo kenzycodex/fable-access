@@ -15,7 +15,6 @@ export function Sidebar() {
 
   function signOut() {
     logout();
-    router.push("/dashboard/login");
   }
 
   return (

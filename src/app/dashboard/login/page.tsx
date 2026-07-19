@@ -127,6 +127,14 @@ export default function DashboardLoginPage() {
                 )}
               </button>
 
+              <div className="mt-4 rounded-lg border border-[#7C3AED]/20 bg-[#7C3AED]/5 p-3 text-center text-[13px] text-white/80">
+                <p className="font-medium text-[#7C3AED] mb-1">Hackathon Demo Account</p>
+                <div className="flex justify-center gap-4 text-white/60">
+                  <p>Email: <span className="font-mono text-white">risk@meridian.ng</span></p>
+                  <p>Pass: <span className="font-mono text-white">fable-demo</span></p>
+                </div>
+              </div>
+
               <div className="mt-4 text-center text-[13px] text-gray-400 font-normal">
                 Don't have an account? <button type="button" className="text-[#7C3AED] hover:underline hover:text-[#8b5cf6] transition-colors">Contact Sales</button>.
               </div>

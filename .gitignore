@@ -52,3 +52,6 @@ next-env.d.ts
 __pycache__/
 *.pyc
 /.claude
+
+# Local DO deployment cheatsheet
+.local/
