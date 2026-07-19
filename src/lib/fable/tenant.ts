@@ -12,10 +12,12 @@
 // Fable with the key it was issued at provisioning, and the backend derives
 // the institution from the key rather than trusting the URL.
 
+import { DEFAULT_INSTITUTION } from "./constants";
+
 const CUSTOMER_KEY = "fable_active_customer";
 const API_KEY_KEY = "fable_institution_api_key";
 
-export const DEFAULT_INSTITUTION = "meridian";
+export { DEFAULT_INSTITUTION };
 
 interface TenantState {
   institutionId: string;
@@ -52,11 +54,20 @@ export function setInstitution(institutionId: string): void {
   emit();
 }
 
-export function setCustomer(customerId: string, customerName: string): void {
-  state = { ...state, customerId, customerName };
+/**
+ * Select the customer for a tenant.
+ *
+ * `institutionId` is explicit because React runs child effects before parent
+ * ones: the switcher can select a customer before the provider has told this
+ * store which tenant is active, and keying off the stale value silently filed
+ * the choice under the previous institution.
+ */
+export function setCustomer(customerId: string, customerName: string, institutionId?: string): void {
+  const tenant = institutionId ?? state.institutionId;
+  state = { ...state, institutionId: tenant, customerId, customerName };
   try {
     sessionStorage.setItem(
-      `${CUSTOMER_KEY}:${state.institutionId}`,
+      `${CUSTOMER_KEY}:${tenant}`,
       JSON.stringify({ customerId, customerName }),
     );
   } catch {

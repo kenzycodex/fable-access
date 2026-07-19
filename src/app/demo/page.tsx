@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { DEFAULT_INSTITUTION } from "@/lib/fable/tenant";
+import { DEFAULT_INSTITUTION } from "@/lib/fable/constants";
 
 /** /demo is the un-scoped entry point. Every demo bank now belongs to an
  * institution, so send visitors to the default tenant. A provisioned

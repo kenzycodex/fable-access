@@ -54,7 +54,7 @@ export function InstitutionProvider({
       customers,
       offline,
       customer,
-      selectCustomer: (c) => setTenantCustomer(c.user_id, c.name),
+      selectCustomer: (c) => setTenantCustomer(c.user_id, c.name, institutionId),
       href: (path = "") => `/demo/${institutionId}${path}`,
     };
   }, [institutionId, name, customers, offline, customerId]);
