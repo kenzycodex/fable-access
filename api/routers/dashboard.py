@@ -108,6 +108,7 @@ def transactions(
     offset: int = Query(0, ge=0),
     action: str | None = Query(None),
     institution: str | None = Query(None),
+    user: str | None = Query(None),
 ):
     where = "WHERE 1=1"
     params: list = []
@@ -117,6 +118,10 @@ def transactions(
     if institution:
         where += " AND institution_id = ?"
         params.append(institution)
+    if user:
+        # The demo bank asks for one customer's own history.
+        where += " AND user_id = ?"
+        params.append(user)
 
     with cursor() as cur:
         cur.execute(f"SELECT COUNT(*) AS n FROM transactions {where}", params)

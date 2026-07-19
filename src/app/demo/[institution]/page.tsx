@@ -19,6 +19,8 @@ import {
   ShieldCheck
 } from "@phosphor-icons/react";
 import { Avatar, Card, Screen } from "@/components/demo/kit";
+import useSWR from "swr";
+import { customerTransactions } from "@/lib/fable/api";
 import { summarizeCustomer } from "@/lib/fable/analytics";
 import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
 import { DEMO_USER } from "@/lib/fable/seed";
@@ -30,7 +32,7 @@ import { CustomerSwitcher } from "@/components/demo/CustomerSwitcher";
 import { PowerConnect } from "@/components/demo/PowerConnect";
 
 export default function DemoHomePage() {
-  const { href, customer } = useInstitution();
+  const { href, customer, institutionId } = useInstitution();
   const store = useFableStore();
   const [balanceHidden, setBalanceHidden] = useState(false);
   const { theme, setTheme } = useTheme();
@@ -47,9 +49,22 @@ export default function DemoHomePage() {
     ensureSession();
   }, []);
 
-  const allMyTxns: Transaction[] = (store?.transactions ?? [])
-    .filter((t) => t.customerName === displayName)
-    .sort((a, b) => b.timestamp - a.timestamp);
+  // This customer's real history, from the server. The local store keys on
+  // customer name, which collided the moment two institutions had a
+  // similarly-named customer; user_id is unique per tenant.
+  const { data: serverTxns } = useSWR(
+    customer ? ["demo:txns", customer.user_id, institutionId] : null,
+    () => customerTransactions(customer!.user_id, institutionId),
+    { refreshInterval: 5_000, keepPreviousData: true },
+  );
+
+  // Live transfers made this session land in the local store first, so they
+  // show immediately rather than waiting on the next poll.
+  const localLive = (store?.transactions ?? []).filter((t) => t.live);
+  const allMyTxns: Transaction[] = [
+    ...localLive,
+    ...(serverTxns ?? []).filter((t) => !localLive.some((l) => l.id === t.id)),
+  ].sort((a, b) => b.timestamp - a.timestamp);
   const myTxns = allMyTxns.slice(0, 5);
 
   // Balance, income, spend and categories are derived from this customer's own
@@ -89,7 +104,15 @@ export default function DemoHomePage() {
         {/* Left */}
         <div className="flex flex-col gap-4 lg:col-span-2">
           {/* Bank card */}
-          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#7C3AED] to-[#5B21B6] p-5 text-white shadow-xl shadow-[#7C3AED]/20">
+          {/* The bank's own colour, not Fable's. color-mix darkens the primary
+              for the gradient's far end so one setting drives the whole card. */}
+          <div
+            className="relative overflow-hidden rounded-2xl p-5 text-white shadow-xl"
+            style={{
+              background:
+                "linear-gradient(135deg, var(--brand-primary, #7C3AED), color-mix(in srgb, var(--brand-primary, #7C3AED) 65%, black))",
+            }}
+          >
             <div className="pointer-events-none absolute -right-6 -top-6 size-28 rounded-full bg-white/[0.07]" />
             <div className="pointer-events-none absolute -bottom-8 -left-4 size-20 rounded-full bg-white/[0.05]" />
             <svg className="pointer-events-none absolute right-5 top-5 opacity-[0.15]" width="36" height="28" viewBox="0 0 36 28" fill="none">
@@ -136,7 +159,10 @@ export default function DemoHomePage() {
             </Link>
 
             <Link href={href("/transfer")} className="group flex flex-col items-center gap-1.5">
-              <span className="flex size-12 items-center justify-center rounded-xl transition-all bg-[#7C3AED] text-white shadow-lg shadow-[#7C3AED]/20 hover:opacity-90">
+              <span
+                style={{ backgroundColor: "var(--brand-primary, #7C3AED)" }}
+                className="flex size-12 items-center justify-center rounded-xl text-white shadow-lg transition-all hover:opacity-90"
+              >
                 <PaperPlaneTilt size={22} weight="fill" />
               </span>
               <span className="text-[11px] font-medium text-gray-500 dark:text-white/45">Transfer</span>
@@ -212,7 +238,8 @@ export default function DemoHomePage() {
           <Card>
             <div className="mb-3 flex items-center justify-between">
               <p className="text-[13px] font-bold text-gray-900 dark:text-white">Recent Activity</p>
-              <Link href={href("/history")} className="flex items-center gap-1 text-[11px] font-medium text-[#7C3AED]">
+              <Link href={href("/history")} style={{ color: "var(--brand-primary, #7C3AED)" }}
+                className="flex items-center gap-1 text-[11px] font-medium">
                 <ClockCounterClockwise size={12} weight="bold" />
                 See all
               </Link>
@@ -227,7 +254,7 @@ export default function DemoHomePage() {
           <Card>
             <div className="mb-3 flex items-center justify-between">
               <p className="text-[13px] font-bold text-gray-900 dark:text-white">Your Fable profile</p>
-              <Link href={href("/transparency")} className="text-[11px] font-medium text-[#7C3AED]">
+              <Link href={href("/transparency")} style={{ color: "var(--brand-primary, #7C3AED)" }} className="text-[11px] font-medium">
                 Details
               </Link>
             </div>
@@ -267,7 +294,10 @@ function SpendBar({ label, amount, pct }: { label: string; amount: string; pct: 
         <span className="text-[12px] font-bold text-gray-900 dark:text-white/70 tabular-nums">{amount}</span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-white/[0.04]">
-        <div className="h-full rounded-full bg-[#7C3AED]" style={{ width: `${pct}%` }} />
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${pct}%`, backgroundColor: "var(--brand-primary, #7C3AED)" }}
+        />
       </div>
     </div>
   );

@@ -7,11 +7,39 @@ routine for Tunde the trader, a 5x anomaly for Ada, and wildly out of
 character for Chioma — which is what makes Copilot's per-customer baselines
 visible instead of theoretical.
 """
+import hashlib
 import random
 import uuid
 from datetime import datetime, timedelta
 
 from db import cursor
+
+# Each institution gets its own people. Sharing one cast across tenants made
+# every bank look like the same bank: identical names, identical balances, and
+# — because the demo feed keys on customer name — identical transactions
+# bleeding between institutions.
+NAME_POOLS = {
+    "ada": [
+        ("Ada Obi", 847_320), ("Ngozi Eze", 612_400), ("Folake Adeyemi", 933_150),
+        ("Amara Nwosu", 704_880), ("Zainab Bello", 588_600), ("Ifeoma Duru", 1_002_450),
+    ],
+    "tunde": [
+        ("Tunde Bello", 4_182_900), ("Emeka Okafor", 3_640_500), ("Musa Danjuma", 5_218_700),
+        ("Segun Alabi", 2_970_300), ("Chukwuma Eze", 4_806_100), ("Yakubu Sani", 3_155_900),
+    ],
+    "chioma": [
+        ("Chioma Nnamdi", 63_450), ("Blessing Umeh", 41_200), ("Tobi Alade", 78_900),
+        ("Halima Yusuf", 52_700), ("Kelechi Obi", 35_800), ("Temi Ogunlade", 69_300),
+    ],
+}
+
+
+def _tenant_pick(institution_id: str, key: str) -> tuple[str, int]:
+    """Deterministic per-tenant identity: the same bank always gets the same
+    people, different banks get different ones."""
+    pool = NAME_POOLS[key]
+    digest = hashlib.sha256(f"{institution_id}:{key}".encode()).hexdigest()
+    return pool[int(digest[:8], 16) % len(pool)]
 
 DEMO_CUSTOMERS = [
     {
@@ -69,21 +97,27 @@ def user_id_for(institution_id: str, key: str) -> str:
     return f"{institution_id}_{key}"
 
 
+def customer_identity(institution_id: str, key: str) -> tuple[str, int]:
+    """Name and opening balance for one archetype at one institution."""
+    return _tenant_pick(institution_id, key)
+
+
 def customers_for_institution(institution_id: str) -> list[dict]:
     """The roster the demo bank renders in its customer picker."""
-    return [
-        {
+    out = []
+    for c in DEMO_CUSTOMERS:
+        name, balance = customer_identity(institution_id, c["key"])
+        out.append({
             "user_id": user_id_for(institution_id, c["key"]),
             "key": c["key"],
-            "name": c["name"],
+            "name": name,
             "persona": c["persona"],
             "description": c["description"],
             "typical_range": f"₦{c['amount_range'][0]:,} – ₦{c['amount_range'][1]:,}",
-            "opening_balance": c["opening_balance"],
+            "opening_balance": balance,
             "city": c["city"],
-        }
-        for c in DEMO_CUSTOMERS
-    ]
+        })
+    return out
 
 
 def _insert_seed_transaction(user_id: str, institution_id: str, customer: dict, recipient: dict, day: datetime) -> None:

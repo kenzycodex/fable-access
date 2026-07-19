@@ -361,7 +361,7 @@ export default function TransferPage() {
                   onClick={() => setAmount(String(a))}
                   className={`rounded-lg py-2.5 text-[11px] font-semibold transition-colors border ${
                     amountValue === a
-                      ? "bg-[#7C3AED] text-white border-[#7C3AED]"
+                      ? "text-white"
                       : "bg-gray-50 dark:bg-[#111] text-gray-600 dark:text-white/35 hover:bg-gray-100 dark:hover:bg-[#222] border-gray-200 dark:border-white/[0.04]"
                   }`}
                 >
@@ -472,7 +472,7 @@ export default function TransferPage() {
                     onClick={() => setChannel(ch)}
                     className={`relative rounded-xl py-2.5 text-[12px] font-medium transition-colors border ${
                       channel === ch
-                        ? "bg-[#7C3AED] text-white border-[#7C3AED]"
+                        ? "text-white"
                         : "bg-gray-50 dark:bg-[#111] text-gray-600 dark:text-white/35 hover:bg-gray-100 dark:hover:bg-[#222] border-gray-200 dark:border-white/[0.04]"
                     }`}
                   >
@@ -507,7 +507,8 @@ export default function TransferPage() {
               type="button"
               disabled={!canSubmit}
               onClick={handleSubmit}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#7C3AED] py-3.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-gray-100 dark:disabled:bg-[#111] disabled:text-gray-400 dark:disabled:text-white/15 disabled:border disabled:border-gray-200 dark:disabled:border-white/[0.04] shadow-lg shadow-[#7C3AED]/20 disabled:shadow-none"
+              style={canSubmit ? { backgroundColor: "var(--brand-primary, #7C3AED)" } : undefined}
+              className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-gray-100 dark:disabled:bg-[#111] disabled:text-gray-400 dark:disabled:text-white/15 disabled:border disabled:border-gray-200 dark:disabled:border-white/[0.04] shadow-lg disabled:shadow-none"
             >
               {submitting ? (
                 <>

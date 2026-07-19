@@ -708,6 +708,23 @@ export interface Branding {
   slug_lock_days: number;
 }
 
+/** One customer's own transaction history, straight from the server.
+ *
+ * The demo bank used to render a hardcoded client-side seed, which was the
+ * same for every institution and keyed on customer name — so two tenants with
+ * a similarly-named customer showed each other's transfers. This is the real
+ * per-tenant, per-customer feed Copilot builds its baseline from. */
+export async function customerTransactions(
+  userId: string,
+  institution: string | null,
+  limit = 60,
+): Promise<Transaction[]> {
+  const res = await fetchJson<{ transactions: ApiTransactionRow[] }>(
+    `/v1/dashboard/transactions?limit=${limit}&user=${encodeURIComponent(userId)}${tenantParam(institution)}`,
+  );
+  return res.transactions.map(mapApiRow);
+}
+
 export function getBranding(institutionId: string): Promise<Branding> {
   return fetchJson<Branding>(`/v1/branding/${encodeURIComponent(institutionId)}`);
 }

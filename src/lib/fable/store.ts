@@ -23,7 +23,8 @@ import {
   type SdkTelemetry,
 } from "./api";
 import { scoreTransaction } from "./scoring";
-import { getTenant } from "./tenant";
+import { DEFAULT_INSTITUTION } from "./constants";
+import { getTenant, subscribeTenant } from "./tenant";
 import {
   DEMO_USER,
   INSTITUTION,
@@ -38,8 +39,23 @@ import type {
   TransparencyState,
 } from "./types";
 
-const STORAGE_KEY = "fable_demo_v2";
+const STORAGE_PREFIX = "fable_demo_v2";
 const CHANGE_EVENT = "fable:change";
+
+/** One bucket per institution.
+ *
+ * A single shared key meant a transfer made at one bank appeared in another's
+ * demo app, and — because the feed keys on customer name — collided outright
+ * when two tenants had a customer with the same name. Tenants are supposed to
+ * be isolated; the local mirror has to honour that too.
+ *
+ * The dashboard reads before any institution is known, so an unscoped call
+ * falls back to the default tenant's bucket rather than a nameless one.
+ */
+function storageKey(): string {
+  const tenant = getTenant().institutionId || DEFAULT_INSTITUTION;
+  return `${STORAGE_PREFIX}:${tenant}`;
+}
 
 interface StoreState {
   transactions: Transaction[];
@@ -77,10 +93,10 @@ const canUseDom = () => typeof window !== "undefined";
 function read(): StoreState {
   if (!canUseDom()) return seedState();
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey());
     if (!raw) {
       const seeded = seedState();
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
+      window.localStorage.setItem(storageKey(), JSON.stringify(seeded));
       return seeded;
     }
     return JSON.parse(raw) as StoreState;
@@ -95,7 +111,7 @@ let snapshotCache: StoreState | null = null;
 
 function write(next: StoreState): void {
   if (!canUseDom()) return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  window.localStorage.setItem(storageKey(), JSON.stringify(next));
   snapshotCache = next;
   window.dispatchEvent(new CustomEvent(CHANGE_EVENT));
 }
@@ -116,16 +132,23 @@ function subscribe(cb: () => void): () => void {
     cb();
   };
   const onStorage = (e: StorageEvent) => {
-    if (e.key === STORAGE_KEY) {
+    if (e.key === storageKey()) {
       snapshotCache = read();
       cb();
     }
   };
   window.addEventListener(CHANGE_EVENT, onChange);
   window.addEventListener("storage", onStorage);
+  // Switching institution points at a different bucket, so the cached
+  // snapshot has to be dropped or the previous tenant's feed lingers.
+  const unsubscribeTenant = subscribeTenant(() => {
+    snapshotCache = read();
+    cb();
+  });
   return () => {
     window.removeEventListener(CHANGE_EVENT, onChange);
     window.removeEventListener("storage", onStorage);
+    unsubscribeTenant();
   };
 }
 
@@ -310,6 +333,11 @@ export function logout(): void {
 /** Wipe all demo state back to the seed (used by the dashboard settings). */
 export function resetDemo(): void {
   write(seedState());
+}
+
+/** Drop the cached snapshot so the next read hits the active tenant's bucket. */
+export function invalidateStoreCache(): void {
+  snapshotCache = null;
 }
 
 // ---------------------------------------------------------------------------
