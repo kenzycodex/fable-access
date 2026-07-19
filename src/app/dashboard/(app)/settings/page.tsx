@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { BrainIcon, EyeIcon, GhostIcon, ShieldIcon } from "@/components/app-icons";
+import { BrandingSettings } from "@/components/dashboard/BrandingSettings";
 import { Card, PageHeader } from "@/components/dashboard/primitives";
 import { institutionCredentials, type InstitutionCredentials } from "@/lib/fable/api";
 import { INSTITUTION } from "@/lib/fable/seed";
@@ -168,6 +169,8 @@ export default function SettingsPage() {
           })}
         </div>
       </Card>
+
+      <BrandingSettings institutionId={institutionId} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* API access */}

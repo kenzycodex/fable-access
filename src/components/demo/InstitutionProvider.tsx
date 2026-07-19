@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import type { DemoCustomer } from "@/app/demo/[institution]/layout";
+import type { Branding, DemoCustomer } from "@/app/demo/[institution]/layout";
 import {
   getTenant,
   restoreCustomer,
@@ -15,6 +15,8 @@ interface InstitutionContextValue {
   name: string;
   customers: DemoCustomer[];
   offline: boolean;
+  /** The tenant's own logo, palette and tagline. */
+  branding: Branding;
   /** Currently selected customer, or null before one is chosen. */
   customer: DemoCustomer | null;
   selectCustomer: (c: DemoCustomer) => void;
@@ -29,12 +31,14 @@ export function InstitutionProvider({
   name,
   customers,
   offline,
+  branding,
   children,
 }: {
   institutionId: string;
   name: string;
   customers: DemoCustomer[];
   offline: boolean;
+  branding: Branding;
   children: React.ReactNode;
 }) {
   const [customerId, setCustomerId] = useState<string | null>(null);
@@ -53,11 +57,12 @@ export function InstitutionProvider({
       name,
       customers,
       offline,
+      branding,
       customer,
       selectCustomer: (c) => setTenantCustomer(c.user_id, c.name, institutionId),
       href: (path = "") => `/demo/${institutionId}${path}`,
     };
-  }, [institutionId, name, customers, offline, customerId]);
+  }, [institutionId, name, customers, offline, branding, customerId]);
 
   return <InstitutionContext.Provider value={value}>{children}</InstitutionContext.Provider>;
 }

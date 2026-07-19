@@ -28,6 +28,57 @@ interface InstitutionDetail {
   customers: DemoCustomer[];
 }
 
+export interface Branding {
+  display_name: string | null;
+  logo_url: string | null;
+  primary_color: string;
+  accent_color: string;
+  slug: string;
+  tagline: string | null;
+}
+
+const DEFAULT_BRANDING: Branding = {
+  display_name: null,
+  logo_url: null,
+  primary_color: "#7C3AED",
+  accent_color: "#00D4FF",
+  slug: "",
+  tagline: null,
+};
+
+/** A tenant that never customised anything still renders, so failures here
+ * fall back to Fable's palette rather than blocking the page. */
+async function fetchBranding(id: string): Promise<Branding> {
+  try {
+    const res = await fetch(`${API_BASE}/v1/branding/${encodeURIComponent(id)}`, { cache: "no-store" });
+    if (!res.ok) return DEFAULT_BRANDING;
+    return (await res.json()) as Branding;
+  } catch {
+    return DEFAULT_BRANDING;
+  }
+}
+
+/** Map whatever is in the URL to an institution_id.
+ *
+ * The segment may be a vanity slug a bank chose in settings, or the raw
+ * institution_id. Resolving the slug first means a renamed tenant's new URL
+ * works, and the original id keeps working too — so links already handed out
+ * don't break the moment someone customises their URL.
+ */
+async function resolveSegment(segment: string): Promise<string | null | "offline"> {
+  try {
+    const res = await fetch(`${API_BASE}/v1/branding/resolve/${encodeURIComponent(segment)}`, {
+      cache: "no-store",
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) return "offline";
+    const body = (await res.json()) as { institution_id: string };
+    return body.institution_id;
+  } catch {
+    return "offline";
+  }
+}
+
 /** Look the tenant up in the Fable API. Returns null when the API is down so
  * the demo still renders (offline) rather than 404-ing on a transient outage. */
 async function fetchInstitution(id: string): Promise<InstitutionDetail | null | "offline"> {
@@ -51,7 +102,12 @@ export default async function DemoInstitutionLayout({
   params: Promise<{ institution: string }>;
 }) {
   const { institution } = await params;
-  const detail = await fetchInstitution(institution);
+
+  const resolvedId = await resolveSegment(institution);
+  if (resolvedId === null) notFound();
+  const institutionId = resolvedId === "offline" ? institution : resolvedId;
+
+  const detail = await fetchInstitution(institutionId);
 
   // A genuinely unknown tenant 404s. This also catches stale links to the old
   // flat routes (/demo/transfer), which would otherwise be read as an
@@ -60,18 +116,31 @@ export default async function DemoInstitutionLayout({
 
   const offline = detail === "offline";
   const resolved = offline
-    ? { institution_id: institution, name: institution, type: "", customers: [] as DemoCustomer[] }
+    ? { institution_id: institutionId, name: institutionId, type: "", customers: [] as DemoCustomer[] }
     : detail;
+
+  const branding = await fetchBranding(resolved.institution_id);
+  // The bank's own name wins over the registry name when it has set one.
+  const displayName = branding.display_name || resolved.name;
 
   return (
     <InstitutionProvider
       institutionId={resolved.institution_id}
-      name={resolved.name}
+      name={displayName}
       customers={resolved.customers}
       offline={offline}
+      branding={branding}
     >
+      {/* The tenant's palette is injected as CSS variables on the demo shell,
+          so every surface inside picks it up without prop-drilling colour. */}
       <div
         data-surface="app"
+        style={
+          {
+            "--brand-primary": branding.primary_color,
+            "--brand-accent": branding.accent_color,
+          } as React.CSSProperties
+        }
         className="min-h-dvh bg-gray-50 text-gray-900 dark:bg-[#111111] dark:text-white transition-colors duration-300"
       >
         <DemoSidebar />

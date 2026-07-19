@@ -673,3 +673,70 @@ export async function copilotBaseline(userId = DEMO_USER_ID): Promise<CopilotBas
   const res = await fetchJson<{ what_we_know: CopilotBaseline }>(`/v1/copilot/transparency/${userId}`);
   return res.what_we_know;
 }
+
+// ---------------------------------------------------------------------------
+// Institution identity: key resolution + branding
+// ---------------------------------------------------------------------------
+
+export interface ResolvedKey {
+  institution_id: string;
+  name: string;
+  demo_url: string;
+}
+
+/** Which institution does this API key belong to? Throws on an unknown key,
+ * so the demo bank can refuse it instead of reporting a false success. */
+export function resolveApiKey(apiKey: string): Promise<ResolvedKey> {
+  return fetchJson<ResolvedKey>("/v1/institutions/resolve-key", {
+    method: "POST",
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+}
+
+export interface Branding {
+  institution_id: string;
+  display_name: string | null;
+  logo_url: string | null;
+  primary_color: string;
+  accent_color: string;
+  slug: string;
+  support_email: string | null;
+  tagline: string | null;
+  updated_at: string | null;
+  slug_locked: boolean;
+  slug_locked_until: string | null;
+  slug_lock_days: number;
+}
+
+export function getBranding(institutionId: string): Promise<Branding> {
+  return fetchJson<Branding>(`/v1/branding/${encodeURIComponent(institutionId)}`);
+}
+
+export function updateBranding(institutionId: string, patch: Partial<Branding>): Promise<Branding> {
+  return fetchJson<Branding>(`/v1/branding/${encodeURIComponent(institutionId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+/** Multipart upload — deliberately not routed through fetchJson, which sets a
+ * JSON content-type the browser must choose itself for a boundary. */
+export async function uploadLogo(institutionId: string, file: File): Promise<Branding> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/v1/branding/${encodeURIComponent(institutionId)}/logo`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.detail === "string" ? body.detail : "Logo upload failed.");
+  }
+  return (await res.json()) as Branding;
+}
+
+export function removeLogo(institutionId: string): Promise<Branding> {
+  return fetchJson<Branding>(`/v1/branding/${encodeURIComponent(institutionId)}/logo`, {
+    method: "DELETE",
+  });
+}

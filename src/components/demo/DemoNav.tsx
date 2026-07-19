@@ -28,19 +28,33 @@ function useNavItems() {
 }
 
 export function DemoSidebar() {
-  const { name, href } = useInstitution();
+  const { name, href, branding } = useInstitution();
   const items = useNavItems();
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-[220px] flex-col justify-between border-r border-gray-200 dark:border-white/[0.06] bg-white dark:bg-black px-4 py-6 lg:flex transition-colors duration-300">
       <div className="flex flex-col gap-8">
         <Link href={href()} className="flex items-center gap-3 px-2 mb-2">
-          <div className="relative flex size-8 items-center justify-center rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#4c1d95] shadow-lg shadow-[#7C3AED]/20">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2L2 12l10 10 10-10L12 2z" fill="currentColor" className="text-white/20"/>
-              <path d="M12 6L6 12l6 6 6-6-6-6z" fill="currentColor" className="text-white"/>
-            </svg>
-          </div>
+          {branding.logo_url ? (
+            // eslint-disable-next-line @next/next/no-img-element -- data URI, no loader needed
+            <img
+              src={branding.logo_url}
+              alt={name}
+              className="size-8 shrink-0 rounded-xl object-contain"
+            />
+          ) : (
+            <div
+              className="relative flex size-8 items-center justify-center rounded-xl shadow-lg"
+              style={{
+                background: `linear-gradient(135deg, var(--brand-primary, #7C3AED), color-mix(in srgb, var(--brand-primary, #7C3AED) 60%, black))`,
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2L2 12l10 10 10-10L12 2z" fill="currentColor" className="text-white/20"/>
+                <path d="M12 6L6 12l6 6 6-6-6-6z" fill="currentColor" className="text-white"/>
+              </svg>
+            </div>
+          )}
           <span className="truncate text-[18px] font-bold tracking-tight text-gray-900 dark:text-white">{name}</span>
         </Link>
         <nav className="flex flex-col gap-0.5">
@@ -50,8 +64,9 @@ export function DemoSidebar() {
               <Link
                 key={item.href}
                 href={item.href}
+                style={item.active ? { backgroundColor: "var(--brand-primary, #7C3AED)" } : undefined}
                 className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium transition-colors ${
-                  item.active ? "bg-[#7C3AED] text-white" : "text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-white/45 dark:hover:bg-white/[0.04] dark:hover:text-white/70"
+                  item.active ? "text-white" : "text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-white/45 dark:hover:bg-white/[0.04] dark:hover:text-white/70"
                 }`}
               >
                 <Icon size={18} weight={item.active ? "fill" : "regular"} />
@@ -86,8 +101,9 @@ export function DemoBottomNav() {
             <Link
               key={item.href}
               href={item.href}
+              style={item.active ? { color: "var(--brand-primary, #7C3AED)" } : undefined}
               className={`flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] font-medium transition-colors ${
-                item.active ? "text-[#7C3AED]" : "text-gray-400 dark:text-white/30"
+                item.active ? "" : "text-gray-400 dark:text-white/30"
               }`}
             >
               <Icon size={22} weight={item.active ? "fill" : "regular"} />

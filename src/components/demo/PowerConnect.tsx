@@ -1,9 +1,11 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Power } from "@phosphor-icons/react";
 import { DemoSheet } from "@/components/demo/DemoSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
+import { resolveApiKey } from "@/lib/fable/api";
 import { getApiKey, setApiKey } from "@/lib/fable/tenant";
 
 /** Ring sweeps, then the tick strokes itself in. Pure SVG, no dependency. */
@@ -38,10 +40,14 @@ function SuccessTick() {
  */
 export function PowerConnect() {
   const { name, institutionId } = useInstitution();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [connectedKey, setConnectedKey] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [justConnected, setJustConnected] = useState(false);
+  const [connectedTo, setConnectedTo] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -51,29 +57,51 @@ export function PowerConnect() {
     return () => clearTimeout(closeTimer.current);
   }, []);
 
-  function save() {
+  async function save() {
     const trimmed = keyInput.trim();
-    if (!trimmed) return;
-    setApiKey(trimmed);
-    setConnectedKey(trimmed);
-    setKeyInput("");
-    // Let the tick finish before the sheet closes itself.
-    setJustConnected(true);
-    closeTimer.current = setTimeout(() => {
-      setJustConnected(false);
-      setOpen(false);
-    }, 1400);
+    if (!trimmed || verifying) return;
+    setVerifying(true);
+    setError(null);
+    try {
+      // The key has to be resolved before it's stored. Accepting any string
+      // and showing a green light told the operator they were connected to
+      // one institution while writes were attributed to another — or to none.
+      const resolved = await resolveApiKey(trimmed);
+      setApiKey(trimmed);
+      setConnectedKey(trimmed);
+      setKeyInput("");
+      setJustConnected(true);
+      setConnectedTo(resolved.name);
+
+      closeTimer.current = setTimeout(() => {
+        setJustConnected(false);
+        setOpen(false);
+        // The key is authoritative, so the app must move to the institution it
+        // belongs to. Leaving the URL on another tenant is what made this look
+        // broken: the header said Meridian while transfers booked to Zenith.
+        if (resolved.institution_id !== institutionId) {
+          router.push(resolved.demo_url);
+        }
+      }, 1600);
+    } catch {
+      setError("That API key isn't recognised. Check the key in your provisioning email.");
+    } finally {
+      setVerifying(false);
+    }
   }
 
   function disconnect() {
     setApiKey(null);
     setConnectedKey(null);
+    setConnectedTo(null);
     setKeyInput("");
+    setError(null);
   }
 
   function close() {
     clearTimeout(closeTimer.current);
     setJustConnected(false);
+    setError(null);
     setOpen(false);
   }
 
@@ -132,7 +160,7 @@ export function PowerConnect() {
             <SuccessTick />
             <p className="text-[15px] font-bold text-gray-900 dark:text-white">Connected</p>
             <p className="text-[12px] text-gray-500 dark:text-white/40">
-              Transfers now authenticate as {name}.
+              Transfers now authenticate as {connectedTo ?? name}.
             </p>
           </div>
         ) : (
@@ -205,18 +233,24 @@ export function PowerConnect() {
                 className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 font-mono text-[12px] text-gray-900 outline-none transition-shadow focus:ring-2 focus:ring-[#7C3AED]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"
               />
               <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-white/35">
-                From your provisioning email. The key, not the URL, decides the institution.
+                From your provisioning email. The key, not the URL, decides the institution —
+                connecting a different bank&apos;s key switches this app to that bank.
               </p>
+              {error && (
+                <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-[11px] text-red-600 dark:bg-red-500/10 dark:text-red-400">
+                  {error}
+                </p>
+              )}
             </div>
 
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={save}
-                disabled={!keyInput.trim()}
+                disabled={!keyInput.trim() || verifying}
                 className="flex-1 rounded-xl bg-[#7C3AED] py-3 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 dark:disabled:bg-white/[0.05] dark:disabled:text-white/20"
               >
-                Connect
+                {verifying ? "Verifying…" : "Connect"}
               </button>
               {connected && (
                 <button
