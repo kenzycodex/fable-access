@@ -26,6 +26,7 @@ import { useFableStore } from "@/lib/fable/store";
 import type { Transaction } from "@/lib/fable/types";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { CustomerSwitcher } from "@/components/demo/CustomerSwitcher";
+import { PowerConnect } from "@/components/demo/PowerConnect";
 
 export default function DemoHomePage() {
   const { href, customer } = useInstitution();
@@ -34,10 +35,10 @@ export default function DemoHomePage() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
-  // The active customer drives the whole screen; fall back to the seed user
-  // on the first paint before the roster has loaded.
+  // The active customer drives the feed; fall back to the seed user on the
+  // first paint before the roster has loaded. (The avatar and name in the
+  // header are rendered by CustomerSwitcher, which owns the same value.)
   const displayName = customer?.name ?? DEMO_USER.name;
-  const firstName = displayName.split(" ")[0];
 
   useEffect(() => {
     setMounted(true);
@@ -52,18 +53,12 @@ export default function DemoHomePage() {
 
   return (
     <Screen>
-      <CustomerSwitcher />
-
-      {/* Top bar */}
-      <div className="mb-5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Avatar name={firstName} size="lg" />
-          <div>
-            <p className="text-[12px] text-gray-500 dark:text-white/40">Good morning 👋</p>
-            <p className="text-[15px] font-semibold text-gray-900 dark:text-white">{displayName}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
+      {/* Top bar — account switching on the avatar, connection state on the
+          power button, so neither needs a block of its own above the page. */}
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <CustomerSwitcher />
+        <div className="flex shrink-0 items-center gap-2">
+          <PowerConnect />
           {mounted && (
             <button
               type="button"

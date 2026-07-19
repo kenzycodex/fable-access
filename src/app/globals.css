@@ -317,6 +317,19 @@ html:has([data-surface="app"]) {
     0%, 100% { opacity: 0.5; }
     50%      { opacity: 1; }
   }
+  @keyframes spinSlow {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  /* Bottom sheet slides up from the edge it is anchored to. */
+  @keyframes sheetUp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+  @keyframes dialogIn {
+    from { opacity: 0; transform: scale(0.96); }
+    to   { opacity: 1; transform: scale(1); }
+  }
   @keyframes shimmer {
     from { transform: translateX(-100%); }
     to   { transform: translateX(100%); }
@@ -335,6 +348,23 @@ html:has([data-surface="app"]) {
   }
   .animate-pulse-glow {
     animation: pulseGlow 3s ease-in-out infinite;
+  }
+  /* Slow orbit for the "connected" power button — motion that reads as live
+     without pulling attention away from the page. */
+  .animate-spin-slow {
+    animation: spinSlow 3.5s linear infinite;
+  }
+  /* Deliberately no `both` fill: the element's resting CSS is already its
+     final state, so if the animation never advances (reduced motion, a
+     throttled/background tab) the sheet still renders correctly positioned
+     rather than frozen at its offset start frame. */
+  .animate-sheet {
+    animation: sheetUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  @media (min-width: 640px) {
+    .animate-sheet {
+      animation: dialogIn 0.2s ease-out;
+    }
   }
   .animate-float-orb {
     animation: floatOrb 8s ease-in-out infinite;
@@ -368,6 +398,8 @@ html:has([data-surface="app"]) {
   .animate-fade-in-up,
   .animate-card-entrance,
   .animate-pulse-glow,
+  .animate-spin-slow,
+  .animate-sheet,
   .animate-float-orb {
     animation: none;
   }
