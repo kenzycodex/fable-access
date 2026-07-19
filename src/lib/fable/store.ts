@@ -43,6 +43,41 @@ import type {
 const STORAGE_PREFIX = "fable_demo_v2";
 const CHANGE_EVENT = "fable:change";
 
+// The console session is not tenant-scoped demo state — it is who is signed
+// into the dashboard. Keeping it inside the per-institution bucket meant
+// switching tenant (or introducing the bucketing at all) silently signed the
+// operator out, because their session lived under the previous key.
+const SESSION_KEY = "fable_console_session";
+
+function readSession(): SessionState {
+  if (!canUseDom()) return { loggedIn: false, institutionId: null };
+  try {
+    const raw = window.localStorage.getItem(SESSION_KEY);
+    if (raw) return JSON.parse(raw) as SessionState;
+    // One-time migration from the pre-split bucket, so an operator who was
+    // already signed in stays signed in.
+    const legacy = window.localStorage.getItem(`${STORAGE_PREFIX}`);
+    if (legacy) {
+      const parsed = JSON.parse(legacy) as Partial<StoreState>;
+      if (parsed?.session?.loggedIn) {
+        window.localStorage.setItem(SESSION_KEY, JSON.stringify(parsed.session));
+        return parsed.session;
+      }
+    }
+  } catch {
+    // fall through to signed out
+  }
+  return { loggedIn: false, institutionId: null };
+}
+
+function writeSession(session: SessionState): void {
+  try {
+    window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  } catch {
+    // storage unavailable; session stays in memory for this tab
+  }
+}
+
 /** One bucket per institution.
  *
  * A single shared key meant a transfer made at one bank appeared in another's
@@ -96,11 +131,12 @@ function read(): StoreState {
   try {
     const raw = window.localStorage.getItem(storageKey());
     if (!raw) {
-      const seeded = seedState();
+      const seeded = { ...seedState(), session: readSession() };
       window.localStorage.setItem(storageKey(), JSON.stringify(seeded));
       return seeded;
     }
-    return JSON.parse(raw) as StoreState;
+    const parsed = JSON.parse(raw) as StoreState;
+    return { ...parsed, session: readSession() };
   } catch {
     return seedState();
   }
@@ -112,6 +148,7 @@ let snapshotCache: StoreState | null = null;
 
 function write(next: StoreState): void {
   if (!canUseDom()) return;
+  writeSession(next.session);
   window.localStorage.setItem(storageKey(), JSON.stringify(next));
   snapshotCache = next;
   window.dispatchEvent(new CustomEvent(CHANGE_EVENT));
@@ -317,11 +354,25 @@ export function cancelGhost(ghostId: string): void {
  * caller is expected to run the factor and retry with a token. */
 export async function confirmGhost(ghostId: string, stepupToken?: string | null): Promise<void> {
   const ghost = read().ghosts.find((g) => g.id === ghostId);
-  if (ghost?.remote) {
-    // Deliberately not swallowed: a refusal must reach the UI so it can run
-    // the factor, rather than silently marking the transfer released locally.
-    await ghostResolve(ghostId, "confirm", stepupToken);
+
+  // Releasing always goes through the server, including for a container that
+  // was created locally while the API was down. Skipping the call for local
+  // containers meant the step-up gate never ran and release was free — the
+  // containment guarantee disappeared exactly when the connection was worst,
+  // which is not a state a scammer has to work hard to produce.
+  //
+  // If identity cannot be verified, the money does not move. Cancelling stays
+  // available and still returns it immediately.
+  if (!ghost?.remote && !(await apiAvailable())) {
+    throw new Error(
+      "Releasing needs a connection so we can verify it's you. Your money stays held, and you can cancel to get it back now.",
+    );
   }
+
+  // Deliberately not swallowed: a refusal must reach the UI so it can run
+  // the factor, rather than silently marking the transfer released locally.
+  await ghostResolve(ghostId, "confirm", stepupToken);
+
   mutate((s) => ({
     ...s,
     ghosts: s.ghosts.map((g) => (g.id === ghostId ? { ...g, status: "released" } : g)),

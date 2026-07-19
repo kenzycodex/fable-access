@@ -107,7 +107,7 @@ export interface ResolveResult {
  * in practice: Paystack enforces its IP allowlist per endpoint, so /bank can
  * succeed while /bank/resolve is rejected, which makes a broken integration
  * look healthy. */
-export type PaystackFailure = "no_key" | "ip_blocked" | "unauthorized" | "transport";
+export type PaystackFailure = "no_key" | "ip_blocked" | "unauthorized" | "rate_limited" | "transport";
 
 export class PaystackError extends Error {
   constructor(readonly reason: PaystackFailure, message: string) {
@@ -118,6 +118,9 @@ export class PaystackError extends Error {
 
 function classifyFailure(status: number, message: string): PaystackFailure {
   if (/ip address is not allowed/i.test(message)) return "ip_blocked";
+  // Test keys allow only a handful of live resolutions per day. Reporting
+  // this as a generic transport error made a working integration look broken.
+  if (status === 429 || /daily limit/i.test(message)) return "rate_limited";
   if (status === 401 || status === 403) return "unauthorized";
   return "transport";
 }

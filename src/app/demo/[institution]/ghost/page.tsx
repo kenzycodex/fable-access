@@ -158,8 +158,17 @@ export default function GhostPage() {
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1a1a1a] py-3 text-[13px] font-semibold text-white/40 transition-colors hover:bg-[#222] hover:text-white/60"
             >
               <HandPointing size={16} />
-              I&rsquo;m sure — release transfer
+              {releasing ? "Verifying…" : "I’m sure — release transfer"}
             </button>
+
+            {/* A refused release has to be visible. Failing quietly here would
+                read as the button being broken, when the money is in fact
+                being held on purpose. */}
+            {releaseError && (
+              <p className="rounded-xl bg-red-500/10 px-3.5 py-2.5 text-[12px] leading-relaxed text-red-400">
+                {releaseError}
+              </p>
+            )}
           </div>
         </div>
       </div>
