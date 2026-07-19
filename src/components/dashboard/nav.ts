@@ -31,5 +31,5 @@ import { Play, Code } from "@phosphor-icons/react";
 
 export const DASHBOARD_FOOTER_NAV: DashboardNavItem[] = [
   { href: "/demo", label: "Sandbox (Demo Bank)", icon: Play, match: (p) => p === "/demo", external: true },
-  { href: "http://localhost:8000/docs", label: "API Reference", icon: Code, match: () => false, external: true },
+  { href: "/docs", label: "API Reference", icon: Code, match: (p) => p.startsWith("/docs"), external: true },
 ];
