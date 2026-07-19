@@ -152,10 +152,21 @@ export function summarizeCustomer(txns: Transaction[], openingBalance: number): 
   const income = sum(thisMonth, "credit");
   const spent = sum(thisMonth, "debit");
 
-  // Money only leaves the account once a transfer settles. Held, cancelled and
-  // blocked transfers are precisely the ones Ghost keeps recoverable.
-  const settled = txns.filter((t) => t.status === "completed" || t.status === "released");
-  const balance = openingBalance + sum(settled, "credit") - sum(settled, "debit");
+  // The stated balance already reflects the customer's history, exactly as a
+  // real bank statement does, so only transfers made in this session move it.
+  // Replaying 90 days of seeded debits against it drove balances deeply
+  // negative — a student with a ₦63k balance and ₦780k of history showed
+  // -₦717k.
+  //
+  // Held, cancelled and blocked transfers deliberately don't debit: that is
+  // precisely the money Ghost keeps recoverable.
+  const liveSettled = txns.filter(
+    (t) => t.live && (t.status === "completed" || t.status === "released"),
+  );
+  const balance = Math.max(
+    0,
+    openingBalance + sum(liveSettled, "credit") - sum(liveSettled, "debit"),
+  );
 
   const lastMonthIncome = sum(lastMonth, "credit");
   const incomeDeltaPct =

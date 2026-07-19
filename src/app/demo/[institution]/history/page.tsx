@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import useSWR from "swr";
 import { MagnifyingGlass, Faders } from "@phosphor-icons/react";
 import { DemoSheet } from "@/components/demo/DemoSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { Avatar, Card, Screen, ScreenHeader } from "@/components/demo/kit";
+import { customerTransactions } from "@/lib/fable/api";
 import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
-import { DEMO_USER } from "@/lib/fable/seed";
 import { useFableStore } from "@/lib/fable/store";
 import type { Transaction } from "@/lib/fable/types";
 import { riskTone } from "@/lib/fable/ui";
@@ -19,7 +20,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export default function HistoryPage() {
   const store = useFableStore();
-  const { customer } = useInstitution();
+  const { customer, institutionId } = useInstitution();
   const [filter, setFilter] = useState<FilterMode>("all");
   const [search, setSearch] = useState("");
 
@@ -29,12 +30,20 @@ export default function HistoryPage() {
   const [sort, setSort] = useState<SortMode>("newest");
   const [riskOnly, setRiskOnly] = useState(false);
 
-  // Whoever is selected in the switcher owns this feed.
-  const displayName = customer?.name ?? DEMO_USER.name;
-
-  const myTxns: Transaction[] = (store?.transactions ?? []).filter(
-    (t) => t.customerName === displayName,
+  // This customer's real history, keyed on user_id rather than name. Two
+  // institutions can have similarly-named customers; only the id is unique.
+  const { data: serverTxns } = useSWR(
+    customer ? ["demo:history", customer.user_id, institutionId] : null,
+    () => customerTransactions(customer!.user_id, institutionId, 200),
+    { refreshInterval: 8_000, keepPreviousData: true },
   );
+
+  // Transfers made this session appear immediately, ahead of the next poll.
+  const localLive = (store?.transactions ?? []).filter((t) => t.live);
+  const myTxns: Transaction[] = [
+    ...localLive,
+    ...(serverTxns ?? []).filter((t) => !localLive.some((l) => l.id === t.id)),
+  ];
 
   const filteredTxns = myTxns
     .filter((t) => {

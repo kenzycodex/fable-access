@@ -41,7 +41,10 @@ export default function DemoHomePage() {
   // The active customer drives the feed; fall back to the seed user on the
   // first paint before the roster has loaded. (The avatar and name in the
   // header are rendered by CustomerSwitcher, which owns the same value.)
-  const displayName = customer?.name ?? DEMO_USER.name;
+  // No fallback to a hardcoded person: before the roster resolves, every
+  // institution briefly rendered the same "Ada Obi", which read as the tenants
+  // sharing customers. Show the bank until its own customer is known.
+  const displayName = customer?.name ?? "";
 
   useEffect(() => {
     setMounted(true);
@@ -69,7 +72,7 @@ export default function DemoHomePage() {
 
   // Balance, income, spend and categories are derived from this customer's own
   // feed — the same history Copilot builds its baseline from.
-  const summary = summarizeCustomer(allMyTxns, customer?.opening_balance ?? DEMO_USER.balance);
+  const summary = summarizeCustomer(allMyTxns, customer?.opening_balance ?? 0);
 
   return (
     <Screen>

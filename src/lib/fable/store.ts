@@ -203,7 +203,7 @@ export async function submitTransfer(input: TransactionInput, sdk?: Partial<SdkT
     recipientName: input.recipient.name,
     recipientBank: input.recipient.bank,
     recipientAccount: input.recipient.accountNumber,
-    customerName: getTenant().customerName ?? DEMO_USER.name,
+    customerName: getTenant().customerName ?? "Unknown customer",
     live: true,
     remote,
   };
