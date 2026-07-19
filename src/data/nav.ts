@@ -11,7 +11,9 @@ export const primaryNav: NavLink[] = [
   { label: "Why Fable", href: "/why-fable" },
   { label: "Platform", href: "/platform" },
   { label: "Pricing", href: "/pricing" },
-  { label: "API Docs", href: "http://localhost:8000/docs", external: true },
+  // The in-app documentation, not the API's Swagger UI. The latter lives on
+  // the backend host and is dead for anyone not running it locally.
+  { label: "API Docs", href: "/docs" },
 ];
 
 /** Every CTA sitewide funnels into exactly one of two destinations: the

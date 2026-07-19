@@ -1,5 +1,6 @@
 "use client";
 
+import { API_BASE } from "@/lib/fable/api";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -62,7 +63,7 @@ export default function SettingsPage() {
     setCpSubmitting(true);
     setCpMsg({ type: "", text: "" });
     try {
-      const res = await fetch("http://localhost:8000/auth/change-password", {
+      const res = await fetch(`${API_BASE}/auth/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: cpEmail, old_password: cpOld, new_password: cpNew })

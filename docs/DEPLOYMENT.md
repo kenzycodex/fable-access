@@ -16,36 +16,58 @@ behind it.
 | Piece | Where | Why |
 |---|---|---|
 | Next.js frontend | Vercel (done) | Three surfaces |
-| FastAPI backend | **Railway** (recommended) | Shield, Copilot, Ghost, auth |
-| Postgres | Railway, same project | Replaces SQLite; survives redeploys |
+| FastAPI backend | **Railway** | Shield, Copilot, Ghost, auth |
+| Persistent storage | **Railway volume** | Survives redeploys |
 | Paystack key | Vercel env | Real NUBAN resolution |
 | SMTP | Railway env | Provisioning + OTP mail |
 
 **Why not Vercel for the backend.** The API is a long-lived FastAPI service
 with a database connection and background work. Vercel's functions are
-stateless and short-lived, and SQLite on their filesystem is wiped on every
-deploy. Railway (or Render/Fly) runs it as a real process.
+stateless and short-lived, and its filesystem is wiped on every deploy.
+Railway runs it as a real process.
 
 ---
 
-## 2. The SQLite problem, honestly
+## 2. Storage: read this before choosing Postgres
 
-`api/fable.db` works locally because the file persists. On any container
-platform the filesystem is **ephemeral** — every redeploy wipes it. You'd lose
-every provisioned institution, transaction, passkey and branding change.
+`api/fable.db` works locally because the file persists. On Railway the
+container filesystem is **ephemeral** — every redeploy wipes it. Without
+persistent storage you lose every provisioned institution, transaction,
+passkey and branding change.
 
-Two options:
+**Postgres is not a configuration change.** The backend is written against
+SQLite, not against a generic SQL layer:
 
-**a. Postgres (recommended).** The schema was deliberately written to mirror
-Postgres, so the port is mechanical rather than a rewrite. Needed for anything
-you want to survive a deploy.
+| | Current | Postgres needs |
+|---|---|---|
+| Driver | `import sqlite3` | `psycopg` |
+| Placeholders | `?` | `%s` |
+| Timestamps | `datetime('now')` | `NOW()` |
+| Auto ids | `AUTOINCREMENT` | `SERIAL` / `IDENTITY` |
+| Upserts | `INSERT OR IGNORE` / `OR REPLACE` | `ON CONFLICT` |
 
-**b. Railway volume + SQLite.** Faster to stand up: mount a volume, point
-`FABLE_DB_PATH` at it. Fine for a demo, but single-writer and it won't scale
-past one instance.
+Those appear across `db.py`, `branding.py`, and the `admin`, `auth` and `demo`
+routers. Porting is real work — a driver swap, a placeholder conversion, and
+rewriting the SQLite-only SQL — not an environment variable.
 
-For a pitch that has to survive redeploys, do (a). If you're deploying the
-night before, (b) is defensible — just know what it costs.
+### Recommended now: Railway volume + SQLite
+
+Zero code changes, and a Railway volume **does** persist across redeploys,
+which is the property that actually matters here.
+
+1. Railway service → **Settings → Volumes → New Volume**
+2. Mount path: `/data`
+3. Add `FABLE_DB_PATH=/data/fable.db`
+
+Limits worth knowing: single writer, and it will not scale past one instance.
+For a demo, a pitch, and early pilot traffic that is genuinely fine.
+
+### Later: the Postgres port
+
+Do this when you need concurrent writers or more than one instance. Scope:
+swap the driver, convert placeholders, replace the five SQLite-only
+constructs above, and keep `_migrate()` working. Budget a focused session,
+not a deploy-day change.
 
 ---
 
@@ -63,16 +85,20 @@ night before, (b) is defensible — just know what it costs.
    only accepts connections from inside the container and the health check
    will fail.
 
-### 3.2 Add Postgres
+### 3.2 Add the volume
 
-**+ New** → **Database** → **PostgreSQL**. Railway sets `DATABASE_URL`
-automatically on the same project.
+**Settings → Volumes → New Volume**, mount at `/data`. This is what survives
+redeploys; without it the database is gone on every push.
 
 ### 3.3 Environment variables
 
 ```bash
 ENVIRONMENT=production
 FRONTEND_URL=https://fablehq.vercel.app
+
+# Points the database at the mounted volume. Without this it lands on the
+# container filesystem and is wiped on every redeploy.
+FABLE_DB_PATH=/data/fable.db
 
 # CORS — the browser calls this API directly from the Vercel origin.
 # Do not leave this as "*" in production.
@@ -159,11 +185,16 @@ Only worth it if you've made transfers you want to keep.
 python api/scripts/export_db.py > fable_dump.sql
 ```
 
-Then load it into Railway Postgres with `psql "$DATABASE_URL" -f fable_dump.sql`.
+Staying on SQLite, the simplest move is to copy the file straight onto the
+volume — no conversion needed:
 
-⚠️ **SQLite and Postgres dumps are not interchangeable.** `sqlite3 .dump`
-produces SQLite-flavoured SQL that Postgres will reject (`AUTOINCREMENT`,
-`datetime('now')`, integer booleans). Convert, or use Option A.
+```bash
+railway run --service <name> -- bash -c "cat > /data/fable.db" < api/fable.db
+```
+
+The export script above exists for the eventual Postgres port: `sqlite3 .dump`
+emits SQLite-flavoured SQL that Postgres rejects, so it walks the data and
+writes plain INSERTs instead.
 
 ⚠️ **Passkeys will not survive**, whichever option you pick. A credential is
 bound to the Relying Party ID it was registered against, so anything enrolled
@@ -205,6 +236,12 @@ Paystack enforces the allowlist per endpoint — `/bank` can succeed while
 Clear the Test IP box in the Paystack dashboard, or add Railway's egress IP.
 `/api/paystack-status` diagnoses this in one call.
 
+**Paystack test-mode daily limit.** A test key allows only **three live bank
+resolutions per day**. Past that the API returns 429 and resolution falls back
+to generated names — which looks like broken code but is a hard limit on
+Paystack's side. `/api/paystack-status` reports it as `rate_limited`. Going to
+live mode lifts it, at real cost per lookup.
+
 **CORS.** `FABLE_CORS_ORIGINS=*` and credentials cannot both be set; the code
 already disables credentials when origins is `*`. Set the real origin.
 
@@ -233,7 +270,7 @@ curl -X POST $API/v1/demo/seed-institution \
 |---|---|---|
 | Vercel | Hobby | Free |
 | Railway | Starter | ~$5/mo credit, enough for this |
-| Railway Postgres | Included | Within the same credit |
+| Railway volume | Included | Within the same credit |
 | Paystack | Test mode | Free |
 | OpenAI | Pay-as-you-go | Cents at demo volume |
 
@@ -242,8 +279,8 @@ curl -X POST $API/v1/demo/seed-institution \
 ## 9. Order of operations
 
 1. Railway project, root `api`, start command set
-2. Add Postgres
-3. Set backend env vars → deploy → `curl /health`
+2. Add a volume at `/data`
+3. Set backend env vars, including `FABLE_DB_PATH=/data/fable.db` → deploy → `curl /health`
 4. Set `NEXT_PUBLIC_FABLE_API_URL` + `PAYSTACK_SECRET_KEY` on Vercel → **redeploy**
 5. Provision institutions against the live API
 6. Add Railway's egress IP to Paystack, or clear the allowlist

@@ -1,5 +1,6 @@
 "use client";
 
+import { API_BASE } from "@/lib/fable/api";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
@@ -16,7 +17,7 @@ export default function ForgotPasswordPage() {
     setSubmitting(true);
     
     try {
-      await fetch("http://localhost:8000/auth/forgot-password", {
+      await fetch(`${API_BASE}/auth/forgot-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email })
