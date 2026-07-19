@@ -286,3 +286,75 @@ curl -X POST http://localhost:8000/v1/demo/seed-institution \
   production would wire it to a real Open Banking holds endpoint.
 - **`fable.db` is SQLite.** Fine for a demo and for real load in the small; the
   schema deliberately mirrors Postgres so it can be swapped.
+
+---
+
+## 11. Identity assurance — binding decisions to a real person
+
+Shield answers *how risky is this?*. Assurance answers the question that makes
+containment hold: *who must prove they are here, and with what?*
+
+### The hole this closes
+
+Ghost's release path checked only that the caller claimed to be the account
+holder — and the client supplies that id about itself. So containment was
+defeated by the exact session compromise that triggered it: an attacker holding
+the tab could press "release" and Fable would hand over the money, with all
+twelve behavioural layers having correctly fired.
+
+**Releasing now costs proof. Cancelling stays free**, because returning money is
+always safe.
+
+### Why the factor's location matters more than its type
+
+A PIN prompt inside a compromised session is theatre — the attacker has that
+prompt too. Only two kinds of factor cost an attacker anything:
+
+| Kind | Example | Why it holds |
+|---|---|---|
+| **Device-bound** | Passkey / platform biometric | Private key is generated in the secure element and never leaves it. Holding the session ≠ holding the key. |
+| **Out-of-band** | Code to the registered address | Arrives on a channel the session doesn't control. |
+
+### The tiers, and the escalation rule
+
+| Container held because of | Release demands |
+|---|---|
+| Amount alone (risk 0.55) | `passkey` |
+| Amount **+ device + location anomaly** (risk 0.88) | `identity_check` |
+
+The escalation is the point: risk arising from *identity* signals implies the
+session may not belong to the customer, so those cases jump to a factor the
+session cannot satisfy — rather than asking for one more thing the attacker
+already has. Release is always at least one tier above the transfer itself.
+
+### What's real here
+
+- **Passkeys** — genuine WebAuthn, signatures verified with `py_webauthn`. Real
+  Face ID / Touch ID / Windows Hello.
+- **Email OTP** — real, over the configured SMTP. Codes are stored hashed and
+  compared in constant time.
+- **Face / liveness** — deliberately **not** implemented. Returns `501` with the
+  provider contract (Smile ID / Dojah / Prembly). Faking it would make the
+  strongest tier the least trustworthy.
+
+Challenges and tokens are single-use, expiring, and bound to a user, a purpose
+and a reference — proof minted for a small transfer cannot be replayed against
+a large one. Verified: wrong reference, wrong purpose, wrong user and replayed
+tokens are all refused.
+
+### The feedback loop
+
+`previous_failed_attempts` had sat unused in the schema since it was added.
+Failed factor attempts are now recorded and read back as scoring signal #13 —
+three failed biometrics before a large transfer is about the clearest evidence
+available.
+
+### Why this improves rather than replaces
+
+Banks already own PIN, biometric, OTP and BVN-linked face data. What nobody
+does well is decide *when* to demand which; today it's a static rule ("OTP above
+₦100k"), which is exactly why scammers coach victims through OTPs — the
+threshold is predictable. Fable makes the demand behaviourally driven and
+unpredictable to the attacker: the same ₦50,000 that clears silently for Tunde
+forces a stronger factor for Chioma from a new device in a new city. The bank
+keeps its auth stack; Fable decides the moment.
