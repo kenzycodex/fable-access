@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { CaretDown, CheckCircle } from "@phosphor-icons/react";
+import { CaretDown, CheckCircle, SignOut } from "@phosphor-icons/react";
 import { Avatar } from "@/components/demo/kit";
 import { DemoSheet } from "@/components/demo/DemoSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
@@ -60,7 +61,7 @@ export function CustomerSwitcher({ greeting = "Good morning 👋" }: { greeting?
         open={open}
         onClose={() => setOpen(false)}
         title="Switch customer"
-        subtitle={`${name} · each person has their own learned baseline`}
+        subtitle={`${name} · each has their own baseline`}
       >
         <div className="flex flex-col gap-2">
           {customers.map((c) => {
@@ -102,9 +103,18 @@ export function CustomerSwitcher({ greeting = "Good morning 👋" }: { greeting?
         </div>
 
         <p className="mt-3 text-[11px] leading-relaxed text-gray-500 dark:text-white/35">
-          Send the same amount as different people to see Shield judge it against each
-          customer&apos;s own history rather than a global threshold.
+          Send the same amount as different people — Shield judges each against their own history.
         </p>
+
+        {/* Leaving the sandbox lives with the account actions, the way sign-out
+            does in a real app, so it works on every breakpoint. */}
+        <Link
+          href="/"
+          className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-gray-200 py-3 text-[13px] font-semibold text-gray-600 transition-colors hover:bg-gray-50 dark:border-white/[0.08] dark:text-white/50 dark:hover:bg-white/[0.04]"
+        >
+          <SignOut size={15} weight="bold" />
+          Exit demo bank
+        </Link>
       </DemoSheet>
     </>
   );

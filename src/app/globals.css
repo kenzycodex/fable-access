@@ -321,6 +321,20 @@ html:has([data-surface="app"]) {
     from { transform: rotate(0deg); }
     to   { transform: rotate(360deg); }
   }
+  /* Success tick: the ring sweeps round, then the check strokes itself in. */
+  @keyframes checkRing {
+    from { transform: rotate(-90deg); stroke-dashoffset: 170; }
+    to   { transform: rotate(-90deg); stroke-dashoffset: 0; }
+  }
+  @keyframes checkStroke {
+    from { stroke-dashoffset: 40; }
+    to   { stroke-dashoffset: 0; }
+  }
+  @keyframes checkPop {
+    0%   { transform: scale(0.8); opacity: 0; }
+    60%  { transform: scale(1.04); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
   /* Bottom sheet slides up from the edge it is anchored to. */
   @keyframes sheetUp {
     from { transform: translateY(100%); }
@@ -361,6 +375,18 @@ html:has([data-surface="app"]) {
   .animate-sheet {
     animation: sheetUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
   }
+  .animate-check-pop {
+    animation: checkPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .animate-check-ring {
+    stroke-dasharray: 170;
+    transform-origin: center;
+    animation: checkRing 0.55s ease-out both;
+  }
+  .animate-check-stroke {
+    stroke-dasharray: 40;
+    animation: checkStroke 0.3s 0.35s ease-out both;
+  }
   @media (min-width: 640px) {
     .animate-sheet {
       animation: dialogIn 0.2s ease-out;
@@ -400,7 +426,14 @@ html:has([data-surface="app"]) {
   .animate-pulse-glow,
   .animate-spin-slow,
   .animate-sheet,
+  .animate-check-pop,
   .animate-float-orb {
     animation: none;
+  }
+  /* The tick still needs its final geometry, so end it rather than kill it. */
+  .animate-check-ring,
+  .animate-check-stroke {
+    animation-duration: 0.01s;
+    animation-delay: 0s;
   }
 }

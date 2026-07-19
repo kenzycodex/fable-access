@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { House, ClockCounterClockwise, PaperPlaneTilt, ShieldCheck } from "@phosphor-icons/react";
+import { House, ClockCounterClockwise, PaperPlaneTilt, ShieldCheck, SignOut } from "@phosphor-icons/react";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 
 // Paths are relative to the institution root; the provider's href() prefixes
@@ -61,7 +61,16 @@ export function DemoSidebar() {
           })}
         </nav>
       </div>
-      <p className="px-2 text-[10px] text-gray-400 dark:text-white/15">{name} · Demo</p>
+      <div className="flex flex-col gap-2 px-2">
+        <Link
+          href="/"
+          className="flex items-center gap-2 text-[11px] font-semibold text-gray-400 transition-colors hover:text-gray-700 dark:text-white/25 dark:hover:text-white/60"
+        >
+          <SignOut size={13} weight="bold" />
+          Exit demo bank
+        </Link>
+        <p className="text-[10px] text-gray-400 dark:text-white/15">{name} · Demo</p>
+      </div>
     </aside>
   );
 }
