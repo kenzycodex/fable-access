@@ -117,34 +117,86 @@ CREATE TABLE IF NOT EXISTS user_locations (
     source TEXT,
     seen_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS institutions (
+    institution_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT DEFAULT 'Microfinance Bank',
+    contact_email TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
 """
 
-# Columns added to `transactions` after the original schema shipped. Existing
-# fable.db files are upgraded in place at boot via PRAGMA table_info diffing.
-TRANSACTIONS_MIGRATIONS = {
-    "client_ip": "TEXT",
-    "latitude": "REAL",
-    "longitude": "REAL",
-    "city": "TEXT",
-    "country": "TEXT",
-    "location_source": "TEXT",
-    "session_duration_seconds": "INTEGER",
-    "auth_method": "TEXT",
-    "typing_speed_ms": "REAL",
-    "paste_detected": "INTEGER",
-    "time_to_submit_seconds": "REAL",
-    "client_timestamp": "TEXT",
-    "client_timezone": "TEXT",
+# The tenant every pre-multi-tenant row belongs to. Existing databases were
+# single-tenant, so their history is backfilled to this institution.
+DEFAULT_INSTITUTION_ID = "meridian"
+
+# Columns added after the original schema shipped. Existing fable.db files are
+# upgraded in place at boot via PRAGMA table_info diffing.
+MIGRATIONS = {
+    "transactions": {
+        "client_ip": "TEXT",
+        "latitude": "REAL",
+        "longitude": "REAL",
+        "city": "TEXT",
+        "country": "TEXT",
+        "location_source": "TEXT",
+        "session_duration_seconds": "INTEGER",
+        "auth_method": "TEXT",
+        "typing_speed_ms": "REAL",
+        "paste_detected": "INTEGER",
+        "time_to_submit_seconds": "REAL",
+        "client_timestamp": "TEXT",
+        "client_timezone": "TEXT",
+        "institution_id": "TEXT",
+    },
+    "ghost_containers": {
+        "institution_id": "TEXT",
+    },
+    "api_keys": {
+        "institution_id": "TEXT",
+    },
 }
 
 
 def _migrate(conn):
-    cur = conn.execute("PRAGMA table_info(transactions)")
-    existing = {row[1] for row in cur.fetchall()}
-    for column, col_type in TRANSACTIONS_MIGRATIONS.items():
-        if column not in existing:
-            conn.execute(f"ALTER TABLE transactions ADD COLUMN {column} {col_type}")
+    for table, columns in MIGRATIONS.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if not existing:
+            continue  # table not created yet; SCHEMA handles it
+        for column, col_type in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+
+    # Backfill: pre-multi-tenant rows all belong to the original tenant.
+    conn.execute(
+        "UPDATE transactions SET institution_id = ? WHERE institution_id IS NULL",
+        (DEFAULT_INSTITUTION_ID,),
+    )
+    conn.execute(
+        "UPDATE ghost_containers SET institution_id = ? WHERE institution_id IS NULL",
+        (DEFAULT_INSTITUTION_ID,),
+    )
+    # Existing API keys predate institution_id; derive it from the stored name.
+    for row in conn.execute(
+        "SELECT key, institution_name FROM api_keys WHERE institution_id IS NULL"
+    ).fetchall():
+        conn.execute(
+            "UPDATE api_keys SET institution_id = ? WHERE key = ?",
+            (slugify_institution(row[1]), row[0]),
+        )
+
+    conn.execute(
+        """INSERT OR IGNORE INTO institutions (institution_id, name, type, contact_email)
+           VALUES (?, 'Meridian MFB', 'Microfinance Bank', 'risk@meridian.ng')""",
+        (DEFAULT_INSTITUTION_ID,),
+    )
     conn.commit()
+
+
+def slugify_institution(name: str) -> str:
+    """Institution display name -> stable id used in URLs and row tags."""
+    return "".join(c if c.isalnum() else "_" for c in name.strip().lower()).strip("_")
 
 
 def get_conn():

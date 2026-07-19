@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter
 
-from db import cursor
-from models.schemas import DemoSeedRequest
+from db import DEFAULT_INSTITUTION_ID, cursor
+from models.schemas import DemoSeedRequest, InstitutionSeedRequest
 
 router = APIRouter(prefix="/v1/demo", tags=["demo"])
 
@@ -52,6 +52,15 @@ def _seed_transaction(user_id: str, recipient: dict, created_at: datetime):
         )
 
 
+@router.post("/seed-institution")
+def seed_institution_endpoint(payload: InstitutionSeedRequest):
+    """Seed all demo customers for one tenant (used at provisioning time and
+    by the demo bank when it opens onto an institution with no history)."""
+    from agents.copilot.demo_customers import seed_institution
+
+    return seed_institution(payload.institution_id, payload.days)
+
+
 @router.post("/seed")
 def seed(payload: DemoSeedRequest):
     user_id = payload.user_id
@@ -82,7 +91,7 @@ def seed(payload: DemoSeedRequest):
             _seed_transaction(user_id, recipient, day)
             count += 1
 
-    threats = _seed_threat_history(user_id, days)
+    threats = seed_threat_history(user_id, days)
 
     return {
         "status": "seeded",
@@ -110,7 +119,7 @@ THREAT_TEMPLATES = [
 ]
 
 
-def _seed_threat_history(user_id: str, days: int) -> int:
+def seed_threat_history(user_id: str, days: int, institution_id: str = DEFAULT_INSTITUTION_ID) -> int:
     created = 0
     now = datetime.utcnow()
     # ~22 historical threats spread across the window
@@ -128,12 +137,14 @@ def _seed_threat_history(user_id: str, days: int) -> int:
                 """INSERT INTO transactions
                    (id, user_id, amount, currency, recipient_id, recipient_account, recipient_bank,
                     narration, channel, device_fingerprint, hour_of_day, risk_score, risk_level,
-                    action_taken, shield_signals, confirmed_legitimate, is_seed, created_at)
-                   VALUES (?, ?, ?, 'NGN', 'unknown', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?)""",
+                    action_taken, shield_signals, confirmed_legitimate, is_seed, created_at,
+                    institution_id)
+                   VALUES (?, ?, ?, 'NGN', 'unknown', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)""",
                 (
                     txid, user_id, amount, acct, tmpl["bank"], tmpl["narration"], tmpl["channel"],
                     f"fp_threat_{random.randint(1000,9999)}", ts.hour, score, tmpl["level"],
                     tmpl["action"], json.dumps(tmpl["signals"]), ts.isoformat(),
+                    institution_id,
                 ),
             )
             # Blocked high-risk transfers where the user reached for Ghost and

@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from config import GHOST_COOLING_HIGH, GHOST_COOLING_MED, GHOST_COOLING_LOW
-from db import cursor, row_to_dict, dumps
+from db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict, dumps
 
 
 def calculate_cooling_window(risk_score: float) -> int:
@@ -21,7 +21,13 @@ def calculate_cooling_window(risk_score: float) -> int:
     return GHOST_COOLING_LOW
 
 
-def create_ghost_container(user_id: str, transaction: dict, risk_score: float, explanation: str) -> dict:
+def create_ghost_container(
+    user_id: str,
+    transaction: dict,
+    risk_score: float,
+    explanation: str,
+    institution_id: str | None = None,
+) -> dict:
     ghost_id = f"ghost_{uuid.uuid4().hex[:12]}"
     cooling_minutes = calculate_cooling_window(risk_score)
     created_at = datetime.now(timezone.utc)
@@ -31,8 +37,9 @@ def create_ghost_container(user_id: str, transaction: dict, risk_score: float, e
         cur.execute(
             """INSERT INTO ghost_containers
                (ghost_id, user_id, amount, recipient_id, recipient_account, recipient_bank,
-                status, cooling_window_minutes, risk_score, explanation, created_at, expires_at)
-               VALUES (?, ?, ?, ?, ?, ?, 'HELD', ?, ?, ?, ?, ?)""",
+                status, cooling_window_minutes, risk_score, explanation, created_at, expires_at,
+                institution_id)
+               VALUES (?, ?, ?, ?, ?, ?, 'HELD', ?, ?, ?, ?, ?, ?)""",
             (
                 ghost_id,
                 user_id,
@@ -45,6 +52,7 @@ def create_ghost_container(user_id: str, transaction: dict, risk_score: float, e
                 explanation,
                 created_at.isoformat(),
                 expires_at.isoformat(),
+                institution_id or DEFAULT_INSTITUTION_ID,
             ),
         )
 

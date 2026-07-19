@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request
 from models.schemas import ShieldAnalyzeRequest, ShieldAnalyzeResponse, FeedbackRequest
 from agents.shield.analyzer import analyze_transaction_safe
 from agents.copilot.baseline import log_transaction
+from tenancy import resolve_institution
 
 router = APIRouter(prefix="/v1/shield", tags=["shield"])
 
@@ -22,6 +23,8 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     if not device.get("ip") and request.client:
         device["ip"] = request.client.host
 
+    institution_id = resolve_institution(request, payload.institution_id)
+
     result = analyze_transaction_safe(payload.user_id, transaction, device, context)
 
     transaction_id = f"txn_{uuid.uuid4().hex[:12]}"
@@ -37,6 +40,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         confirmed_legitimate=(result["action"] == "PASS"),
         device=device,
         context=context,
+        institution_id=institution_id,
     )
 
     latency_ms = (time.perf_counter() - start) * 1000

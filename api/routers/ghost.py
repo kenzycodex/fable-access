@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from models.schemas import GhostCreateRequest, GhostActionRequest
 from agents.ghost.account import (
@@ -7,14 +7,18 @@ from agents.ghost.account import (
     cancel_ghost,
     release_ghost,
 )
+from tenancy import resolve_institution
 
 router = APIRouter(prefix="/v1/ghost", tags=["ghost"])
 
 
 @router.post("/create")
-def create(payload: GhostCreateRequest):
+def create(payload: GhostCreateRequest, request: Request):
     transaction = payload.transaction.model_dump()
-    return create_ghost_container(payload.user_id, transaction, payload.risk_score, payload.explanation)
+    institution_id = resolve_institution(request, payload.institution_id)
+    return create_ghost_container(
+        payload.user_id, transaction, payload.risk_score, payload.explanation, institution_id
+    )
 
 
 @router.get("/{ghost_id}")

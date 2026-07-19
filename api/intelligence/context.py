@@ -3,6 +3,11 @@
 Read-only rollups over the transactions + ghost_containers tables, used by the
 dashboard data endpoints and to ground the Copilot assistant's answers in the
 institution's real numbers (so the LLM never hallucinates a stat).
+
+Every rollup is tenant-scoped: pass the institution_id of the logged-in
+dashboard session and the numbers cover only that institution's feed. Passing
+None aggregates across all tenants, which is only appropriate for internal
+operator views, never for a customer-facing dashboard.
 """
 from db import cursor, loads
 
@@ -30,20 +35,34 @@ PATTERN_LABELS = {
 }
 
 
-def institution_summary() -> dict:
-    """Headline counts + money-protected for the whole institution."""
+def tenant_clause(institution_id: str | None, prefix: str = "WHERE") -> tuple[str, list]:
+    """SQL fragment + params restricting a query to one institution."""
+    if not institution_id:
+        return "", []
+    return f" {prefix} institution_id = ?", [institution_id]
+
+
+def institution_summary(institution_id: str | None = None) -> dict:
+    """Headline counts + money-protected for one institution."""
+    where, params = tenant_clause(institution_id)
     with cursor() as cur:
-        cur.execute("SELECT COUNT(*) AS n FROM transactions")
+        cur.execute(f"SELECT COUNT(*) AS n FROM transactions{where}", params)
         total = cur.fetchone()["n"]
 
-        cur.execute("SELECT action_taken AS a, COUNT(*) AS n FROM transactions GROUP BY action_taken")
+        cur.execute(
+            f"SELECT action_taken AS a, COUNT(*) AS n FROM transactions{where} GROUP BY action_taken",
+            params,
+        )
         by_action = {(r["a"] or "PASS"): r["n"] for r in cur.fetchall()}
 
-        cur.execute("SELECT AVG(risk_score) AS s FROM transactions")
+        cur.execute(f"SELECT AVG(risk_score) AS s FROM transactions{where}", params)
         avg_score = cur.fetchone()["s"] or 0.0
 
+        ghost_where, ghost_params = tenant_clause(institution_id, prefix="AND")
         cur.execute(
-            "SELECT COALESCE(SUM(amount),0) AS amt FROM ghost_containers WHERE status = 'CANCELLED'"
+            "SELECT COALESCE(SUM(amount),0) AS amt FROM ghost_containers "
+            f"WHERE status = 'CANCELLED'{ghost_where}",
+            ghost_params,
         )
         fraud_prevented = cur.fetchone()["amt"] or 0
 
@@ -57,16 +76,27 @@ def institution_summary() -> dict:
     }
 
 
-def scam_pattern_breakdown() -> list[dict]:
+def _risky_signals(institution_id: str | None):
+    """Signal lists from every flagged/blocked transfer in the tenant."""
+    where, params = tenant_clause(institution_id, prefix="AND")
+    with cursor() as cur:
+        cur.execute(
+            f"SELECT shield_signals FROM transactions WHERE action_taken IN ('BLOCK','FLAG'){where}",
+            params,
+        )
+        for row in cur.fetchall():
+            yield loads(row["shield_signals"], []) or []
+
+
+def scam_pattern_breakdown(institution_id: str | None = None) -> list[dict]:
     """How often each Nigerian scam pattern fired, most frequent first."""
     counts: dict[str, int] = {}
-    with cursor() as cur:
-        cur.execute("SELECT shield_signals FROM transactions WHERE action_taken IN ('BLOCK','FLAG')")
-        for row in cur.fetchall():
-            for sig in loads(row["shield_signals"], []) or []:
-                if isinstance(sig, str) and sig.startswith("scam_pattern:"):
-                    name = sig.split(":", 1)[1].strip()
-                    counts[name] = counts.get(name, 0) + 1
+    for signals in _risky_signals(institution_id):
+        for sig in signals:
+            if isinstance(sig, str) and sig.startswith("scam_pattern:"):
+                # Signals carry an inline weight, e.g. "scam_pattern: urgency_pidgin (+0.16)"
+                name = sig.split(":", 1)[1].strip().split(" (")[0].strip()
+                counts[name] = counts.get(name, 0) + 1
     return sorted(
         ({"name": k, "label": PATTERN_LABELS.get(k, k.replace("_", " ").title()), "count": v}
          for k, v in counts.items()),
@@ -75,14 +105,16 @@ def scam_pattern_breakdown() -> list[dict]:
     )
 
 
-def channel_breakdown() -> list[dict]:
+def channel_breakdown(institution_id: str | None = None) -> list[dict]:
     """Volume + risk rate per channel."""
+    where, params = tenant_clause(institution_id)
     with cursor() as cur:
         cur.execute(
-            """SELECT channel,
+            f"""SELECT channel,
                       COUNT(*) AS total,
                       SUM(CASE WHEN action_taken IN ('BLOCK','FLAG') THEN 1 ELSE 0 END) AS risky
-               FROM transactions GROUP BY channel ORDER BY total DESC"""
+               FROM transactions{where} GROUP BY channel ORDER BY total DESC""",
+            params,
         )
         rows = cur.fetchall()
     out = []
@@ -99,7 +131,7 @@ def channel_breakdown() -> list[dict]:
     return out
 
 
-def signal_frequency() -> list[dict]:
+def signal_frequency(institution_id: str | None = None) -> list[dict]:
     """How often each Shield signal type fired across flagged/blocked transfers."""
     labels = {
         "amount_anomaly": "Amount anomaly",
@@ -107,26 +139,29 @@ def signal_frequency() -> list[dict]:
         "time_anomaly": "Unusual time",
         "channel_risk": "Higher-risk channel",
         "scam_pattern": "Scam-script match",
-        "ml_anomaly": "Behavioral anomaly",
+        "ml_anomaly": "ML anomaly",
+        "device_anomaly": "Unrecognized device",
+        "location_anomaly": "Location anomaly",
+        "session_freshness": "Fresh session",
+        "behavioral_anomaly": "Behavioral anomaly",
+        "timezone_mismatch": "Timezone mismatch",
     }
     counts: dict[str, int] = {}
-    with cursor() as cur:
-        cur.execute("SELECT shield_signals FROM transactions WHERE action_taken IN ('BLOCK','FLAG')")
-        for row in cur.fetchall():
-            for sig in loads(row["shield_signals"], []) or []:
-                if isinstance(sig, str):
-                    code = sig.split(":", 1)[0].strip()
-                    code = "nip_code" if code.startswith("nip_") else code
-                    key = labels.get(code, code.replace("_", " ").title())
-                    counts[key] = counts.get(key, 0) + 1
+    for signals in _risky_signals(institution_id):
+        for sig in signals:
+            if isinstance(sig, str):
+                code = sig.split(":", 1)[0].strip()
+                code = "nip_code" if code.startswith("nip_") else code
+                key = labels.get(code, code.replace("_", " ").title())
+                counts[key] = counts.get(key, 0) + 1
     return sorted(({"label": k, "count": v} for k, v in counts.items()), key=lambda d: d["count"], reverse=True)
 
 
-def grounding_text() -> str:
+def grounding_text(institution_id: str | None = None) -> str:
     """Compact real-numbers brief injected into the assistant's system prompt."""
-    s = institution_summary()
-    patterns = scam_pattern_breakdown()[:5]
-    channels = channel_breakdown()[:5]
+    s = institution_summary(institution_id)
+    patterns = scam_pattern_breakdown(institution_id)[:5]
+    channels = channel_breakdown(institution_id)[:5]
     lines = [
         f"Transactions analyzed: {s['transactions_analyzed']}",
         f"Blocked (high risk): {s['blocked']} | Flagged (medium): {s['flagged']} | Passed: {s['passed']}",

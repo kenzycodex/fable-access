@@ -84,6 +84,9 @@ class ShieldAnalyzeRequest(BaseModel):
     transaction: Transaction
     device: Optional[Device] = Device()
     context: Optional[Context] = Context()
+    # Institution the calling app belongs to. An authenticated API key
+    # overrides this; see tenancy.resolve_institution.
+    institution_id: Optional[str] = None
 
 
 class ShieldAnalyzeResponse(BaseModel):
@@ -102,6 +105,7 @@ class GhostCreateRequest(BaseModel):
     transaction: Transaction
     risk_score: float
     explanation: str = ""
+    institution_id: Optional[str] = None
 
 
 class GhostActionRequest(BaseModel):
@@ -116,4 +120,9 @@ class FeedbackRequest(BaseModel):
 
 class DemoSeedRequest(BaseModel):
     user_id: str = "demo_user_001"
+    days: int = 90
+
+
+class InstitutionSeedRequest(BaseModel):
+    institution_id: str
     days: int = 90

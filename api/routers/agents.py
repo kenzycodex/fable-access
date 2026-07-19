@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query
 
 from config import BLOCK_THRESHOLD, FLAG_THRESHOLD, GHOST_COOLING_HIGH, GHOST_COOLING_MED, GHOST_COOLING_LOW
 from db import cursor, row_to_dict, loads
+from intelligence.context import tenant_clause
 from agents.copilot.baseline import get_user_baseline, format_hours
 
 router = APIRouter(prefix="/v1/agents", tags=["agents"])
@@ -46,33 +47,49 @@ SHIELD_PIPELINE = [
 
 
 @router.get("/overview")
-def overview():
+def overview(institution: str | None = Query(None)):
+    where, params = tenant_clause(institution)
+    and_where, and_params = tenant_clause(institution, prefix="AND")
+
     with cursor() as cur:
-        cur.execute("SELECT COUNT(*) AS n FROM transactions")
+        cur.execute(f"SELECT COUNT(*) AS n FROM transactions{where}", params)
         total_tx = cur.fetchone()["n"]
 
-        cur.execute("SELECT COUNT(*) AS n FROM transactions WHERE is_seed = 0")
+        cur.execute(f"SELECT COUNT(*) AS n FROM transactions WHERE is_seed = 0{and_where}", and_params)
         live_tx = cur.fetchone()["n"]
 
-        cur.execute("SELECT action_taken AS a, COUNT(*) AS n FROM transactions GROUP BY action_taken")
+        cur.execute(f"SELECT action_taken AS a, COUNT(*) AS n FROM transactions{where} GROUP BY action_taken", params)
         by_action = {r["a"] or "PASS": r["n"] for r in cur.fetchall()}
 
-        cur.execute("SELECT AVG(risk_score) AS s FROM transactions")
+        cur.execute(f"SELECT AVG(risk_score) AS s FROM transactions{where}", params)
         avg_score = cur.fetchone()["s"] or 0.0
 
-        cur.execute("SELECT COUNT(DISTINCT user_id) AS n FROM transactions")
+        cur.execute(f"SELECT COUNT(DISTINCT user_id) AS n FROM transactions{where}", params)
         users = cur.fetchone()["n"]
 
-        cur.execute("SELECT COUNT(*) AS n FROM device_profiles")
+        # Devices and locations belong to the tenant's own customers, so scope
+        # them through the transactions table rather than counting globally.
+        cur.execute(
+            f"""SELECT COUNT(*) AS n FROM device_profiles
+                WHERE user_id IN (SELECT DISTINCT user_id FROM transactions{where})""",
+            params,
+        )
         devices = cur.fetchone()["n"]
 
-        cur.execute("SELECT COUNT(*) AS n FROM user_locations")
+        cur.execute(
+            f"""SELECT COUNT(*) AS n FROM user_locations
+                WHERE user_id IN (SELECT DISTINCT user_id FROM transactions{where})""",
+            params,
+        )
         locations = cur.fetchone()["n"]
 
-        cur.execute("SELECT MAX(created_at) AS t FROM transactions WHERE is_seed = 0")
+        cur.execute(f"SELECT MAX(created_at) AS t FROM transactions WHERE is_seed = 0{and_where}", and_params)
         last_live = cur.fetchone()["t"]
 
-        cur.execute("SELECT status, COUNT(*) AS n, COALESCE(SUM(amount),0) AS amt FROM ghost_containers GROUP BY status")
+        cur.execute(
+            f"SELECT status, COUNT(*) AS n, COALESCE(SUM(amount),0) AS amt FROM ghost_containers{where} GROUP BY status",
+            params,
+        )
         ghost_rows = {r["status"]: {"count": r["n"], "amount": r["amt"]} for r in cur.fetchall()}
 
     blocked = by_action.get("BLOCK", 0)
@@ -121,13 +138,14 @@ def overview():
 
 
 @router.get("/copilot/customers")
-def copilot_customers(limit: int = Query(50, ge=1, le=200)):
+def copilot_customers(limit: int = Query(50, ge=1, le=200), institution: str | None = Query(None)):
     """Per-customer view of what Copilot has actually learned."""
+    where, params = tenant_clause(institution)
     with cursor() as cur:
         cur.execute(
-            """SELECT user_id, COUNT(*) AS tx, SUM(is_seed = 0) AS live_tx, MAX(created_at) AS last_seen
-               FROM transactions GROUP BY user_id ORDER BY tx DESC LIMIT ?""",
-            [limit],
+            f"""SELECT user_id, COUNT(*) AS tx, SUM(is_seed = 0) AS live_tx, MAX(created_at) AS last_seen
+               FROM transactions{where} GROUP BY user_id ORDER BY tx DESC LIMIT ?""",
+            params + [limit],
         )
         users = [row_to_dict(r) for r in cur.fetchall()]
 
@@ -166,26 +184,31 @@ def copilot_customers(limit: int = Query(50, ge=1, le=200)):
 
 
 @router.get("/shield/decisions")
-def shield_decisions(limit: int = Query(25, ge=1, le=200)):
+def shield_decisions(limit: int = Query(25, ge=1, le=200), institution: str | None = Query(None)):
     """Recent Shield decisions with full signal breakdowns + the pipeline config."""
+    where, params = tenant_clause(institution)
+    and_where, and_params = tenant_clause(institution, prefix="AND")
+
     with cursor() as cur:
         cur.execute(
-            """SELECT id, user_id, amount, recipient_id, recipient_bank, channel,
+            f"""SELECT id, user_id, amount, recipient_id, recipient_bank, channel,
                       risk_score, risk_level, action_taken, shield_signals, city, country,
                       location_source, auth_method, session_duration_seconds,
                       typing_speed_ms, paste_detected, device_fingerprint, is_seed, created_at
-               FROM transactions ORDER BY created_at DESC LIMIT ?""",
-            [limit],
+               FROM transactions{where} ORDER BY created_at DESC LIMIT ?""",
+            params + [limit],
         )
         rows = [row_to_dict(r) for r in cur.fetchall()]
 
-        cur.execute("SELECT COUNT(*) AS n FROM transactions")
+        cur.execute(f"SELECT COUNT(*) AS n FROM transactions{where}", params)
         total = cur.fetchone()["n"]
-        cur.execute("SELECT action_taken AS a, COUNT(*) AS n FROM transactions GROUP BY action_taken")
+        cur.execute(f"SELECT action_taken AS a, COUNT(*) AS n FROM transactions{where} GROUP BY action_taken", params)
         by_action = {r["a"] or "PASS": r["n"] for r in cur.fetchall()}
         # False-positive proxy: FLAG/BLOCK decisions later confirmed legitimate.
         cur.execute(
-            "SELECT COUNT(*) AS n FROM transactions WHERE action_taken IN ('FLAG','BLOCK') AND confirmed_legitimate = 1 AND is_seed = 0"
+            "SELECT COUNT(*) AS n FROM transactions WHERE action_taken IN ('FLAG','BLOCK') "
+            f"AND confirmed_legitimate = 1 AND is_seed = 0{and_where}",
+            and_params,
         )
         fp = cur.fetchone()["n"]
 
@@ -207,19 +230,23 @@ def shield_decisions(limit: int = Query(25, ge=1, le=200)):
 
 
 @router.get("/ghost/containers")
-def ghost_containers(limit: int = Query(50, ge=1, le=200)):
+def ghost_containers(limit: int = Query(50, ge=1, le=200), institution: str | None = Query(None)):
     """Container history + resolution stats + cooling-window config."""
+    where, params = tenant_clause(institution)
     with cursor() as cur:
         cur.execute(
-            """SELECT ghost_id, user_id, amount, recipient_id, recipient_account, recipient_bank,
+            f"""SELECT ghost_id, user_id, amount, recipient_id, recipient_account, recipient_bank,
                       status, cooling_window_minutes, risk_score, explanation,
                       created_at, expires_at, resolved_at
-               FROM ghost_containers ORDER BY created_at DESC LIMIT ?""",
-            [limit],
+               FROM ghost_containers{where} ORDER BY created_at DESC LIMIT ?""",
+            params + [limit],
         )
         rows = [row_to_dict(r) for r in cur.fetchall()]
 
-        cur.execute("SELECT status, COUNT(*) AS n, COALESCE(SUM(amount),0) AS amt FROM ghost_containers GROUP BY status")
+        cur.execute(
+            f"SELECT status, COUNT(*) AS n, COALESCE(SUM(amount),0) AS amt FROM ghost_containers{where} GROUP BY status",
+            params,
+        )
         by_status = {r["status"]: {"count": r["n"], "amount": r["amt"]} for r in cur.fetchall()}
 
     created = sum(s["count"] for s in by_status.values())

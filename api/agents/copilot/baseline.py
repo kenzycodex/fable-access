@@ -7,7 +7,7 @@ average.
 import statistics
 from datetime import datetime, timedelta
 
-from db import cursor, row_to_dict, loads
+from db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict, loads
 
 MIN_TRANSACTIONS_FOR_BASELINE = 3
 
@@ -114,6 +114,7 @@ def log_transaction(
     confirmed_legitimate: bool = True,
     device: dict | None = None,
     context: dict | None = None,
+    institution_id: str | None = None,
 ):
     from db import cursor as _cursor, dumps
 
@@ -133,9 +134,9 @@ def log_transaction(
                 action_taken, shield_signals, confirmed_legitimate, is_seed, created_at,
                 client_ip, latitude, longitude, city, country, location_source,
                 session_duration_seconds, auth_method, typing_speed_ms, paste_detected,
-                time_to_submit_seconds, client_timestamp, client_timezone)
+                time_to_submit_seconds, client_timestamp, client_timezone, institution_id)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 transaction_id,
                 user_id,
@@ -168,6 +169,7 @@ def log_transaction(
                 context.get("time_to_submit_seconds"),
                 context.get("client_timestamp"),
                 context.get("client_timezone") or device.get("timezone"),
+                institution_id or DEFAULT_INSTITUTION_ID,
             ),
         )
 

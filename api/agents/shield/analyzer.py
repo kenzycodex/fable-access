@@ -66,11 +66,26 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         baseline is not None and amount > baseline["avg_amount"] * 3
     )
 
-    # Step 1: Amount anomaly (progressive)
+    # Step 1: Amount anomaly (progressive).
+    #
+    # The scale runs past 10x deliberately. A student whose transfers sit
+    # around ₦5k suddenly sending ₦250k is 45x out — a far stronger signal
+    # than someone at 8x — and capping the boost at 10x let those extreme
+    # cases score *lower* than milder ones that also tripped a time anomaly.
     if baseline and amount > baseline["avg_amount"] * 3:
         mult = round(amount / max(baseline["avg_amount"], 1))
-        signals.append(f"amount_anomaly: {mult}x above your baseline")
-        score += 0.25 if mult >= 10 else 0.20 if mult >= 5 else 0.15
+        if mult >= 50:
+            boost = 0.40
+        elif mult >= 25:
+            boost = 0.34
+        elif mult >= 10:
+            boost = 0.28
+        elif mult >= 5:
+            boost = 0.20
+        else:
+            boost = 0.15
+        signals.append(f"amount_anomaly: {mult}x above your baseline (+{boost})")
+        score += boost
 
     # Step 2: New recipient
     known_recipients = baseline["known_recipients"] if baseline else set()
