@@ -46,6 +46,12 @@ CORS_ORIGINS = ["*"] if _raw_origins.strip() == "*" else [o.strip() for o in _ra
 # Optional Sentry error monitoring.
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 
+# --- KYC / liveness provider ---
+# Unset here. With no provider the identity_check tier resolves to the
+# strongest combination actually available (passkey + PIN + emailed code)
+# rather than faking a face match.
+KYC_PROVIDER_URL = os.getenv("KYC_PROVIDER_URL", "")
+
 # --- Top-up guards ---
 # Add Money writes to the same database the institution's fraud metrics are
 # computed from, so it is bounded. Configurable because a sandbox and a pilot

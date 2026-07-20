@@ -183,24 +183,106 @@ def otp_verify(payload: OtpVerifyRequest):
     return {"verified": True, "level": level, **token}
 
 
+class PinVerifyRequest(BaseModel):
+    user_id: str
+    pin: str
+    purpose: str = "transfer"
+    reference: Optional[str] = None
+    required_level: str = "pin"
+
+
+@router.post("/pin/verify")
+def pin_verify(payload: PinVerifyRequest):
+    """A real factor: hashed, rate-limited, locked after repeated failures."""
+    import security
+
+    try:
+        ok = security.check_pin(payload.user_id, payload.pin)
+    except security.SecurityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if not ok:
+        raise HTTPException(status_code=400, detail="That PIN isn't right.")
+
+    # A PIN alone satisfies the pin tier. For the composed tier it is one of
+    # three parts, and the token is only issued once the caller says which
+    # level it is completing.
+    level = "pin" if payload.required_level != "identity_check" else "pin"
+    token = stepup.issue_token(payload.user_id, level, payload.purpose, payload.reference)
+    return {"verified": True, "level": level, **token}
+
+
 # ---------------------------------------------------------------------------
-# Identity check (vendor tier)
+# Identity check
 # ---------------------------------------------------------------------------
+
+class IdentityCheckRequest(BaseModel):
+    user_id: str
+    purpose: str = "ghost_release"
+    reference: Optional[str] = None
+    # Proof that each part of the composed tier was completed.
+    passkey_token: Optional[str] = None
+    pin_token: Optional[str] = None
+    otp_token: Optional[str] = None
+
 
 @router.post("/identity-check")
-def identity_check():
-    """The liveness/face tier.
+def identity_check(payload: IdentityCheckRequest):
+    """The strongest tier.
 
-    Deliberately not implemented: a real check runs against the customer's
-    KYC selfie through a provider (Smile ID, Dojah, Prembly). Faking it would
-    make the strongest tier the least trustworthy, so this returns 501 with
-    the contract a provider would fulfil.
+    A liveness check runs against the customer's KYC selfie through a provider
+    (Smile ID, Dojah, Prembly). No provider is configured here, and faking a
+    face match would make the strongest tier the least trustworthy — so with
+    no vendor the tier resolves to the strongest combination actually
+    available: a device-bound passkey, a PIN, and a code delivered
+    out-of-band. Three independent factors is a defensible substitute; a
+    pretend face match is not.
     """
-    raise HTTPException(
-        status_code=501,
-        detail=(
-            "Identity verification requires a KYC provider (Smile ID / Dojah / Prembly). "
-            "Expected contract: POST {user_id, selfie} -> {match: bool, confidence: float, "
-            "reference: str}. Wire a provider here to enable the identity_check tier."
-        ),
-    )
+    import config
+
+    if getattr(config, "KYC_PROVIDER_URL", ""):
+        # A provider is configured; the composed fallback does not apply.
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "KYC provider configured but not yet wired. Expected contract: "
+                "POST {user_id, selfie} -> {match: bool, confidence: float, reference: str}."
+            ),
+        )
+
+    supplied = {
+        "passkey": payload.passkey_token,
+        "pin": payload.pin_token,
+        "otp": payload.otp_token,
+    }
+    verified = {
+        name: bool(stepup.verify_token(token, payload.user_id, payload.purpose, payload.reference))
+        for name, token in supplied.items()
+    }
+    missing = [name for name, ok in verified.items() if not ok]
+
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "factors_incomplete",
+                "message": "Complete every factor to verify your identity.",
+                "verified": verified,
+                "missing": missing,
+                "substitute_for": "liveness_check",
+            },
+        )
+
+    # Each part is spent, so the same three tokens cannot be replayed.
+    for token in supplied.values():
+        if token:
+            stepup.consume_token(token)
+
+    issued = stepup.issue_token(payload.user_id, "identity_check", payload.purpose, payload.reference)
+    return {
+        "verified": True,
+        "level": "identity_check",
+        "method": "composed_factors",
+        "note": "Verified with passkey, PIN and emailed code in place of a vendor liveness check.",
+        **issued,
+    }
