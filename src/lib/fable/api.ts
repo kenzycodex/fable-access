@@ -20,7 +20,12 @@ export const API_BASE = (process.env.NEXT_PUBLIC_FABLE_API_URL ?? "http://localh
  * demo bank (see tenant.ts). */
 export const DEMO_USER_ID = "demo_user_001";
 
-async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs = 8000): Promise<T> {
+// The deployed API answers dashboard reads in 4-7 seconds, so the original
+// 8-second budget sat right on the edge and polls failed intermittently. That
+// surfaced as the console's figures flickering between the live numbers and
+// the local fallback. Callers that genuinely need to fail fast — the /health
+// probe — pass their own shorter timeout.
+async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs = 20_000): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {

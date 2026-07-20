@@ -59,8 +59,15 @@ export function useDashboardFeed(pollMs = 4_000): DashboardFeed {
     },
   );
 
-  // Backend is serving.
-  if (data && !error) {
+  // Any successful response is used, even when the newest poll failed.
+  //
+  // This previously required `!error`, which meant a single transient failure
+  // during the 4-second poll threw away perfectly good data and swapped the
+  // console to the local seed feed. The figures visibly jumped — 200 scored
+  // and 27 blocked one second, 22 and 3 the next — and both were presented as
+  // the institution's real numbers. Keeping the last good response is the
+  // entire reason keepPreviousData is on.
+  if (data) {
     const liveIds = new Set((store?.transactions ?? []).filter((t) => t.live).map((t) => t.id));
     const transactions = data
       .map((t) => (liveIds.has(t.id) ? { ...t, live: true } : t))
@@ -68,13 +75,18 @@ export function useDashboardFeed(pollMs = 4_000): DashboardFeed {
     return { ready: true, source: "api", transactions, stats: summarize(transactions) };
   }
 
-  // Fallback to the local store (API down or first paint).
-  const txns = [...(store?.transactions ?? [])].sort((a, b) => b.timestamp - a.timestamp);
+  // No successful response yet. Only the operator's own live transfers are
+  // shown here — the seeded demo feed is deliberately excluded, because
+  // rendering fabricated transactions as an institution's fraud metrics is
+  // worse than rendering nothing.
+  const liveOnly = (store?.transactions ?? [])
+    .filter((t) => t.live)
+    .sort((a, b) => b.timestamp - a.timestamp);
   return {
-    ready: store !== null || Boolean(data),
+    ready: Boolean(error) || store !== null,
     source: "local",
-    transactions: txns,
-    stats: summarize(txns),
+    transactions: liveOnly,
+    stats: summarize(liveOnly),
   };
 }
 
