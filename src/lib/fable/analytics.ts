@@ -23,7 +23,12 @@ export function summarize(txns: Transaction[]): FeedSummary {
   const flagCount = txns.filter((t) => t.action === "FLAG").length;
   const blockCount = txns.filter((t) => t.action === "BLOCK").length;
   const amountProtected = txns.filter(isProtected).reduce((sum, t) => sum + t.amount, 0);
-  const avgLatencyMs = Math.round(txns.reduce((sum, t) => sum + t.latencyMs, 0) / total);
+  // Only rows with a measured decision time count. Including unmeasured ones
+  // as zero would report a latency far better than anything actually observed.
+  const measured = txns.filter((t) => t.latencyMs > 0);
+  const avgLatencyMs = measured.length
+    ? Math.round(measured.reduce((sum, t) => sum + t.latencyMs, 0) / measured.length)
+    : 0;
   return {
     total: txns.length,
     passCount,

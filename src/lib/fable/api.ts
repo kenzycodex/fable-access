@@ -370,6 +370,7 @@ interface ApiTransactionRow {
   risk_level: string | null;
   action_taken: RiskAction | null;
   signals: string[];
+  latency_ms?: number | null;
   created_at: string;
 }
 
@@ -393,7 +394,10 @@ function mapApiRow(r: ApiTransactionRow): Transaction {
     action,
     signals: parseApiSignals(r.signals ?? []),
     explanation: "",
-    latencyMs: 143,
+    // Measured, or 0 when this row predates latency being recorded. It was
+    // hardcoded to 143, which is why the console advertised a decision time
+    // nothing had ever measured.
+    latencyMs: r.latency_ms ?? 0,
     // The stored name wins; prettyRecipient only reconstructs a label for
     // older rows and seeded recipients that never had one.
     recipientName: r.recipient_name || prettyRecipient(r.recipient_id, r.recipient_account),
@@ -499,6 +503,7 @@ export interface AlertRow {
   severity: "HIGH" | "MEDIUM";
   action: RiskAction;
   signals: string[];
+  latency_ms?: number | null;
   created_at: string;
 }
 export interface DashboardAlerts {
@@ -512,7 +517,7 @@ export function dashboardAlerts(limit = 50, institution?: string | null): Promis
 
 export interface DashboardCompliance {
   audit: { transactions_logged: number; ghost_containers: number; ghost_cancelled: number; decisions_explained: number };
-  csat: { frictionless_rate: number; friction_events: number; score: number };
+  friction: { frictionless_rate: number; friction_events: number };
   fraud_prevented_ngn: number;
   incidents: { id: string; user_id: string; amount: number; recipient_bank: string | null; risk_score: number; action_taken: string; created_at: string }[];
   frameworks: { name: string; status: string }[];
