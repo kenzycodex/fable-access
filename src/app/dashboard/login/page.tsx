@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Eye, EyeSlash } from "@phosphor-icons/react";
 import { ShieldCheckIcon } from "@/components/app-icons";
 import { API_BASE } from "@/lib/fable/api";
 import { DEMO_CREDENTIALS, INSTITUTION } from "@/lib/fable/seed";
@@ -21,6 +22,7 @@ export default function DashboardLoginPage() {
   const store = useFableStore();
   const [email, setEmail] = useState(DEMO_CREDENTIALS.email);
   const [password, setPassword] = useState(DEMO_CREDENTIALS.password);
+  const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -97,12 +99,20 @@ export default function DashboardLoginPage() {
 
                 <div className="relative">
                   <input
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-[14px] text-white outline-none transition-all focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] placeholder:text-gray-500 hover:bg-white/[0.04]"
+                    className="w-full rounded border border-white/[0.08] bg-white/[0.02] pl-3 pr-10 py-3 text-[14px] text-white outline-none transition-all focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] placeholder:text-gray-500 hover:bg-white/[0.04]"
                     placeholder="Password"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeSlash size={18} /> : <Eye size={18} />}
+                  </button>
                 </div>
               </div>
 
