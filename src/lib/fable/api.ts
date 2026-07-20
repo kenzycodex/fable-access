@@ -202,9 +202,7 @@ export async function shieldAnalyze(
   const session = sdk?.session ?? null;
   const behavior = sdk?.behavior ?? null;
 
-  const res = await fetchJson<ApiShieldResponse>("/v1/shield/analyze", {
-    method: "POST",
-    body: JSON.stringify({
+  const body = JSON.stringify({
       user_id: replay?.userId ?? activeUserId(),
       institution_id: replay?.institutionId ?? activeInstitution(),
       client_reference: replay?.clientReference ?? null,
@@ -250,10 +248,41 @@ export async function shieldAnalyze(
         client_timestamp: localIsoTimestamp(),
         client_timezone: device?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
       },
-    }),
-  // The AI explainer can take a few seconds on a cold call; don't let the
-  // default 8s abort push a real score down to the local fallback engine.
-  }, 20_000);
+  });
+
+  // Not routed through fetchJson: a 422 here means the account cannot cover
+  // the transfer, which is a different outcome from the API being
+  // unreachable. Collapsing the two would send it to the local engine and
+  // score a transfer that can never execute.
+  //
+  // The timeout is generous because the AI explainer can be slow on a cold
+  // call, and a real score should not be pushed down to the fallback engine.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25_000);
+  let raw: Response;
+  try {
+    raw = await fetch(`${API_BASE}/v1/shield/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (raw.status === 422) {
+    const detail = (await raw.json().catch(() => ({})))?.detail ?? {};
+    throw new InsufficientFundsError(
+      detail.available ?? 0,
+      detail.requested ?? 0,
+      detail.shortfall ?? 0,
+      detail.message ?? "Insufficient funds for this transfer.",
+    );
+  }
+  if (!raw.ok) throw new Error(`Fable API ${raw.status} on /v1/shield/analyze`);
+  const res = (await raw.json()) as ApiShieldResponse;
+
   return {
     riskScore: res.risk_score,
     action: res.action,
@@ -788,4 +817,109 @@ export function removeLogo(institutionId: string): Promise<Branding> {
   return fetchJson<Branding>(`/v1/branding/${encodeURIComponent(institutionId)}/logo`, {
     method: "DELETE",
   });
+}
+
+// ---------------------------------------------------------------------------
+// Balances, top-ups and customer security
+// ---------------------------------------------------------------------------
+
+export interface AccountBalance {
+  user_id: string;
+  balance: number;
+  /** Money inside an active Ghost container: reserved, not debited. */
+  held: number;
+  /** What can actually be spent. */
+  available: number;
+  updated_at: string | null;
+  limits: { max_amount: number; daily_max: number; daily_count: number };
+}
+
+export function accountBalance(userId: string, institution: string | null): Promise<AccountBalance> {
+  return fetchJson<AccountBalance>(
+    `/v1/accounts/${encodeURIComponent(userId)}?institution=${encodeURIComponent(institution ?? "")}`,
+  );
+}
+
+export interface TopUpResult extends Omit<AccountBalance, "limits"> {
+  credited: number;
+  method: string;
+  remaining_today: number;
+  top_ups_left_today: number;
+}
+
+/** Thrown when a guard rejects a top-up. Names the limit rather than failing
+ * generically, so the UI can say which one and when it resets. */
+export class TopUpRejectedError extends Error {
+  constructor(readonly limit: string, readonly resetsAt: string | null, message: string) {
+    super(message);
+    this.name = "TopUpRejectedError";
+  }
+}
+
+export async function topUp(
+  userId: string,
+  amount: number,
+  institution: string | null,
+  method: string,
+  reference?: string,
+): Promise<TopUpResult> {
+  const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/topup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ amount, method, institution_id: institution, reference }),
+  });
+  if (res.status === 422) {
+    const body = await res.json().catch(() => ({}));
+    const d = body?.detail ?? {};
+    throw new TopUpRejectedError(d.limit ?? "unknown", d.resets_at ?? null, d.message ?? "Top-up rejected.");
+  }
+  if (!res.ok) throw new Error(`Top-up failed (${res.status})`);
+  return (await res.json()) as TopUpResult;
+}
+
+export interface SecurityStatus {
+  pin_set: boolean;
+  pin_locked: boolean;
+  pin_locked_until: string | null;
+  failed_attempts: number;
+  two_factor_enabled: boolean;
+  passkey_count: number;
+}
+
+export function securityStatus(userId: string): Promise<SecurityStatus> {
+  return fetchJson<SecurityStatus>(`/v1/accounts/${encodeURIComponent(userId)}/security`);
+}
+
+export async function setPin(
+  userId: string,
+  pin: string,
+  currentPin: string | null,
+  institution: string | null,
+): Promise<SecurityStatus> {
+  const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/pin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ pin, current_pin: currentPin, institution_id: institution }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.detail === "string" ? body.detail : "Could not set your PIN.");
+  }
+  return (await res.json()) as SecurityStatus;
+}
+
+export function setTwoFactor(userId: string, enabled: boolean): Promise<SecurityStatus> {
+  return fetchJson<SecurityStatus>(`/v1/accounts/${encodeURIComponent(userId)}/security/two-factor`, {
+    method: "POST",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+/** Thrown when a transfer exceeds available funds. Carries the shortfall so
+ * the UI can say how much is missing rather than just refusing. */
+export class InsufficientFundsError extends Error {
+  constructor(readonly available: number, readonly requested: number, readonly shortfall: number, message: string) {
+    super(message);
+    this.name = "InsufficientFundsError";
+  }
 }

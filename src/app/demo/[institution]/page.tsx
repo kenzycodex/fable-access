@@ -20,7 +20,7 @@ import {
 } from "@phosphor-icons/react";
 import { Avatar, Card, Screen } from "@/components/demo/kit";
 import useSWR from "swr";
-import { customerTransactions } from "@/lib/fable/api";
+import { accountBalance, customerTransactions } from "@/lib/fable/api";
 import { summarizeCustomer } from "@/lib/fable/analytics";
 import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
 import { DEMO_USER } from "@/lib/fable/seed";
@@ -70,9 +70,18 @@ export default function DemoHomePage() {
   ].sort((a, b) => b.timestamp - a.timestamp);
   const myTxns = allMyTxns.slice(0, 5);
 
-  // Balance, income, spend and categories are derived from this customer's own
-  // feed — the same history Copilot builds its baseline from.
-  const summary = summarizeCustomer(allMyTxns, customer?.opening_balance ?? 0);
+  // The balance comes from the server's ledger, not from arithmetic on the
+  // client. It is the same number the transfer path checks against, so what
+  // the customer sees and what the system enforces cannot drift apart.
+  const { data: account } = useSWR(
+    customer ? ["balance", customer.user_id, institutionId] : null,
+    () => accountBalance(customer!.user_id, institutionId),
+    { refreshInterval: 15_000, keepPreviousData: true },
+  );
+
+  // Income, spend and categories remain derived from the feed; only the
+  // balance is authoritative elsewhere.
+  const summary = summarizeCustomer(allMyTxns, 0);
 
   return (
     <Screen>
@@ -137,8 +146,13 @@ export default function DemoHomePage() {
                 </button>
               </div>
               <p className="mt-1 text-[32px] font-bold leading-none tracking-tight tabular-nums">
-                {balanceHidden ? "••••••" : formatNaira(summary.balance)}
+                {balanceHidden ? "••••••" : account ? formatNaira(account.available) : "—"}
               </p>
+              {account && account.held > 0 && (
+                <p className="mt-1 text-[11px] font-medium text-white/70">
+                  {formatNaira(account.held)} held in containment
+                </p>
+              )}
               <div className="mt-5 flex items-center justify-between">
                 <div className="flex flex-col">
                   <span className="text-[10px] text-white/40 uppercase tracking-wider font-semibold">Account Number</span>

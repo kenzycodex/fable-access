@@ -20,6 +20,7 @@ import {
   ghostCreate as apiGhostCreate,
   ghostResolve,
   shieldAnalyze,
+  InsufficientFundsError,
   type SdkTelemetry,
 } from "./api";
 import { scoreTransaction } from "./scoring";
@@ -227,8 +228,12 @@ export async function submitTransfer(input: TransactionInput, sdk?: Partial<SdkT
       id = api.transactionId;
       remote = true;
       result = api;
-    } catch {
-      result = null; // fall through to the local engine
+    } catch (err) {
+      // A declined-for-funds transfer must not fall through to the local
+      // engine. The account genuinely cannot cover it, and scoring it anyway
+      // would let the demo bank complete a transfer the ledger refused.
+      if (err instanceof InsufficientFundsError) throw err;
+      result = null; // otherwise the API is unreachable; score locally
     }
   }
 
