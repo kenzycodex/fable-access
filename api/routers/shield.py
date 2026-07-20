@@ -1,12 +1,13 @@
 import time
 import uuid
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from models.schemas import ShieldAnalyzeRequest, ShieldAnalyzeResponse, FeedbackRequest
 from agents.shield.analyzer import analyze_transaction_safe
 from agents.copilot.baseline import log_transaction
 from tenancy import resolve_institution
+from accounts import InsufficientFunds, assert_can_spend, debit
 
 router = APIRouter(prefix="/v1/shield", tags=["shield"])
 
@@ -49,6 +50,25 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
                 transaction_id=existing["id"],
             )
 
+    # Funds are checked before scoring, for two reasons. Scoring a transfer
+    # that cannot execute burns an LLM call for nothing, and a
+    # declined-for-funds transfer is not a fraud signal — recording it as one
+    # would teach Copilot that the customer's normal includes transfers they
+    # never actually made.
+    try:
+        assert_can_spend(payload.user_id, transaction["amount"], institution_id)
+    except InsufficientFunds as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "insufficient_funds",
+                "message": str(exc),
+                "available": exc.available,
+                "requested": exc.requested,
+                "shortfall": exc.shortfall,
+            },
+        )
+
     result = analyze_transaction_safe(payload.user_id, transaction, device, context, institution_id)
 
     latency_ms = round((time.perf_counter() - start) * 1000, 2)
@@ -69,6 +89,15 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         client_reference=payload.client_reference,
         latency_ms=latency_ms,
     )
+
+    # A cleared transfer moves money now. Anything flagged or blocked does
+    # not: it is either abandoned or routed into Ghost, and Ghost reserves
+    # rather than debits so the funds stay recoverable.
+    if result["action"] == "PASS":
+        debit(
+            payload.user_id, transaction["amount"], institution_id,
+            transaction_id=transaction_id, reference=f"txn:{transaction_id}",
+        )
 
     return ShieldAnalyzeResponse(
         risk_score=result["risk_score"],

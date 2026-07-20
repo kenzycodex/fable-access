@@ -95,6 +95,8 @@ def cancel_ghost(ghost_id: str, user_id: str) -> dict:
             (datetime.now(timezone.utc).isoformat(), ghost_id),
         )
 
+    # Nothing to reverse: holding reserved the funds without debiting them,
+    # so cancelling just drops the reservation and the balance is untouched.
     return {
         "ghost_id": ghost_id,
         "status": "CANCELLED",
@@ -143,6 +145,15 @@ def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) 
 
     if stepup_token:
         stepup_service.consume_token(stepup_token)
+
+    # The reservation becomes a real debit. Until this moment the money was
+    # held but never taken, which is what made cancelling able to return it.
+    from accounts import debit
+
+    debit(
+        user_id, container["amount"], container.get("institution_id"),
+        transaction_id=ghost_id, reference=f"ghost-release:{ghost_id}",
+    )
 
     with cursor() as cur:
         cur.execute(
