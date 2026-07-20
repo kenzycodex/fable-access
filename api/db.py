@@ -229,6 +229,9 @@ MIGRATIONS = {
         # would book a fresh row — the customer's history would grow every
         # time the network flapped.
         "client_reference": "TEXT",
+        # Real Shield decision latency. The dashboard reported a hardcoded
+        # p50/p95/p99 that was never measured from anything.
+        "latency_ms": "REAL",
     },
     "ghost_containers": {
         "institution_id": "TEXT",

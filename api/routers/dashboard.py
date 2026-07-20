@@ -28,6 +28,18 @@ router = APIRouter(prefix="/v1/dashboard", tags=["dashboard"])
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 
+def _percentiles(sorted_values: list[float]) -> dict | None:
+    """p50/p95/p99 from measured latencies, or None when nothing is measured."""
+    if not sorted_values:
+        return None
+
+    def at(p: float) -> float:
+        idx = min(int(round(p * (len(sorted_values) - 1))), len(sorted_values) - 1)
+        return round(sorted_values[idx], 1)
+
+    return {"p50": at(0.50), "p95": at(0.95), "p99": at(0.99)}
+
+
 @router.get("/stats")
 def stats(institution: str | None = Query(None)):
     where, params = tenant_clause(institution)
@@ -68,6 +80,17 @@ def stats(institution: str | None = Query(None)):
         cur.execute(f"SELECT COUNT(*) AS n FROM transactions WHERE is_seed = 0{live_where}", live_params)
         live_n = cur.fetchone()["n"]
 
+        # Real percentiles from measured Shield decisions. This used to report
+        # a hardcoded p50/p95/p99 that was never derived from anything, so the
+        # console advertised a latency budget it had no evidence for.
+        cur.execute(
+            f"""SELECT latency_ms FROM transactions
+                WHERE latency_ms IS NOT NULL{live_where}
+                ORDER BY latency_ms ASC""",
+            live_params,
+        )
+        latencies = [r["latency_ms"] for r in cur.fetchall()]
+
     threats_blocked = by_action.get("BLOCK", 0)
     flagged = by_action.get("FLAG", 0)
     fraud_prevented = ghost_rows.get("CANCELLED", {}).get("amount", 0)
@@ -97,7 +120,10 @@ def stats(institution: str | None = Query(None)):
         },
         "risk_distribution": risk_distribution,
         "threat_trend": threat_trend,
-        "latency_ms": {"p50": 96, "p95": 178, "p99": 243},
+        # None until decisions have actually been measured; the UI shows a
+        # "not measured yet" state rather than an invented number.
+        "latency_ms": _percentiles(latencies),
+        "latency_sample_size": len(latencies),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -237,10 +263,12 @@ def compliance(institution: str | None = Query(None)):
             "ghost_cancelled": ghost_cancelled,
             "decisions_explained": s["blocked"] + s["flagged"],
         },
-        "csat": {
+        # Friction is measured; satisfaction is not. There is no survey, no
+        # rating and no feedback channel in this system, so a CSAT "score"
+        # would be a number with nothing behind it.
+        "friction": {
             "frictionless_rate": frictionless_rate,
             "friction_events": s["flagged"] + s["blocked"],
-            "score": round(4.2 + frictionless_rate * 0.7, 2),  # 4.2–4.9 band
         },
         "fraud_prevented_ngn": s["fraud_prevented_ngn"],
         "incidents": incidents,

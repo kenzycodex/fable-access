@@ -51,6 +51,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
 
     result = analyze_transaction_safe(payload.user_id, transaction, device, context, institution_id)
 
+    latency_ms = round((time.perf_counter() - start) * 1000, 2)
     transaction_id = f"txn_{uuid.uuid4().hex[:12]}"
     log_transaction(
         user_id=payload.user_id,
@@ -66,9 +67,8 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         context=context,
         institution_id=institution_id,
         client_reference=payload.client_reference,
+        latency_ms=latency_ms,
     )
-
-    latency_ms = (time.perf_counter() - start) * 1000
 
     return ShieldAnalyzeResponse(
         risk_score=result["risk_score"],
@@ -76,7 +76,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         action=result["action"],
         signals=result["signals"],
         explanation=result["explanation"],
-        latency_ms=round(latency_ms, 2),
+        latency_ms=latency_ms,
         transaction_id=transaction_id,
     )
 

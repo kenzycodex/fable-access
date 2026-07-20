@@ -26,11 +26,7 @@ import { scoreTransaction } from "./scoring";
 import { enqueue, startAutoSync } from "./syncQueue";
 import { DEFAULT_INSTITUTION } from "./constants";
 import { getTenant, subscribeTenant } from "./tenant";
-import {
-  DEMO_USER,
-  INSTITUTION,
-  SEED_INSTITUTION_FEED,
-} from "./seed";
+import { DEMO_USER, INSTITUTION } from "./seed";
 import type {
   GhostContainer,
   SessionState,
@@ -116,7 +112,12 @@ const DEFAULT_TRANSPARENCY: TransparencyState = {
 
 function seedState(): StoreState {
   return {
-    transactions: SEED_INSTITUTION_FEED,
+    // Empty, deliberately. This used to seed a hardcoded institution feed,
+    // which meant any surface reading the store before the API answered
+    // rendered fabricated transactions as though they were the bank's real
+    // ones. Everything shown now comes from the API or from transfers the
+    // operator actually made.
+    transactions: [],
     ghosts: [],
     transparency: DEFAULT_TRANSPARENCY,
     session: { loggedIn: false, institutionId: null },

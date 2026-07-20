@@ -7,6 +7,7 @@
 // is unreachable, so the dashboard always renders something.
 
 import useSWR from "swr";
+import { CADENCE, livePolling } from "./polling";
 import { summarize, type FeedSummary } from "./analytics";
 import {
   agentsCopilotCustomers,
@@ -45,18 +46,13 @@ function useTenant(): string | null {
   return store?.session.institutionId ?? null;
 }
 
-export function useDashboardFeed(pollMs = 4_000): DashboardFeed {
+export function useDashboardFeed(pollMs = CADENCE.live): DashboardFeed {
   const store = useFableStore();
   const institution = store?.session.institutionId ?? null;
   const { data, error } = useSWR<Transaction[]>(
     ["fable:dashboard-transactions", institution],
     () => dashboardTransactions(300, institution),
-    {
-      refreshInterval: pollMs,
-      revalidateOnFocus: true,
-      keepPreviousData: true,
-      shouldRetryOnError: true,
-    },
+    livePolling(pollMs),
   );
 
   // Any successful response is used, even when the newest poll failed.
@@ -91,30 +87,21 @@ export function useDashboardFeed(pollMs = 4_000): DashboardFeed {
 }
 
 /** Intelligence rollups (scam patterns, channel risk, signal frequency). */
-export function useIntelligence(pollMs = 8_000) {
+export function useIntelligence(pollMs = CADENCE.standard) {
   const institution = useTenant();
-  return useSWR<DashboardIntelligence>(["fable:intelligence", institution], () => dashboardIntelligence(institution), {
-    refreshInterval: pollMs,
-    keepPreviousData: true,
-  });
+  return useSWR<DashboardIntelligence>(["fable:intelligence", institution], () => dashboardIntelligence(institution), livePolling(pollMs));
 }
 
 /** Watch Alerts feed (flagged/blocked transfers). */
-export function useAlerts(pollMs = 5_000) {
+export function useAlerts(pollMs = CADENCE.live) {
   const institution = useTenant();
-  return useSWR<DashboardAlerts>(["fable:alerts", institution], () => dashboardAlerts(60, institution), {
-    refreshInterval: pollMs,
-    keepPreviousData: true,
-  });
+  return useSWR<DashboardAlerts>(["fable:alerts", institution], () => dashboardAlerts(60, institution), livePolling(pollMs));
 }
 
 /** Compliance rollups (audit, CSAT proxy, incident log, frameworks). */
-export function useCompliance(pollMs = 10_000) {
+export function useCompliance(pollMs = CADENCE.slow) {
   const institution = useTenant();
-  return useSWR<DashboardCompliance>(["fable:compliance", institution], () => dashboardCompliance(institution), {
-    refreshInterval: pollMs,
-    keepPreviousData: true,
-  });
+  return useSWR<DashboardCompliance>(["fable:compliance", institution], () => dashboardCompliance(institution), livePolling(pollMs));
 }
 
 /** Copilot's learned baseline for the demo user (what Fable actually knows). */
@@ -125,47 +112,40 @@ export function useCopilotBaseline() {
 }
 
 /** Agents overview: live stats for Copilot, Shield, Ghost, Watch. */
-export function useAgentsOverview(pollMs = 6_000) {
+export function useAgentsOverview(pollMs = CADENCE.standard) {
   const institution = useTenant();
-  return useSWR<AgentsOverview>(["fable:agents-overview", institution], () => agentsOverview(institution), {
-    refreshInterval: pollMs,
-    keepPreviousData: true,
-  });
+  return useSWR<AgentsOverview>(["fable:agents-overview", institution], () => agentsOverview(institution), livePolling(pollMs));
 }
 
 /** Copilot deep-dive: per-customer learned baselines. */
-export function useCopilotCustomers(pollMs = 8_000) {
+export function useCopilotCustomers(pollMs = CADENCE.slow) {
   const institution = useTenant();
   return useSWR<{ customers: CopilotCustomer[]; total: number }>(
     ["fable:agents-copilot", institution],
     () => agentsCopilotCustomers(institution),
-    { refreshInterval: pollMs, keepPreviousData: true },
+    livePolling(pollMs),
   );
 }
 
 /** Shield deep-dive: pipeline config + recent decisions with full signals. */
-export function useShieldDecisions(pollMs = 5_000) {
+export function useShieldDecisions(pollMs = CADENCE.live) {
   const institution = useTenant();
-  return useSWR<ShieldDecisions>(["fable:agents-shield", institution], () => agentsShieldDecisions(40, institution), {
-    refreshInterval: pollMs,
-    keepPreviousData: true,
-  });
+  return useSWR<ShieldDecisions>(["fable:agents-shield", institution], () => agentsShieldDecisions(40, institution), livePolling(pollMs));
 }
 
 /** Ghost deep-dive: containers, resolution stats, cooling windows. */
-export function useGhostContainers(pollMs = 5_000) {
+export function useGhostContainers(pollMs = CADENCE.live) {
   const institution = useTenant();
-  return useSWR<GhostContainers>(["fable:agents-ghost", institution], () => agentsGhostContainers(60, institution), {
-    refreshInterval: pollMs,
-    keepPreviousData: true,
-  });
+  return useSWR<GhostContainers>(["fable:agents-ghost", institution], () => agentsGhostContainers(60, institution), livePolling(pollMs));
 }
 
 /** Backend-status chip datum. Probes the FastAPI /health endpoint. */
 export function useApiStatus(): "api" | "local" | "checking" {
-  const { data, isLoading } = useSWR<boolean>("fable:api-health", () => apiAvailable(), {
-    refreshInterval: 10_000,
-  });
+  const { data, isLoading } = useSWR<boolean>(
+    "fable:api-health",
+    () => apiAvailable(),
+    livePolling(CADENCE.standard),
+  );
   if (isLoading && data === undefined) return "checking";
   return data ? "api" : "local";
 }
