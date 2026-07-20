@@ -19,6 +19,7 @@ import {
   dashboardAlerts,
   dashboardCompliance,
   dashboardIntelligence,
+  dashboardStats,
   dashboardTransactions,
   type AgentsOverview,
   type CopilotBaseline,
@@ -26,6 +27,7 @@ import {
   type DashboardAlerts,
   type DashboardCompliance,
   type DashboardIntelligence,
+  type DashboardStats,
   type GhostContainers,
   type ShieldDecisions,
 } from "./api";
@@ -49,7 +51,7 @@ function useTenant(): string | null {
 export function useDashboardFeed(pollMs = CADENCE.live): DashboardFeed {
   const store = useFableStore();
   const institution = store?.session.institutionId ?? null;
-  const { data, error } = useSWR<Transaction[]>(
+  const { data, isLoading } = useSWR<Transaction[]>(
     ["fable:dashboard-transactions", institution],
     () => dashboardTransactions(300, institution),
     livePolling(pollMs),
@@ -78,12 +80,27 @@ export function useDashboardFeed(pollMs = CADENCE.live): DashboardFeed {
   const liveOnly = (store?.transactions ?? [])
     .filter((t) => t.live)
     .sort((a, b) => b.timestamp - a.timestamp);
+
+  // `ready` stays false while the first request is still in flight. It used to
+  // be true as soon as the store hydrated, so every reload painted the local
+  // fallback — the operator's own one or two live transfers — under the same
+  // KPI labels the API numbers use, and the cards read "1 transaction scored,
+  // 1 threat blocked" for a frame before snapping to 200/28. Two different
+  // answers to "how much fraud did we stop today", a few hundred milliseconds
+  // apart, both stated as fact. The fallback is for a *failed* fetch, not a
+  // pending one.
   return {
-    ready: Boolean(error) || store !== null,
+    ready: !isLoading,
     source: "local",
     transactions: liveOnly,
     stats: summarize(liveOnly),
   };
+}
+
+/** Headline stats. The only place measured decision latency comes from. */
+export function useDashboardStats(pollMs = CADENCE.standard) {
+  const institution = useTenant();
+  return useSWR<DashboardStats>(["fable:stats", institution], () => dashboardStats(institution), livePolling(pollMs));
 }
 
 /** Intelligence rollups (scam patterns, channel risk, signal frequency). */

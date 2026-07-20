@@ -11,8 +11,11 @@ import {
 import { Card, PageHeader, RiskBadge, StatCard } from "@/components/dashboard/primitives";
 import { formatNaira, formatNairaCompact, formatRelativeTime } from "@/lib/fable/format";
 import { INSTITUTION } from "@/lib/fable/seed";
-import { useDashboardFeed, useIntelligence } from "@/lib/fable/useBackend";
+import { useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
 import type { Transaction } from "@/lib/fable/types";
+
+/** The decision-time budget Fable states publicly, in ms. */
+const LATENCY_BUDGET_MS = 200;
 
 const AGENTS = [
   { name: "Copilot", role: "Baseline engine", icon: Brain },
@@ -32,6 +35,22 @@ export default function OverviewPage() {
   // fraud console. The client-side sum stays as the offline fallback only.
   const { data: intel } = useIntelligence();
   const amountProtected = intel?.summary.fraud_prevented_ngn ?? s.amountProtected;
+
+  // Decision time is reported as p95 against the 200ms budget, from the
+  // server's measured percentiles.
+  //
+  // The card used to show the mean under a fixed "Well under 200ms budget"
+  // caption, which was wrong twice over. The caption was a literal — it kept
+  // claiming the budget was met while the card next to it read 3989ms. And the
+  // mean is the wrong statistic for a latency budget: a handful of slow
+  // decisions drag it far above a p95 that is genuinely 310ms, so the number
+  // was both alarming and uninformative. A budget is a promise about the tail,
+  // so show the tail, and say plainly when it is missed. We are currently over
+  // it; hiding that in the one console meant to surface uncomfortable facts is
+  // not a UI decision worth making.
+  const { data: stats } = useDashboardStats();
+  const latency = stats?.latency_ms ?? null;
+  const overBudget = latency !== null && latency.p95 > LATENCY_BUDGET_MS;
 
   return (
     <>
@@ -66,26 +85,32 @@ export default function OverviewPage() {
 
       {/* KPI row */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 mt-0">
-        <StatCard label="Transactions" value={String(s.total)} sub="Scored by Fable" />
+        <StatCard label="Transactions" value={feed.ready ? String(s.total) : "—"} sub="Scored by Fable" />
         <StatCard
           label="Threats blocked"
-          value={String(s.blockCount)}
-          sub={`${s.flagCount} flagged for review`}
+          value={feed.ready ? String(s.blockCount) : "—"}
+          sub={feed.ready ? `${s.flagCount} flagged for review` : "Loading"}
           icon={<ShieldCheck size={20} weight="fill" />}
           accent="text-red-400"
         />
         <StatCard
           label="Amount protected"
-          value={formatNairaCompact(amountProtected)}
+          value={feed.ready ? formatNairaCompact(amountProtected) : "—"}
           sub="Kept out of fraud"
           accent="text-emerald-400"
         />
         <StatCard
-          label="Avg decision"
-          value={`${s.avgLatencyMs}ms`}
-          sub="Well under 200ms budget"
+          label="Decision time"
+          value={latency ? `${Math.round(latency.p95)}ms` : "—"}
+          sub={
+            !latency
+              ? "No decisions measured yet"
+              : overBudget
+                ? `p95 · ${Math.round(latency.p95 - LATENCY_BUDGET_MS)}ms over ${LATENCY_BUDGET_MS}ms budget`
+                : `p95 · within ${LATENCY_BUDGET_MS}ms budget`
+          }
           icon={<Lightning size={20} weight="fill" />}
-          accent="text-amber-400"
+          accent={overBudget ? "text-red-400" : "text-amber-400"}
         />
       </div>
 
@@ -117,11 +142,18 @@ export default function OverviewPage() {
                 </span>
                 Risk distribution
               </h2>
-              <RiskBar pass={s.passCount} flag={s.flagCount} block={s.blockCount} />
+              {/* Same rule as the KPI row: no distribution until there is a
+                  settled feed to derive one from. A single local transfer
+                  briefly painted this bar 100% blocked. */}
+              <RiskBar
+                pass={feed.ready ? s.passCount : 0}
+                flag={feed.ready ? s.flagCount : 0}
+                block={feed.ready ? s.blockCount : 0}
+              />
               <div className="mt-5 flex flex-col gap-3 text-[13px]">
-                <Legend color="#34d399" label="Passed" value={s.passCount} />
-                <Legend color="#fbbf24" label="Flagged" value={s.flagCount} />
-                <Legend color="#f87171" label="Blocked" value={s.blockCount} />
+                <Legend color="#34d399" label="Passed" value={feed.ready ? s.passCount : null} />
+                <Legend color="#fbbf24" label="Flagged" value={feed.ready ? s.flagCount : null} />
+                <Legend color="#f87171" label="Blocked" value={feed.ready ? s.blockCount : null} />
               </div>
             </div>
           </Card>
@@ -231,12 +263,15 @@ function RiskBar({ pass, flag, block }: { pass: number; flag: number; block: num
   );
 }
 
-function Legend({ color, label, value }: { color: string; label: string; value: number }) {
+/** `value: null` means "not settled yet" — render a dash, not a zero. */
+function Legend({ color, label, value }: { color: string; label: string; value: number | null }) {
   return (
     <div className="flex items-center gap-3">
       <span className="size-3 rounded-full shadow-sm" style={{ backgroundColor: color }} />
       <span className="text-gray-500 dark:text-white/60 font-medium">{label}</span>
-      <span className="ml-auto font-bold tabular-nums text-gray-900 dark:text-white">{value.toLocaleString()}</span>
+      <span className="ml-auto font-bold tabular-nums text-gray-900 dark:text-white">
+        {value === null ? "—" : value.toLocaleString()}
+      </span>
     </div>
   );
 }

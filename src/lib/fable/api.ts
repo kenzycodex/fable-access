@@ -521,6 +521,23 @@ export function dashboardIntelligence(institution?: string | null): Promise<Dash
   return fetchJson<DashboardIntelligence>(`/v1/dashboard/intelligence?${tenantParam(institution, true)}`);
 }
 
+/** Headline stats, including the only latency figures anyone measured. */
+export interface DashboardStats {
+  transactions_analyzed: number;
+  live_transactions: number;
+  threats_blocked: number;
+  flagged: number;
+  passed: number;
+  fraud_prevented_ngn: number;
+  /** null until Shield has actually decided something with a timer running. */
+  latency_ms: { p50: number; p95: number; p99: number } | null;
+  latency_sample_size: number;
+}
+
+export function dashboardStats(institution?: string | null): Promise<DashboardStats> {
+  return fetchJson<DashboardStats>(`/v1/dashboard/stats?${tenantParam(institution, true)}`);
+}
+
 export interface AlertRow {
   id: string;
   customer: string;
