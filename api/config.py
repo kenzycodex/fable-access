@@ -46,6 +46,14 @@ CORS_ORIGINS = ["*"] if _raw_origins.strip() == "*" else [o.strip() for o in _ra
 # Optional Sentry error monitoring.
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 
+# --- Top-up guards ---
+# Add Money writes to the same database the institution's fraud metrics are
+# computed from, so it is bounded. Configurable because a sandbox and a pilot
+# want different ceilings.
+TOPUP_MAX_AMOUNT = float(os.getenv("TOPUP_MAX_AMOUNT", "500000"))
+TOPUP_DAILY_MAX = float(os.getenv("TOPUP_DAILY_MAX", "1000000"))
+TOPUP_DAILY_COUNT = int(os.getenv("TOPUP_DAILY_COUNT", "5"))
+
 # --- Institution branding ---
 # Days a vanity URL is locked after being changed. The slug is a public link
 # already shared with customers, so renaming it breaks live URLs; the lock

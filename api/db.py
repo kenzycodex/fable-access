@@ -144,6 +144,44 @@ CREATE TABLE IF NOT EXISTS institution_branding (
     slug_locked_until TEXT
 );
 
+-- Server-authoritative balances. The demo bank previously derived a balance
+-- on the client from an opening figure that nothing debited and nothing
+-- checked, so a transfer could exceed it freely.
+CREATE TABLE IF NOT EXISTS accounts (
+    user_id TEXT PRIMARY KEY,
+    institution_id TEXT,
+    balance REAL NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Every movement, explainable. A fraud product that cannot say why a balance
+-- is what it is has no business holding one.
+CREATE TABLE IF NOT EXISTS ledger_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    institution_id TEXT,
+    kind TEXT NOT NULL,            -- topup | debit | reversal | release
+    amount REAL NOT NULL,
+    balance_after REAL NOT NULL,
+    transaction_id TEXT,
+    reference TEXT UNIQUE,         -- idempotency: a retry cannot double-move
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Customer-held security factors. The PIN is hashed and rate-limited; it is a
+-- real factor, not a prop.
+CREATE TABLE IF NOT EXISTS user_security (
+    user_id TEXT PRIMARY KEY,
+    institution_id TEXT,
+    pin_hash TEXT,
+    pin_set_at TEXT,
+    failed_attempts INTEGER DEFAULT 0,
+    locked_until TEXT,
+    two_factor_enabled INTEGER DEFAULT 0,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Registered WebAuthn passkeys. The private key never leaves the
 -- authenticator; we hold only the public key and the signature counter.
 CREATE TABLE IF NOT EXISTS user_credentials (
