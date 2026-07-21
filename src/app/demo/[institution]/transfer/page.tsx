@@ -206,7 +206,10 @@ export default function TransferPage() {
     // with nothing to catch it, so the button sat on "Analyzing Risk…"
     // forever. A frictionless product must never strand the user mid-action.
     try {
-      const minDelay = new Promise((resolve) => setTimeout(resolve, 1400));
+      // A brief floor so the "Analyzing Risk" moment registers, not the ~1.4s
+      // it used to hold — the real scoring is already sub-200ms, so a long
+      // artificial wait was pure friction on the way to the result screen.
+      const minDelay = new Promise((resolve) => setTimeout(resolve, 650));
       await Promise.all([
         submitTransfer({ amount: amountValue, recipient: contact, narration, channel }, sdk),
         minDelay,

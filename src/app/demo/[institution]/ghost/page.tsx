@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Ghost, ShieldWarning, HandPointing } from "@phosphor-icons/react";
 import { Card, Screen, ScreenHeader } from "@/components/demo/kit";
+import { PageSpinner } from "@/components/demo/Spinner";
 import { GhostTimer } from "@/components/demo/GhostTimer";
 import { StepUpDialog } from "@/components/demo/StepUpDialog";
 import { StepUpRequiredError } from "@/lib/fable/api";
@@ -37,7 +38,7 @@ export default function GhostPage() {
   }, [store, ghost, router]);
 
   if (!ghost) {
-    return <div className="flex min-h-[60vh] items-center justify-center text-[13px] text-white/35">Loading...</div>;
+    return <PageSpinner />;
   }
 
   function cancel() {

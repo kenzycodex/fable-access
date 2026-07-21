@@ -50,7 +50,7 @@ const DEFAULT_BRANDING: Branding = {
  * fall back to Fable's palette rather than blocking the page. */
 async function fetchBranding(id: string): Promise<Branding> {
   try {
-    const res = await fetch(`${API_BASE}/v1/branding/${encodeURIComponent(id)}`, { cache: "no-store" });
+    const res = await fetch(`${API_BASE}/v1/branding/${encodeURIComponent(id)}`, { next: { revalidate: 120 } });
     if (!res.ok) return DEFAULT_BRANDING;
     return (await res.json()) as Branding;
   } catch {
@@ -68,7 +68,7 @@ async function fetchBranding(id: string): Promise<Branding> {
 async function resolveSegment(segment: string): Promise<string | null | "offline"> {
   try {
     const res = await fetch(`${API_BASE}/v1/branding/resolve/${encodeURIComponent(segment)}`, {
-      cache: "no-store",
+      next: { revalidate: 120 },
     });
     if (res.status === 404) return null;
     if (!res.ok) return "offline";
@@ -84,7 +84,7 @@ async function resolveSegment(segment: string): Promise<string | null | "offline
 async function fetchInstitution(id: string): Promise<InstitutionDetail | null | "offline"> {
   try {
     const res = await fetch(`${API_BASE}/v1/institutions/${encodeURIComponent(id)}`, {
-      cache: "no-store",
+      next: { revalidate: 120 },
     });
     if (res.status === 404) return null;
     if (!res.ok) return "offline";
@@ -107,7 +107,13 @@ export default async function DemoInstitutionLayout({
   if (resolvedId === null) notFound();
   const institutionId = resolvedId === "offline" ? institution : resolvedId;
 
-  const detail = await fetchInstitution(institutionId);
+  // Institution detail and branding both key on the resolved id and don't
+  // depend on each other, so fetch them together rather than one after the
+  // other — halving the round-trips the layout waits on.
+  const [detail, branding] = await Promise.all([
+    fetchInstitution(institutionId),
+    fetchBranding(institutionId),
+  ]);
 
   // A genuinely unknown tenant 404s. This also catches stale links to the old
   // flat routes (/demo/transfer), which would otherwise be read as an
@@ -118,8 +124,6 @@ export default async function DemoInstitutionLayout({
   const resolved = offline
     ? { institution_id: institutionId, name: institutionId, type: "", customers: [] as DemoCustomer[] }
     : detail;
-
-  const branding = await fetchBranding(resolved.institution_id);
   // The bank's own name wins over the registry name when it has set one.
   const displayName = branding.display_name || resolved.name;
 

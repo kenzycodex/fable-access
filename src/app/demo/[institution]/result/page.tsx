@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CheckCircle, ShieldWarning, Ghost, ShareNetwork } from "@phosphor-icons/react";
 import { Card, Screen, ScreenHeader } from "@/components/demo/kit";
+import { PageSpinner } from "@/components/demo/Spinner";
 import { RiskScoreCounter } from "@/components/demo/RiskScoreCounter";
 import { SignalCard } from "@/components/demo/SignalCard";
 import { shieldExplanation, StepUpRequiredError } from "@/lib/fable/api";
@@ -77,7 +78,7 @@ export default function ResultPage() {
   }, [store, pending, router]);
 
   if (!pending) {
-    return <div className="flex min-h-[60vh] items-center justify-center text-[13px] text-white/35">Loading...</div>;
+    return <PageSpinner />;
   }
 
   if (pending.action === "PASS")

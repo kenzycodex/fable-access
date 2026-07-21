@@ -4,6 +4,7 @@ import { useRouter, useParams } from "next/navigation";
 import useSWR from "swr";
 import { ArrowLeft, Ghost as GhostIcon, ShieldCheck } from "@phosphor-icons/react";
 import { Card, Screen, ScreenHeader, Avatar } from "@/components/demo/kit";
+import { PageSpinner } from "@/components/demo/Spinner";
 import { SignalCard } from "@/components/demo/SignalCard";
 import { customerTransactions } from "@/lib/fable/api";
 import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
@@ -60,7 +61,7 @@ export default function TransactionDetailPage() {
   if (!txn) {
     return (
       <Screen>
-        <div className="flex min-h-[50vh] items-center justify-center text-[13px] text-white/35">Loading…</div>
+        <PageSpinner minh="50vh" />
       </Screen>
     );
   }
