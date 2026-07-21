@@ -99,6 +99,9 @@ def _consume_challenge(challenge_id: str) -> None:
         cur.execute("UPDATE stepup_challenges SET consumed = 1 WHERE challenge_id = ?", (challenge_id,))
 
 
+SUCCESS_MARKER = "_verified_ok_"
+
+
 def record_failure(user_id: str, kind: str, reason: str) -> None:
     with cursor() as cur:
         cur.execute(
@@ -107,22 +110,49 @@ def record_failure(user_id: str, kind: str, reason: str) -> None:
         )
 
 
+def record_success(user_id: str) -> None:
+    """Mark a successful verification, which draws a line under prior fumbles.
+
+    A customer who has just proved who they are should not keep being treated
+    as if they're failing verification — that is the opposite of learning. The
+    marker lets recent_failure_count ignore anything before it, so a genuine
+    success clears the signal without deleting the audit trail."""
+    with cursor() as cur:
+        cur.execute(
+            "INSERT INTO stepup_failures (user_id, kind, reason) VALUES (?, ?, 'success')",
+            (user_id, SUCCESS_MARKER),
+        )
+
+
 def recent_failure_count(user_id: str, within_minutes: int = 60) -> int:
-    """Failed factor attempts, fed back to Shield as evidence.
+    """Failed factor attempts in the window, fed back to Shield as evidence —
+    but only those *since the last successful verification*. Once the customer
+    proves it's them, earlier fumbles stop counting against the next transfer.
 
     The cutoff is computed by SQLite rather than Python on purpose. created_at
     defaults to datetime('now'), which writes "2026-07-19 13:00:00", while
     Python's isoformat() produces "2026-07-19T13:00:00+00:00". These are
-    compared as strings, and ' ' sorts before 'T', so every row looked older
-    than any Python-built cutoff and this always returned zero — silently
-    disabling the signal it exists to feed.
+    compared as strings, and ' ' sorts before 'T', so a Python-built cutoff
+    made every row look older, silently disabling the signal.
     """
     with cursor() as cur:
+        # The last success by row id (monotonic, so same-second ties resolve
+        # correctly, unlike a second-precision timestamp).
         cur.execute(
-            "SELECT COUNT(*) AS n FROM stepup_failures "
-            "WHERE user_id = ? AND created_at >= datetime('now', ?)",
-            (user_id, f"-{int(within_minutes)} minutes"),
+            "SELECT MAX(id) AS i FROM stepup_failures WHERE user_id = ? AND kind = ?",
+            (user_id, SUCCESS_MARKER),
         )
+        last_ok_id = cur.fetchone()["i"]
+
+        query = (
+            "SELECT COUNT(*) AS n FROM stepup_failures "
+            "WHERE user_id = ? AND kind != ? AND created_at >= datetime('now', ?)"
+        )
+        params: list = [user_id, SUCCESS_MARKER, f"-{int(within_minutes)} minutes"]
+        if last_ok_id is not None:
+            query += " AND id > ?"
+            params.append(last_ok_id)
+        cur.execute(query, params)
         return cur.fetchone()["n"]
 
 
@@ -134,6 +164,9 @@ def issue_token(user_id: str, level: str, purpose: str | None, reference: str | 
                VALUES (?, ?, ?, ?, ?, ?)""",
             (token, user_id, level, purpose, reference, _expiry(TOKEN_TTL_SECONDS)),
         )
+    # Issuing a token means a factor was just satisfied — record the success so
+    # the failed-verification signal resets for the next transfer.
+    record_success(user_id)
     return {"token": token, "level": level, "expires_in": TOKEN_TTL_SECONDS}
 
 
