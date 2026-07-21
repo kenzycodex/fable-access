@@ -419,7 +419,7 @@ export default function TransferPage() {
                       <p className="text-gray-400 dark:text-white/25">Unavailable (GPS denied, IP lookup failed)</p>
                     ) : (
                       <p className="truncate text-gray-500 dark:text-white/40">
-                        {[location.city, location.country].filter(Boolean).join(", ") || `${location.latitude?.toFixed(3)}, ${location.longitude?.toFixed(3)}`}
+                        {[location.locality, location.city, location.country].filter(Boolean).join(", ") || `${location.latitude?.toFixed(3)}, ${location.longitude?.toFixed(3)}`}
                         <span className="ml-1.5 rounded bg-[var(--brand-primary)]/10 px-1 py-0.5 text-[9px] font-bold uppercase text-[var(--brand-primary)]">{location.source}</span>
                       </p>
                     )

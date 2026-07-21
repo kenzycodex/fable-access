@@ -9,6 +9,10 @@ export interface GeoLocation {
   latitude: number | null;
   longitude: number | null;
   accuracy_m: number | null;
+  /** Neighbourhood / area, e.g. "Akoka" — finer than city, from GPS only.
+   * Kept separate from `city` so the location-anomaly signal still compares
+   * at city granularity (matching the seed) while the UI can show the area. */
+  locality: string | null;
   city: string | null;
   region: string | null;
   country: string | null;
@@ -69,6 +73,7 @@ function gpsPosition(): Promise<GeolocationPosition | null> {
 }
 
 interface ReverseGeocode {
+  locality: string | null;
   city: string | null;
   region: string | null;
   country: string | null;
@@ -96,7 +101,12 @@ async function reverseGeocode(lat: number, lon: number): Promise<ReverseGeocode 
         countryName?: string;
         countryCode?: string;
       };
+      // locality is the finest name (a neighbourhood like "Akoka"); city is the
+      // broader settlement ("Lagos"). Keep both — the UI shows the area, the
+      // signal compares the city.
+      const locality = b.locality && b.locality !== b.city ? b.locality : null;
       return {
+        locality,
         city: b.city || b.locality || null,
         region: b.principalSubdivision || null,
         country: b.countryName || null,
@@ -123,6 +133,7 @@ async function collect(): Promise<GeoLocation> {
       latitude: pos.coords.latitude,
       longitude: pos.coords.longitude,
       accuracy_m: pos.coords.accuracy,
+      locality: place?.locality ?? null,
       city: place?.city ?? ip?.city ?? null,
       region: place?.region ?? ip?.region ?? null,
       country: place?.country ?? ip?.country_name ?? null,
@@ -137,6 +148,7 @@ async function collect(): Promise<GeoLocation> {
       latitude: ip.latitude,
       longitude: ip.longitude ?? null,
       accuracy_m: null,
+      locality: null, // IP geolocation resolves to a city at best
       city: ip.city ?? null,
       region: ip.region ?? null,
       country: ip.country_name ?? null,
@@ -150,6 +162,7 @@ async function collect(): Promise<GeoLocation> {
     latitude: null,
     longitude: null,
     accuracy_m: null,
+    locality: null,
     city: null,
     region: null,
     country: null,
