@@ -8,9 +8,10 @@ export type Channel = "app" | "ussd" | "web" | "pos" | "atm";
 
 /** How a recorded transfer ultimately resolved. */
 export type TransactionStatus =
-  | "completed" // cleared normally (PASS, or a FLAG the user confirmed)
-  | "blocked" // Shield blocked and the user cancelled
-  | "cancelled" // user cancelled a flagged transfer
+  | "completed" // cleared normally (PASS, or a FLAG the user verified)
+  | "flagged" // Shield flagged, awaiting the user's decision
+  | "blocked" // Shield blocked; not overridden
+  | "cancelled" // user cancelled a flagged or blocked transfer
   | "held" // routed into Ghost, cooling window running
   | "released"; // user confirmed out of Ghost, funds sent
 

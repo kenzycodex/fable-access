@@ -178,7 +178,7 @@ def transactions(
             f"""SELECT id, user_id, amount, recipient_id, recipient_name, recipient_account,
                        recipient_bank, narration,
                        channel, device_fingerprint, risk_score, risk_level, action_taken,
-                       shield_signals, latency_ms, created_at
+                       shield_signals, latency_ms, created_at, status, explanation
                 FROM transactions {where}
                 ORDER BY created_at DESC LIMIT ? OFFSET ?""",
             params + [limit, offset],

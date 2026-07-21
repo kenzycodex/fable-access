@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, CaretDown, CircleNotch, Crosshair, DeviceMobile, Eye, Fingerprint, MapPin, ShieldCheck, Timer, XCircle } from "@phosphor-icons/react";
@@ -12,6 +13,7 @@ import { CHANNEL_LABELS } from "@/lib/fable/scoring";
 import { CONTACTS, QUICK_AMOUNTS } from "@/lib/fable/seed";
 import { ensureSession, getSessionContext, type BankingSession } from "@/lib/fable/session";
 import { submitTransfer } from "@/lib/fable/store";
+import { InsufficientFundsError } from "@/lib/fable/api";
 import type { Channel, Recipient } from "@/lib/fable/types";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 
@@ -56,6 +58,7 @@ export default function TransferPage() {
   const [channel, setChannel] = useState<Channel>("app");
   const [detectedChannel, setDetectedChannel] = useState<Channel | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // --- Fable SDK: real data collection ---
   const [device, setDevice] = useState<DeviceFingerprint | null>(null);
@@ -188,6 +191,7 @@ export default function TransferPage() {
   async function handleSubmit() {
     if (!canSubmit || !contact) return;
     setSubmitting(true);
+    setSubmitError(null);
 
     // Bundle everything the SDK has actually collected on this page.
     const sdk = {
@@ -197,12 +201,26 @@ export default function TransferPage() {
       behavior: tracker?.snapshot() ?? null,
     };
 
-    const minDelay = new Promise((resolve) => setTimeout(resolve, 1400));
-    await Promise.all([
-      submitTransfer({ amount: amountValue, recipient: contact, narration, channel }, sdk),
-      minDelay,
-    ]);
-    router.push(href("/result"));
+    // Every exit path resets the spinner. Previously an error here — most
+    // often a declined-for-funds transfer — threw straight past the navigation
+    // with nothing to catch it, so the button sat on "Analyzing Risk…"
+    // forever. A frictionless product must never strand the user mid-action.
+    try {
+      const minDelay = new Promise((resolve) => setTimeout(resolve, 1400));
+      await Promise.all([
+        submitTransfer({ amount: amountValue, recipient: contact, narration, channel }, sdk),
+        minDelay,
+      ]);
+      router.push(href("/result"));
+    } catch (err) {
+      if (err instanceof InsufficientFundsError) {
+        const short = err.shortfall > 0 ? ` You're ${formatNaira(err.shortfall)} short.` : "";
+        setSubmitError(`Not enough balance for this transfer.${short} Add money and try again.`);
+      } else {
+        setSubmitError("We couldn't process this transfer just now. Please try again.");
+      }
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -522,6 +540,15 @@ export default function TransferPage() {
                 </>
               )}
             </button>
+
+            {submitError && (
+              <div className="mt-3 flex items-start gap-2 rounded-xl bg-red-50 px-3.5 py-2.5 text-[12px] leading-relaxed text-red-600 dark:bg-red-500/10 dark:text-red-400">
+                <span className="flex-1">{submitError}</span>
+                <Link href={href("/add-money")} className="shrink-0 font-bold underline">
+                  Add money
+                </Link>
+              </div>
+            )}
           </Card>
         </div>
       </div>

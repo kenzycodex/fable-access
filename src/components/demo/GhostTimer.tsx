@@ -31,7 +31,7 @@ export function GhostTimer({
   }, [expiresAt, onExpire]);
 
   // cyan by default, amber under 5 minutes, red under 60 seconds.
-  const color = remaining <= 60 ? "#ff3b5c" : remaining <= 300 ? "#ffb547" : "#00d4ff";
+  const color = remaining <= 60 ? "#ff3b5c" : remaining <= 300 ? "#ffb547" : "var(--brand-accent)";
   const pct = Math.max(0, Math.min(100, (remaining / windowSeconds) * 100));
 
   return (

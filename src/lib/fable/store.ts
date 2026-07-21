@@ -15,6 +15,7 @@
 import { useSyncExternalStore } from "react";
 import {
   apiAvailable,
+  approveTransfer,
   ensureBackendSeeded,
   finalizeTransaction,
   ghostCreate as apiGhostCreate,
@@ -307,6 +308,25 @@ export function resolvePending(status: TransactionStatus): Transaction | null {
 
 /** A PASS transfer is committed straight away (no decision needed). */
 export function commitPass(): Transaction | null {
+  return resolvePending("completed");
+}
+
+/** Proceed with a flagged (not blocked) pending transfer after the customer
+ * verifies it's them. A flag is medium risk, so a verified transfer completes
+ * directly with no cooling window — the proportional, lower-friction path.
+ *
+ * Throws StepUpRequiredError (from the server) when no valid proof is supplied,
+ * so the caller runs the factor and retries with a token. The money only moves
+ * on success. */
+export async function approvePending(stepupToken?: string | null): Promise<Transaction | null> {
+  const txn = read().pending;
+  if (!txn) return null;
+  const tenant = getTenant();
+  const userId = tenant.customerId ?? `${tenant.institutionId}_ada`;
+
+  // Deliberately not swallowed: a step-up refusal must reach the UI so it can
+  // run the factor rather than silently marking the transfer sent.
+  await approveTransfer(txn.id, userId, stepupToken);
   return resolvePending("completed");
 }
 

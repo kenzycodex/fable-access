@@ -295,6 +295,12 @@ MIGRATIONS = {
         "explanation": "TEXT",
         "explanation_ms": "REAL",
         "explanation_source": "TEXT",
+        # The transfer's lifecycle outcome, distinct from action_taken (the
+        # decision). A BLOCK the customer contained and released ends
+        # 'released'; a FLAG they verified ends 'completed'. Without this the
+        # console re-derived status naively from the action and every override
+        # was invisible after a refresh.
+        "status": "TEXT",
     },
     "ghost_containers": {
         "institution_id": "TEXT",

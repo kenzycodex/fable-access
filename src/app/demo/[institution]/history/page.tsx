@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { MagnifyingGlass, Faders } from "@phosphor-icons/react";
 import { DemoSheet } from "@/components/demo/DemoSheet";
@@ -20,7 +21,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export default function HistoryPage() {
   const store = useFableStore();
-  const { customer, institutionId } = useInstitution();
+  const { customer, institutionId, href } = useInstitution();
+  const router = useRouter();
   const [filter, setFilter] = useState<FilterMode>("all");
   const [search, setSearch] = useState("");
 
@@ -141,7 +143,7 @@ export default function HistoryPage() {
               <Card className="!p-0 overflow-hidden border border-gray-200 dark:border-white/[0.04]">
                 <div className="divide-y divide-gray-100 dark:divide-white/[0.04]">
                   {g.items.map((t) => (
-                    <HistoryRow key={t.id} txn={t} />
+                    <HistoryRow key={t.id} txn={t} onOpen={() => router.push(href(`/tx/${t.id}`))} />
                   ))}
                 </div>
               </Card>
@@ -236,13 +238,17 @@ function FilterTab({ active, onClick, children }: { active: boolean; onClick: ()
   );
 }
 
-function HistoryRow({ txn }: { txn: Transaction }) {
+function HistoryRow({ txn, onOpen }: { txn: Transaction; onOpen: () => void }) {
   const credit = txn.direction === "credit";
   const tone = riskTone(txn.action);
   const flagged = txn.action !== "PASS";
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.02]">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.02]"
+    >
       <Avatar name={txn.recipientName} />
       <div className="flex min-w-0 flex-col gap-0.5">
         <span className="truncate text-[14px] font-semibold text-gray-900 dark:text-white">{txn.recipientName}</span>
@@ -259,7 +265,7 @@ function HistoryRow({ txn }: { txn: Transaction }) {
         {credit ? "+" : "-"}
         {formatNaira(txn.amount)}
       </span>
-    </div>
+    </button>
   );
 }
 

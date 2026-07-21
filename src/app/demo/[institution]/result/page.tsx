@@ -6,9 +6,12 @@ import { CheckCircle, ShieldWarning, Ghost, ShareNetwork } from "@phosphor-icons
 import { Card, Screen, ScreenHeader } from "@/components/demo/kit";
 import { RiskScoreCounter } from "@/components/demo/RiskScoreCounter";
 import { SignalCard } from "@/components/demo/SignalCard";
-import { shieldExplanation } from "@/lib/fable/api";
+import { shieldExplanation, StepUpRequiredError } from "@/lib/fable/api";
+import { stepUpRequirement, type StepUpRequirement } from "@/lib/fable/webauthn";
+import { StepUpDialog } from "@/components/demo/StepUpDialog";
 import { formatNaira, formatRiskScore } from "@/lib/fable/format";
 import {
+  approvePending,
   commitPass,
   createGhost,
   resolvePending,
@@ -25,21 +28,21 @@ import { useInstitution } from "@/components/demo/InstitutionProvider";
  * accurate in its own right, so there is no error state to surface here.
  */
 function usePolishedExplanation(transactionId: string | undefined, isPending: boolean) {
-  const [writing, setWriting] = useState(isPending);
+  // The id whose write-up has landed (or given up). Deriving `writing` from it
+  // avoids setting state synchronously in the effect, and it resets naturally
+  // when a new transfer brings a new id.
+  const [resolvedId, setResolvedId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isPending || !transactionId) {
-      setWriting(false);
-      return;
-    }
+    if (!isPending || !transactionId) return;
     let cancelled = false;
     let attempts = 0;
-    setWriting(true);
 
     async function poll() {
       // ~18s ceiling. Past that the template is the final answer.
-      if (cancelled || attempts >= 12) {
-        if (!cancelled) setWriting(false);
+      if (cancelled) return;
+      if (attempts >= 12) {
+        setResolvedId(transactionId!);
         return;
       }
       attempts += 1;
@@ -47,7 +50,7 @@ function usePolishedExplanation(transactionId: string | undefined, isPending: bo
       if (cancelled) return;
       if (result?.ready && result.explanation) {
         upgradePendingExplanation(transactionId!, result.explanation);
-        setWriting(false);
+        setResolvedId(transactionId!);
         return;
       }
       setTimeout(poll, 1500);
@@ -60,7 +63,7 @@ function usePolishedExplanation(transactionId: string | undefined, isPending: bo
     };
   }, [transactionId, isPending]);
 
-  return writing;
+  return isPending && !!transactionId && resolvedId !== transactionId;
 }
 
 export default function ResultPage() {
@@ -125,7 +128,7 @@ function PassResult({ amount, recipient, score }: { amount: number; recipient: s
           <button
             type="button"
             onClick={done}
-            className="w-full rounded-xl bg-[#7C3AED] py-3.5 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
+            className="w-full rounded-xl bg-[var(--brand-primary)] py-3.5 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
           >
             Done
           </button>
@@ -137,13 +140,20 @@ function PassResult({ amount, recipient, score }: { amount: number; recipient: s
 
 function FlagBlockResult() {
   const router = useRouter();
-  const { href } = useInstitution();
+  const { href, customer, institutionId } = useInstitution();
   const store = useFableStore();
   const pending = store?.pending ?? null;
   const writing = usePolishedExplanation(
     pending?.transactionId,
     pending?.explanationSource === "pending",
   );
+
+  // A flag is verified and sent directly; only a block is contained.
+  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [requirement, setRequirement] = useState<StepUpRequirement | null>(null);
+  const [proceeding, setProceeding] = useState(false);
+  const [proceedError, setProceedError] = useState<string | null>(null);
+
   if (!pending) return null;
 
   const isBlock = pending.action === "BLOCK";
@@ -153,9 +163,40 @@ function FlagBlockResult() {
     router.push(href());
   }
 
-  async function sendAnyway() {
-    await createGhost();
-    router.push(href("/ghost"));
+  // BLOCK → containment. FLAG → verify, then complete with no cooling window.
+  async function sendAnyway(token?: string) {
+    if (isBlock) {
+      await createGhost();
+      router.push(href("/ghost"));
+      return;
+    }
+    if (proceeding) return;
+    setProceeding(true);
+    setProceedError(null);
+    try {
+      await approvePending(token ?? null);
+      router.push(href());
+    } catch (err) {
+      if (err instanceof StepUpRequiredError) {
+        try {
+          const req = await stepUpRequirement({
+            userId: customer?.user_id ?? "",
+            riskScore: pending!.riskScore,
+            signals: pending!.signals.map((s) => s.code),
+            action: "FLAG",
+            purpose: "transfer",
+          });
+          setRequirement({ ...req, level: err.level });
+        } catch {
+          setRequirement(null);
+        }
+        setStepUpOpen(true);
+      } else {
+        setProceedError(err instanceof Error ? err.message : "Could not send this transfer.");
+      }
+    } finally {
+      setProceeding(false);
+    }
   }
 
   return (
@@ -187,8 +228,8 @@ function FlagBlockResult() {
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-medium uppercase tracking-wider text-white/35">Fable explains</span>
               {writing && (
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-[#7C3AED]">
-                  <span className="size-1.5 animate-pulse rounded-full bg-[#7C3AED]" />
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--brand-primary)]">
+                  <span className="size-1.5 animate-pulse rounded-full bg-[var(--brand-primary)]" />
                   Adding detail
                 </span>
               )}
@@ -217,15 +258,39 @@ function FlagBlockResult() {
             </button>
             <button
               type="button"
-              onClick={sendAnyway}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1a1a1a] py-3 text-[13px] font-medium text-white/50 transition-colors hover:bg-[#222] hover:text-white/70"
+              onClick={() => sendAnyway()}
+              disabled={proceeding}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1a1a1a] py-3 text-[13px] font-medium text-white/50 transition-colors hover:bg-[#222] hover:text-white/70 disabled:opacity-50"
             >
               <Ghost size={16} />
-              Send anyway → Ghost protection
+              {isBlock
+                ? "Send anyway → Ghost protection"
+                : proceeding
+                  ? "Verifying…"
+                  : "Send anyway → verify it's you"}
             </button>
+            {proceedError && (
+              <p className="rounded-xl bg-red-500/10 px-3.5 py-2.5 text-[12px] leading-relaxed text-red-400">
+                {proceedError}
+              </p>
+            )}
           </div>
         </div>
       </div>
+
+      <StepUpDialog
+        open={stepUpOpen}
+        onClose={() => setStepUpOpen(false)}
+        onVerified={(token) => {
+          setStepUpOpen(false);
+          void sendAnyway(token);
+        }}
+        requirement={requirement}
+        userId={customer?.user_id ?? ""}
+        institutionId={institutionId}
+        purpose="transfer"
+        reference={pending.id}
+      />
     </Screen>
   );
 }

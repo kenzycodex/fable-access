@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
 import {
@@ -33,6 +34,7 @@ import { PowerConnect } from "@/components/demo/PowerConnect";
 
 export default function DemoHomePage() {
   const { href, customer, institutionId } = useInstitution();
+  const router = useRouter();
   const store = useFableStore();
   const [balanceHidden, setBalanceHidden] = useState(false);
   const { theme, setTheme } = useTheme();
@@ -262,7 +264,7 @@ export default function DemoHomePage() {
               </Link>
             </div>
             <div className="flex flex-col">
-              {store === null ? <SkeletonRows /> : myTxns.map((t) => <TxnRow key={t.id} txn={t} />)}
+              {store === null ? <SkeletonRows /> : myTxns.map((t) => <TxnRow key={t.id} txn={t} onOpen={() => router.push(href(`/tx/${t.id}`))} />)}
             </div>
           </Card>
 
@@ -320,10 +322,14 @@ function SpendBar({ label, amount, pct }: { label: string; amount: string; pct: 
   );
 }
 
-function TxnRow({ txn }: { txn: Transaction }) {
+function TxnRow({ txn, onOpen }: { txn: Transaction; onOpen: () => void }) {
   const credit = txn.direction === "credit";
   return (
-    <div className="flex items-center gap-3 border-b border-gray-100 dark:border-white/[0.04] py-3 last:border-0 hover:bg-gray-50 dark:hover:bg-white/[0.02] px-2 rounded-lg transition-colors -mx-2">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-center gap-3 border-b border-gray-100 dark:border-white/[0.04] py-3 text-left last:border-0 hover:bg-gray-50 dark:hover:bg-white/[0.02] px-2 rounded-lg transition-colors -mx-2"
+    >
       <Avatar name={txn.recipientName} size="sm" />
       {/* min-w-0 lets the name truncate; the amount must never shrink, or a
           long resolved account name splits it across two lines. */}
@@ -334,7 +340,7 @@ function TxnRow({ txn }: { txn: Transaction }) {
       <span className={`shrink-0 whitespace-nowrap text-[13px] font-bold tabular-nums ${credit ? "text-emerald-600 dark:text-emerald-400" : "text-gray-900 dark:text-white/60"}`}>
         {credit ? "+" : "-"}{formatNaira(txn.amount)}
       </span>
-    </div>
+    </button>
   );
 }
 

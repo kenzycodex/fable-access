@@ -83,7 +83,19 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
   const [debugCode, setDebugCode] = useState<string | null>(null);
   const [code, setCode] = useState("");
 
-  const vendorTier = requirement?.level === "identity_check";
+  const level = requirement?.level ?? "pin";
+  const vendorTier = level === "identity_check";
+  const hasPasskey = (status?.passkey_count ?? 0) > 0;
+
+  // How much this decision demands. A medium-risk flag needs one factor;
+  // containment release needs the composed substitute. A "passkey" tier with no
+  // passkey enrolled escalates to the composed path rather than dead-ending.
+  const mode: "single_pin" | "single_passkey" | "composed" =
+    level === "pin"
+      ? "single_pin"
+      : level === "passkey" && hasPasskey
+        ? "single_passkey"
+        : "composed";
 
   useEffect(() => {
     securityStatus(userId)
@@ -95,8 +107,12 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
       .finally(() => setLoading(false));
   }, [userId]);
 
-  const needsPasskey = (status?.passkey_count ?? 0) > 0;
-  const steps: Factor[] = [...(needsPasskey ? (["passkey"] as Factor[]) : []), "pin", "otp"];
+  const steps: Factor[] =
+    mode === "single_pin"
+      ? ["pin"]
+      : mode === "single_passkey"
+        ? ["passkey"]
+        : [...(hasPasskey ? (["passkey"] as Factor[]) : []), "pin", "otp"];
   const doneMap: Record<Factor, boolean> = { passkey: !!passkeyToken, pin: !!pinToken, otp: !!otpToken };
   const active = steps.find((s) => !doneMap[s]) ?? null;
   const allDone = steps.every((s) => doneMap[s]);
@@ -105,7 +121,7 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
    * hand. Called from whichever handler completes the final factor, rather than
    * from an effect, so state updates stay driven by user actions. */
   async function compose(tokens: { passkey: string | null; pin: string | null; otp: string | null }) {
-    const ready = (!needsPasskey || tokens.passkey) && tokens.pin && tokens.otp;
+    const ready = (!hasPasskey || tokens.passkey) && tokens.pin && tokens.otp;
     if (!ready) return;
     setBusy(true);
     setError(null);
@@ -130,8 +146,14 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
     setBusy(true);
     setError(null);
     try {
-      const res = await authenticatePasskey(userId, purpose, reference, "identity_check");
+      const res = await authenticatePasskey(userId, purpose, reference, mode === "composed" ? "identity_check" : level);
       if (res.token) {
+        // A single-passkey tier is satisfied outright; the composed tier folds
+        // the passkey in with the other factors.
+        if (mode === "single_passkey") {
+          onVerified(res.token);
+          return;
+        }
         setPasskeyToken(res.token);
         await compose({ passkey: res.token, pin: pinToken, otp: otpToken });
       }
@@ -147,7 +169,12 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
     setBusy(true);
     setError(null);
     try {
-      const res = await verifyPin({ userId, pin: pinValue, purpose, reference, requiredLevel: "identity_check" });
+      const res = await verifyPin({ userId, pin: pinValue, purpose, reference, requiredLevel: mode === "composed" ? "identity_check" : level });
+      // A single-PIN tier (a medium-risk flag) is done here — no code needed.
+      if (mode === "single_pin") {
+        onVerified(res.token);
+        return;
+      }
       setPinToken(res.token);
       setPinValue("");
       await compose({ passkey: passkeyToken, pin: res.token, otp: otpToken });
@@ -206,8 +233,8 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start gap-3 rounded-2xl border border-[#7C3AED]/20 bg-[#7C3AED]/5 p-3.5">
-        <ShieldWarning size={18} weight="fill" className="mt-0.5 shrink-0 text-[#7C3AED]" />
+      <div className="flex items-start gap-3 rounded-2xl border border-[var(--brand-primary)]/20 bg-[var(--brand-primary)]/5 p-3.5">
+        <ShieldWarning size={18} weight="fill" className="mt-0.5 shrink-0 text-[var(--brand-primary)]" />
         <p className="text-[12px] leading-relaxed text-gray-600 dark:text-white/60">
           {vendorTier
             ? "This transfer looked dangerous, so releasing it needs more than your session. Confirm each factor below."
@@ -240,7 +267,7 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
               type="button"
               onClick={runPasskey}
               disabled={busy}
-              className="flex items-center justify-center gap-2 rounded-xl bg-[#7C3AED] py-3.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] py-3.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               <Fingerprint size={18} weight="bold" />
               {busy ? "Waiting for device…" : "Confirm with device unlock"}
@@ -258,13 +285,13 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
                   type="password"
                   autoComplete="off"
                   placeholder="Enter your transaction PIN"
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-[18px] font-bold tracking-[0.3em] tabular-nums text-gray-900 outline-none focus:ring-2 focus:ring-[#7C3AED]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-[18px] font-bold tracking-[0.3em] tabular-nums text-gray-900 outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"
                 />
                 <button
                   type="button"
                   onClick={submitPin}
                   disabled={busy || pinValue.length < 4}
-                  className="rounded-xl bg-[#7C3AED] py-3 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl bg-[var(--brand-primary)] py-3 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {busy ? "Checking…" : "Confirm PIN"}
                 </button>
@@ -282,13 +309,13 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
                   type="password"
                   autoComplete="off"
                   placeholder="Choose a 4 or 6-digit PIN"
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-[18px] font-bold tracking-[0.3em] tabular-nums text-gray-900 outline-none focus:ring-2 focus:ring-[#7C3AED]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-[18px] font-bold tracking-[0.3em] tabular-nums text-gray-900 outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"
                 />
                 <button
                   type="button"
                   onClick={createPin}
                   disabled={busy || (newPin.length !== 4 && newPin.length !== 6)}
-                  className="rounded-xl bg-[#7C3AED] py-3 text-[13px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl bg-[var(--brand-primary)] py-3 text-[13px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {busy ? "Saving…" : "Set PIN"}
                 </button>
@@ -308,7 +335,7 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
                           onClick={() => setChannel(ch)}
                           className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border py-2.5 text-[12px] font-semibold transition-colors ${
                             channel === ch
-                              ? "border-[#7C3AED] bg-[#7C3AED]/10 text-[#7C3AED]"
+                              ? "border-[var(--brand-primary)] bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]"
                               : "border-gray-200 text-gray-500 dark:border-white/[0.08] dark:text-white/40"
                           }`}
                         >
@@ -322,7 +349,7 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
                     type="button"
                     onClick={requestCode}
                     disabled={busy}
-                    className="flex items-center justify-center gap-2 rounded-xl bg-[#7C3AED] py-3.5 text-[13px] font-bold text-white disabled:opacity-50"
+                    className="flex items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] py-3.5 text-[13px] font-bold text-white disabled:opacity-50"
                   >
                     {channel === "email" ? <EnvelopeSimple size={17} weight="bold" /> : <DeviceMobile size={17} weight="bold" />}
                     {busy ? "Sending…" : `Send code by ${channel === "email" ? "email" : "SMS"}`}
@@ -346,13 +373,13 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
                     inputMode="numeric"
                     autoComplete="one-time-code"
                     placeholder="6-digit code"
-                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-[18px] font-bold tracking-[0.3em] tabular-nums text-gray-900 outline-none focus:ring-2 focus:ring-[#7C3AED]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-[18px] font-bold tracking-[0.3em] tabular-nums text-gray-900 outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"
                   />
                   <button
                     type="button"
                     onClick={submitCode}
                     disabled={busy || code.length < 6}
-                    className="rounded-xl bg-[#7C3AED] py-3 text-[13px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-xl bg-[var(--brand-primary)] py-3 text-[13px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {busy ? "Checking…" : "Confirm code"}
                   </button>
@@ -401,7 +428,7 @@ function FactorRow({
         done
           ? "border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-500"
           : active
-            ? "border-[#7C3AED]/30 bg-[#7C3AED]/[0.06] text-[#7C3AED]"
+            ? "border-[var(--brand-primary)]/30 bg-[var(--brand-primary)]/[0.06] text-[var(--brand-primary)]"
             : "border-gray-200 text-gray-400 dark:border-white/[0.06] dark:text-white/30"
       }`}
     >

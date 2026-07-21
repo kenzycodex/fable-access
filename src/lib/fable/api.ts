@@ -297,13 +297,23 @@ export async function shieldAnalyze(
   }
 
   if (raw.status === 422) {
-    const detail = (await raw.json().catch(() => ({})))?.detail ?? {};
-    throw new InsufficientFundsError(
-      detail.available ?? 0,
-      detail.requested ?? 0,
-      detail.shortfall ?? 0,
-      detail.message ?? "Insufficient funds for this transfer.",
-    );
+    // 422 is overloaded: it's both our insufficient-funds refusal and FastAPI's
+    // schema-validation error. Only the former is a dict tagged
+    // "insufficient_funds"; a validation error's detail is an array. Treating
+    // every 422 as insufficient funds mislabels a malformed request as an empty
+    // wallet, so disambiguate before throwing.
+    const detail = (await raw.json().catch(() => ({})))?.detail;
+    if (detail && typeof detail === "object" && !Array.isArray(detail) && detail.error === "insufficient_funds") {
+      throw new InsufficientFundsError(
+        detail.available ?? 0,
+        detail.requested ?? 0,
+        detail.shortfall ?? 0,
+        detail.message ?? "Insufficient funds for this transfer.",
+      );
+    }
+    // A validation problem: let the caller fall back to the local engine rather
+    // than reporting a wrong reason to the customer.
+    throw new Error("Shield rejected the transfer payload (422 validation).");
   }
   if (!raw.ok) throw new Error(`Fable API ${raw.status} on /v1/shield/analyze`);
   const res = (await raw.json()) as ApiShieldResponse;
@@ -320,10 +330,42 @@ export async function shieldAnalyze(
   };
 }
 
-/** FastAPI logs the transaction with its decision at analyze time, so there's
- * no separate status-finalize step (kept as a no-op for the store's contract). */
-export async function finalizeTransaction(_id: string, _status: string): Promise<void> {
-  return;
+/** Persist a transfer's lifecycle outcome so every surface — the customer's
+ * history after a refresh, the institution console — agrees on where the money
+ * ended up. Best-effort: a failure leaves the in-session status correct and the
+ * next poll reconciles. */
+export async function finalizeTransaction(id: string, status: string): Promise<void> {
+  try {
+    await fetchJson(`/v1/transactions/${encodeURIComponent(id)}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    });
+  } catch {
+    // Non-fatal; the local feed already shows the right status this session.
+  }
+}
+
+/** Proceed with a flagged transfer after step-up. Throws StepUpRequiredError
+ * (401) carrying the demanded level when no valid proof is supplied, so the
+ * caller can run the factor and retry with a token. */
+export async function approveTransfer(id: string, userId: string, stepupToken?: string | null): Promise<{ status: string }> {
+  const res = await fetch(`${API_BASE}/v1/transactions/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ user_id: userId, stepup_token: stepupToken ?? null }),
+  });
+  if (res.status === 401) {
+    const body = await res.json().catch(() => ({}));
+    const d = body?.detail ?? {};
+    throw new StepUpRequiredError(d.level ?? "pin", d.message ?? "Verification required.");
+  }
+  if (res.status === 422) {
+    const body = await res.json().catch(() => ({}));
+    const d = body?.detail ?? {};
+    throw new InsufficientFundsError(d.available ?? 0, d.requested ?? 0, d.shortfall ?? 0, d.message ?? "Insufficient funds.");
+  }
+  if (!res.ok) throw new Error(`Could not send this transfer (${res.status})`);
+  return (await res.json()) as { status: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -428,6 +470,8 @@ interface ApiTransactionRow {
   signals: string[];
   latency_ms?: number | null;
   created_at: string;
+  status?: string | null;
+  explanation?: string | null;
 }
 
 function prettyRecipient(id: string | null, account: string | null): string {
@@ -445,11 +489,14 @@ function mapApiRow(r: ApiTransactionRow): Transaction {
     direction: "debit",
     channel: CHANNEL_FROM_API[r.channel ?? "mobile_app"] ?? "app",
     narration: r.narration ?? "",
-    status: action === "BLOCK" ? "blocked" : "completed",
+    // The persisted lifecycle outcome wins. The action-derived fallback only
+    // covers rows written before status was recorded, so an old blocked row
+    // still reads "blocked" and an old flag "flagged".
+    status: (r.status as Transaction["status"]) ?? (action === "BLOCK" ? "blocked" : action === "FLAG" ? "flagged" : "completed"),
     riskScore: r.risk_score ?? 0,
     action,
     signals: parseApiSignals(r.signals ?? []),
-    explanation: "",
+    explanation: r.explanation ?? "",
     // Measured, or 0 when this row predates latency being recorded. It was
     // hardcoded to 143, which is why the console advertised a decision time
     // nothing had ever measured.

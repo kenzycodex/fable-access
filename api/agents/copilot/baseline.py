@@ -202,8 +202,8 @@ def log_transaction(
                 session_duration_seconds, auth_method, typing_speed_ms, paste_detected,
                 time_to_submit_seconds, client_timestamp, client_timezone, institution_id,
                 recipient_name, client_reference, latency_ms, decision_ms,
-                explanation, explanation_source)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                explanation, explanation_source, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 transaction_id,
                 user_id,
@@ -243,6 +243,10 @@ def log_transaction(
                 decision_ms,
                 explanation,
                 explanation_source,
+                # Initial lifecycle state, before the customer acts. A PASS has
+                # already moved; a FLAG awaits a decision; a BLOCK is stopped.
+                # Overrides (verify a flag, release a hold) update this later.
+                {"PASS": "completed", "FLAG": "flagged", "BLOCK": "blocked"}.get(action_taken, "completed"),
             ),
         )
 
