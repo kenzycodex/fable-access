@@ -41,7 +41,9 @@ export default function HistoryPage() {
   );
 
   // Transfers made this session appear immediately, ahead of the next poll.
-  const localLive = (store?.transactions ?? []).filter((t) => t.live);
+  // Scoped to the selected customer: the store is shared per-institution, so
+  // an unscoped filter leaked one customer's session transfers into another's.
+  const localLive = (store?.transactions ?? []).filter((t) => t.live && t.userId === customer?.user_id);
   const myTxns: Transaction[] = [
     ...localLive,
     ...(serverTxns ?? []).filter((t) => !localLive.some((l) => l.id === t.id)),

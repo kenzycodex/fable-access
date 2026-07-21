@@ -75,6 +75,10 @@ export interface Transaction extends ScoreResult {
   recipientAccount: string;
   /** The account holder who initiated it (for the institution feed). */
   customerName: string;
+  /** The account holder's id. Live transfers persist per-institution, so this
+   * is what scopes them to the selected customer — without it, one customer's
+   * session transfers leak into another's feed after a switch. */
+  userId?: string;
   /** True for transfers made live in /demo this session (vs. seeded). */
   live?: boolean;
   /** True when this transaction was scored/persisted by the Fable API. */

@@ -267,6 +267,7 @@ export async function submitTransfer(input: TransactionInput, sdk?: Partial<SdkT
     recipientBank: input.recipient.bank,
     recipientAccount: input.recipient.accountNumber,
     customerName: getTenant().customerName ?? "Unknown customer",
+    userId: getTenant().customerId ?? `${getTenant().institutionId}_ada`,
     live: true,
     remote,
   };
@@ -331,6 +332,7 @@ export function recordCredit(amount: number, source: string): Transaction {
     recipientBank: "Fable",
     recipientAccount: "",
     customerName: tenant.customerName ?? "You",
+    userId: tenant.customerId ?? `${tenant.institutionId}_ada`,
     riskScore: 0,
     action: "PASS",
     signals: [],

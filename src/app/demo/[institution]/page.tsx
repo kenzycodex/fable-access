@@ -64,8 +64,10 @@ export default function DemoHomePage() {
   );
 
   // Live transfers made this session land in the local store first, so they
-  // show immediately rather than waiting on the next poll.
-  const localLive = (store?.transactions ?? []).filter((t) => t.live);
+  // show immediately rather than waiting on the next poll. Scoped to the
+  // selected customer — the store is shared per-institution, so without this
+  // one customer's session transfers would bleed into another's after a switch.
+  const localLive = (store?.transactions ?? []).filter((t) => t.live && t.userId === customer?.user_id);
   const allMyTxns: Transaction[] = [
     ...localLive,
     ...(serverTxns ?? []).filter((t) => !localLive.some((l) => l.id === t.id)),
