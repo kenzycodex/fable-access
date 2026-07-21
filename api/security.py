@@ -60,6 +60,8 @@ def status(user_id: str) -> dict:
     row = _record(user_id)
     locked = _locked_until(row)
     passkeys = list_credentials(user_id)
+    email = (row or {}).get("contact_email")
+    phone = (row or {}).get("contact_phone")
 
     return {
         "user_id": user_id,
@@ -71,7 +73,71 @@ def status(user_id: str) -> dict:
         "two_factor_enabled": bool((row or {}).get("two_factor_enabled")),
         "passkeys": passkeys,
         "passkey_count": len(passkeys),
+        # Masked for display; the raw values only leave the server as a code
+        # destination, never back to the client.
+        "contact_email": _mask_email(email) if email else None,
+        "contact_phone": _mask_phone(phone) if phone else None,
+        "email_set": bool(email),
+        "phone_set": bool(phone),
     }
+
+
+def get_contact(user_id: str) -> dict:
+    """Raw registered channels, for the code sender only."""
+    row = _record(user_id)
+    return {
+        "email": (row or {}).get("contact_email"),
+        "phone": (row or {}).get("contact_phone"),
+    }
+
+
+def _mask_email(email: str) -> str:
+    name, _, domain = email.partition("@")
+    if not domain:
+        return "•••"
+    shown = name[:2] if len(name) > 2 else name[:1]
+    return f"{shown}{'•' * max(len(name) - len(shown), 2)}@{domain}"
+
+
+def _mask_phone(phone: str) -> str:
+    digits = "".join(c for c in phone if c.isdigit())
+    if len(digits) < 4:
+        return "•••"
+    return f"{'•' * (len(digits) - 4)}{digits[-4:]}"
+
+
+_EMAIL_RE = __import__("re").compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def set_contact(user_id: str, email: str | None, phone: str | None,
+                institution_id: str | None = None) -> dict:
+    """Register the customer's own email and/or phone for verification codes."""
+    email = (email or "").strip() or None
+    phone = (phone or "").strip() or None
+
+    if email and not _EMAIL_RE.match(email):
+        raise SecurityError("That doesn't look like a valid email address.")
+    if phone:
+        digits = "".join(c for c in phone if c.isdigit())
+        # Nigerian numbers are 11 local digits (0803…) or 13 with the country
+        # code (234803…); accept the common international range rather than
+        # hard-coding one format.
+        if not (10 <= len(digits) <= 15):
+            raise SecurityError("That doesn't look like a valid phone number.")
+    if not email and not phone:
+        raise SecurityError("Enter an email or phone number.")
+
+    with cursor() as cur:
+        cur.execute(
+            """INSERT INTO user_security (user_id, institution_id, contact_email, contact_phone)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                 contact_email = COALESCE(excluded.contact_email, user_security.contact_email),
+                 contact_phone = COALESCE(excluded.contact_phone, user_security.contact_phone),
+                 updated_at = datetime('now')""",
+            (user_id, institution_id, email, phone),
+        )
+    return status(user_id)
 
 
 def set_pin(user_id: str, pin: str, current_pin: str | None = None,

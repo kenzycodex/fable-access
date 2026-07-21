@@ -143,23 +143,36 @@ class OtpSendRequest(BaseModel):
     user_id: str
     institution_id: Optional[str] = None
     email: Optional[str] = None
+    channel: str = "email"  # "email" | "sms"
     purpose: str = "transfer"
     reference: Optional[str] = None
 
 
 @router.post("/otp/send")
 def otp_send(payload: OtpSendRequest):
-    # A real deployment reads the customer's registered address from the core
-    # banking record. The demo falls back to the institution's contact address,
-    # which is the closest thing it genuinely has.
-    email = payload.email
+    import security
+
+    contact = security.get_contact(payload.user_id)
+
+    if payload.channel == "sms":
+        phone = contact.get("phone")
+        if not phone:
+            raise HTTPException(status_code=400, detail="No phone number registered for codes.")
+        return stepup.send_otp(
+            payload.user_id, payload.purpose, payload.reference, phone=phone, channel="sms",
+        )
+
+    # Email: the customer's own registered address wins. Only if they never set
+    # one does it fall back to the institution's contact address — the closest
+    # thing the demo genuinely has, but not somewhere the customer controls.
+    email = payload.email or contact.get("email")
     if not email and payload.institution_id:
         inst = get_institution(payload.institution_id)
         email = (inst or {}).get("contact_email")
     if not email:
         raise HTTPException(status_code=400, detail="No registered address to send a code to.")
 
-    return stepup.send_otp(payload.user_id, email, payload.purpose, payload.reference)
+    return stepup.send_otp(payload.user_id, payload.purpose, payload.reference, email=email)
 
 
 class OtpVerifyRequest(BaseModel):
@@ -250,11 +263,19 @@ def identity_check(payload: IdentityCheckRequest):
             ),
         )
 
-    supplied = {
-        "passkey": payload.passkey_token,
-        "pin": payload.pin_token,
-        "otp": payload.otp_token,
-    }
+    # The substitute adapts to the factors the customer can actually hold. A
+    # device-bound passkey is the strongest, so it is demanded when one is
+    # enrolled — but requiring hardware the device may not have would make the
+    # strongest tier the one most likely to strand a real customer. Where no
+    # passkey exists, two independent factors stand in: a PIN (something known)
+    # and a code on a channel the session doesn't control (something held).
+    # That is what Nigerian banks do today, and it is honest about what it is.
+    has_passkey = stepup.has_passkey(payload.user_id)
+
+    supplied = {"pin": payload.pin_token, "otp": payload.otp_token}
+    if has_passkey:
+        supplied["passkey"] = payload.passkey_token
+
     verified = {
         name: bool(stepup.verify_token(token, payload.user_id, payload.purpose, payload.reference))
         for name, token in supplied.items()
@@ -273,16 +294,17 @@ def identity_check(payload: IdentityCheckRequest):
             },
         )
 
-    # Each part is spent, so the same three tokens cannot be replayed.
+    # Each part is spent, so the same tokens cannot be replayed.
     for token in supplied.values():
         if token:
             stepup.consume_token(token)
 
+    factors = "passkey, PIN and a one-time code" if has_passkey else "PIN and a one-time code"
     issued = stepup.issue_token(payload.user_id, "identity_check", payload.purpose, payload.reference)
     return {
         "verified": True,
         "level": "identity_check",
         "method": "composed_factors",
-        "note": "Verified with passkey, PIN and emailed code in place of a vendor liveness check.",
+        "note": f"Verified with {factors} in place of a vendor liveness check.",
         **issued,
     }

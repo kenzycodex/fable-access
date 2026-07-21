@@ -933,10 +933,33 @@ export interface SecurityStatus {
   failed_attempts: number;
   two_factor_enabled: boolean;
   passkey_count: number;
+  passkeys?: { credential_id: string; device_label: string | null; created_at: string; last_used_at: string | null }[];
+  contact_email: string | null;
+  contact_phone: string | null;
+  email_set: boolean;
+  phone_set: boolean;
 }
 
 export function securityStatus(userId: string): Promise<SecurityStatus> {
   return fetchJson<SecurityStatus>(`/v1/accounts/${encodeURIComponent(userId)}/security`);
+}
+
+/** Register the customer's own email and/or phone for verification codes. */
+export async function setContact(
+  userId: string,
+  input: { email?: string | null; phone?: string | null },
+  institution: string | null,
+): Promise<SecurityStatus> {
+  const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/contact`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ email: input.email ?? null, phone: input.phone ?? null, institution_id: institution }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.detail === "string" ? body.detail : "Could not save your contact details.");
+  }
+  return (await res.json()) as SecurityStatus;
 }
 
 export async function setPin(

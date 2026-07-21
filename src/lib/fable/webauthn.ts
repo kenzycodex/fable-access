@@ -219,12 +219,21 @@ export function sendOtp(input: {
   institutionId: string | null;
   purpose: string;
   reference: string | null;
-}): Promise<{ challenge_id: string; delivered: boolean; email: string; debug_code?: string }> {
+  channel?: "email" | "sms";
+}): Promise<{
+  challenge_id: string;
+  delivered: boolean;
+  channel: "email" | "sms";
+  destination: string;
+  email: string;
+  debug_code?: string;
+}> {
   return post("/v1/stepup/otp/send", {
     user_id: input.userId,
     institution_id: input.institutionId,
     purpose: input.purpose,
     reference: input.reference,
+    channel: input.channel ?? "email",
   });
 }
 
@@ -239,6 +248,44 @@ export function verifyOtp(input: {
     challenge_id: input.challengeId,
     code: input.code,
     required_level: input.requiredLevel,
+  });
+}
+
+/** Verify a transaction PIN, returning a single-use proof token. */
+export function verifyPin(input: {
+  userId: string;
+  pin: string;
+  purpose: string;
+  reference: string | null;
+  requiredLevel: string;
+}): Promise<{ verified: boolean; level: string; token: string; expires_in: number }> {
+  return post("/v1/stepup/pin/verify", {
+    user_id: input.userId,
+    pin: input.pin,
+    purpose: input.purpose,
+    reference: input.reference,
+    required_level: input.requiredLevel,
+  });
+}
+
+/** Compose the independent factors (passkey where available, PIN, out-of-band
+ * code) into a single identity-assurance proof — the substitute for a vendor
+ * liveness check. Returns a token that satisfies the strongest release tier. */
+export function composeIdentityCheck(input: {
+  userId: string;
+  purpose: string;
+  reference: string | null;
+  passkeyToken?: string | null;
+  pinToken?: string | null;
+  otpToken?: string | null;
+}): Promise<{ verified: boolean; level: string; token: string; note: string; expires_in: number }> {
+  return post("/v1/stepup/identity-check", {
+    user_id: input.userId,
+    purpose: input.purpose,
+    reference: input.reference,
+    passkey_token: input.passkeyToken ?? null,
+    pin_token: input.pinToken ?? null,
+    otp_token: input.otpToken ?? null,
   });
 }
 

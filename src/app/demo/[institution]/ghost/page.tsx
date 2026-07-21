@@ -83,7 +83,7 @@ export default function GhostPage() {
   function describeFallback(level: string, req: StepUpRequirement) {
     if (level === req.level) return {};
     const copy: Record<string, { label: string; detail: string; factors: string[] }> = {
-      pin: { label: "Transaction PIN", detail: "Confirm with a code to release this transfer.", factors: ["otp"] },
+      pin: { label: "Transaction PIN", detail: "Re-enter your transaction PIN to release this transfer.", factors: ["pin"] },
       passkey: { label: "Device biometric", detail: "Confirm with this device's fingerprint or face unlock.", factors: ["passkey"] },
       passkey_and_otp: {
         label: "Biometric + emailed code",
@@ -181,7 +181,6 @@ export default function GhostPage() {
         }}
         requirement={requirement}
         userId={customer?.user_id ?? ""}
-        displayName={customer?.name ?? "Customer"}
         institutionId={institutionId}
         purpose="ghost_release"
         reference={ghost.id}

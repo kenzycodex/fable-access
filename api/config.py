@@ -86,7 +86,13 @@ FLAG_THRESHOLD = 0.5
 # from pinning a worker thread indefinitely.
 EXPLAINER_TIMEOUT_SECONDS = float(os.getenv("FABLE_EXPLAINER_TIMEOUT", "10"))
 
-# Ghost cooling windows (minutes) by risk score
-GHOST_COOLING_HIGH = 30    # risk >= 0.9
-GHOST_COOLING_MED = 15     # risk >= 0.7
-GHOST_COOLING_LOW = 5      # risk < 0.7
+# Ghost cooling windows (minutes) by risk score.
+#
+# Higher risk holds longer on purpose: the window exists so the scam's urgency
+# can wear off before the money moves, and the more dangerous the transfer
+# looked, the more that pause is worth. The values are kept short enough to be
+# watchable end-to-end — a 30-minute hold is correct in production but can't be
+# demonstrated live — and every value is overridable per deployment.
+GHOST_COOLING_HIGH = int(os.getenv("GHOST_COOLING_HIGH", "15"))   # risk >= 0.9
+GHOST_COOLING_MED = int(os.getenv("GHOST_COOLING_MED", "10"))     # risk >= 0.7
+GHOST_COOLING_LOW = int(os.getenv("GHOST_COOLING_LOW", "5"))      # risk < 0.7

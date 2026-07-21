@@ -29,8 +29,14 @@ export function RiskScoreCounter({ score, action }: { score: number; action: Ris
       if (t < 1) rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
+    // requestAnimationFrame is paused while the tab is backgrounded, which
+    // could otherwise strand the counter at 0.00 next to a "HIGH RISK" label.
+    // A timer still fires (throttled) in the background, so it guarantees the
+    // final value regardless of animation state.
+    const failsafe = setTimeout(() => setValue(score), duration + 150);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      clearTimeout(failsafe);
     };
   }, [score]);
 

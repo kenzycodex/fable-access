@@ -306,6 +306,14 @@ MIGRATIONS = {
     "api_keys": {
         "institution_id": "TEXT",
     },
+    "user_security": {
+        # The customer's own out-of-band channels. Until now a verification
+        # code fell back to the *institution's* contact address, which the
+        # customer doesn't control — so "a code was sent to your email" wasn't
+        # true. These let a customer register where their codes actually go.
+        "contact_email": "TEXT",
+        "contact_phone": "TEXT",
+    },
 }
 
 

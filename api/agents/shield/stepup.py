@@ -324,7 +324,9 @@ def _hash_otp(code: str, challenge_id: str) -> str:
     return hmac.new(challenge_id.encode(), code.encode(), hashlib.sha256).hexdigest()
 
 
-def send_otp(user_id: str, email: str, purpose: str, reference: str | None) -> dict:
+def send_otp(user_id: str, purpose: str, reference: str | None,
+             email: str | None = None, phone: str | None = None,
+             channel: str = "email") -> dict:
     code = f"{secrets.randbelow(1_000_000):06d}"
     challenge_id = f"chl_{secrets.token_hex(12)}"
     with cursor() as cur:
@@ -335,13 +337,44 @@ def send_otp(user_id: str, email: str, purpose: str, reference: str | None) -> d
             (challenge_id, user_id, _hash_otp(code, challenge_id), purpose, reference, _expiry(OTP_TTL_SECONDS)),
         )
 
-    delivered = _deliver_otp_email(email, code)
-    out = {"challenge_id": challenge_id, "delivered": delivered, "email": _mask_email(email)}
+    if channel == "sms" and phone:
+        delivered = _deliver_otp_sms(phone, code)
+        destination = _mask_phone(phone)
+    else:
+        channel = "email"
+        delivered = _deliver_otp_email(email or "", code)
+        destination = _mask_email(email or "")
+
+    out = {
+        "challenge_id": challenge_id,
+        "delivered": delivered,
+        "channel": channel,
+        "destination": destination,
+        # Kept for the existing client field; the masked destination above is
+        # the channel-agnostic name.
+        "email": destination,
+    }
     if not delivered:
-        # With no SMTP configured the code is returned so the flow stays
-        # testable. Never do this when mail is actually configured.
+        # With no provider configured the code is returned so the flow stays
+        # testable. Never do this once real delivery is wired.
         out["debug_code"] = code
     return out
+
+
+def _mask_phone(phone: str) -> str:
+    digits = "".join(c for c in phone if c.isdigit())
+    if len(digits) < 4:
+        return "your registered number"
+    return f"{'•' * max(len(digits) - 4, 3)}{digits[-4:]}"
+
+
+def _deliver_otp_sms(phone: str, code: str) -> bool:
+    """Send the code by SMS. No provider is configured in this environment
+    (Termii/Twilio would slot in here), so this returns False and the caller
+    surfaces the code as a debug fallback — the same honest path email uses."""
+    if not getattr(config, "SMS_PROVIDER_KEY", ""):
+        return False
+    return False  # provider wiring goes here
 
 
 def _mask_email(email: str) -> str:

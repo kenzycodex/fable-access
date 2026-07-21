@@ -81,3 +81,17 @@ class TwoFactorRequest(BaseModel):
 @router.post("/{user_id}/security/two-factor")
 def set_two_factor(user_id: str, payload: TwoFactorRequest):
     return security.set_two_factor(user_id, payload.enabled)
+
+
+class SetContactRequest(BaseModel):
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    institution_id: Optional[str] = None
+
+
+@router.post("/{user_id}/security/contact")
+def set_contact(user_id: str, payload: SetContactRequest):
+    try:
+        return security.set_contact(user_id, payload.email, payload.phone, payload.institution_id)
+    except security.SecurityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
