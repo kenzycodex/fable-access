@@ -51,8 +51,19 @@ def set_status(txid: str, payload: StatusUpdate):
     if payload.user_id and row["user_id"] != payload.user_id:
         raise HTTPException(status_code=403, detail="Unauthorized")
 
+    # A customer who releases a contained transfer (or whose transfer settles)
+    # is telling us, as strongly as they can, "this was really me." That is the
+    # signal Copilot learns from: confirming it marks the row legitimate, so the
+    # recipient becomes known, the device becomes recognised, and the amount and
+    # hour join the baseline — the next transfer like it is no longer a stranger.
+    # Cancelling or leaving it blocked does the opposite and must not teach.
+    confirmed = 1 if payload.status in ("completed", "released") else 0
+
     with cursor() as cur:
-        cur.execute("UPDATE transactions SET status = ? WHERE id = ?", (payload.status, txid))
+        cur.execute(
+            "UPDATE transactions SET status = ?, confirmed_legitimate = ? WHERE id = ?",
+            (payload.status, confirmed, txid),
+        )
     return {"id": txid, "status": payload.status}
 
 
@@ -120,7 +131,12 @@ def approve(txid: str, payload: ApproveRequest, request: Request):
 
     debit(payload.user_id, row["amount"], institution_id, transaction_id=txid, reference=f"txn-approve:{txid}")
 
+    # Verified and sent: the customer proved it was them, so this transfer now
+    # teaches the baseline (recipient, device, amount, hour) for next time.
     with cursor() as cur:
-        cur.execute("UPDATE transactions SET status = 'completed' WHERE id = ?", (txid,))
+        cur.execute(
+            "UPDATE transactions SET status = 'completed', confirmed_legitimate = 1 WHERE id = ?",
+            (txid,),
+        )
 
     return {"id": txid, "status": "completed"}
