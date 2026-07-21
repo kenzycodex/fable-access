@@ -21,6 +21,7 @@ export interface GeoLocation {
 const CACHE_TTL_MS = 5 * 60 * 1000; // location doesn't change every request
 const GPS_TIMEOUT_MS = 8_000;
 const IP_TIMEOUT_MS = 6_000;
+const REVERSE_GEOCODE_TIMEOUT_MS = 5_000;
 
 let cache: GeoLocation | null = null;
 let inflight: Promise<GeoLocation> | null = null;
@@ -59,9 +60,54 @@ function gpsPosition(): Promise<GeolocationPosition | null> {
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve(pos),
       () => resolve(null), // denied, unavailable, or timed out
-      { enableHighAccuracy: false, timeout: GPS_TIMEOUT_MS, maximumAge: CACHE_TTL_MS }
+      // High accuracy on: the whole point of GPS is a precise fix, and an
+      // IP-derived city (the old fallback) is routinely wrong by tens of km on
+      // Nigerian mobile networks, which then triggers false location anomalies.
+      { enableHighAccuracy: true, timeout: GPS_TIMEOUT_MS, maximumAge: CACHE_TTL_MS }
     );
   });
+}
+
+interface ReverseGeocode {
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  country_code: string | null;
+}
+
+/** Turn precise GPS coordinates into a place name. IP geolocation names the
+ * ISP's city, not the customer's; reverse-geocoding the actual fix is what
+ * makes "new city" mean the customer moved, not that their carrier rerouted.
+ * BigDataCloud's client endpoint is free and keyless. */
+async function reverseGeocode(lat: number, lon: number): Promise<ReverseGeocode | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REVERSE_GEOCODE_TIMEOUT_MS);
+    try {
+      const res = await fetch(
+        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`,
+        { signal: controller.signal },
+      );
+      if (!res.ok) return null;
+      const b = (await res.json()) as {
+        city?: string;
+        locality?: string;
+        principalSubdivision?: string;
+        countryName?: string;
+        countryCode?: string;
+      };
+      return {
+        city: b.city || b.locality || null,
+        region: b.principalSubdivision || null,
+        country: b.countryName || null,
+        country_code: b.countryCode || null,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  }
 }
 
 async function collect(): Promise<GeoLocation> {
@@ -70,14 +116,17 @@ async function collect(): Promise<GeoLocation> {
   const [pos, ip] = await Promise.all([gpsPosition(), ipLookup()]);
 
   if (pos) {
+    // Name the place from the actual coordinates, not the ISP's city. Fall back
+    // to the IP labels only if reverse-geocoding is unavailable.
+    const place = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
     return {
       latitude: pos.coords.latitude,
       longitude: pos.coords.longitude,
       accuracy_m: pos.coords.accuracy,
-      city: ip?.city ?? null,
-      region: ip?.region ?? null,
-      country: ip?.country_name ?? null,
-      country_code: ip?.country_code ?? null,
+      city: place?.city ?? ip?.city ?? null,
+      region: place?.region ?? ip?.region ?? null,
+      country: place?.country ?? ip?.country_name ?? null,
+      country_code: place?.country_code ?? ip?.country_code ?? null,
       ip: ip?.ip ?? null,
       source: "gps",
       collected_at: Date.now(),

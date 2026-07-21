@@ -1,15 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  Fingerprint,
-  EnvelopeSimple,
-  DeviceMobile,
-  LockKey,
-  ShieldWarning,
-  CheckCircle,
-  WarningCircle,
-} from "@phosphor-icons/react";
+import { Fingerprint, EnvelopeSimple, DeviceMobile, CheckCircle } from "@phosphor-icons/react";
 import { DemoSheet } from "@/components/demo/DemoSheet";
 import {
   authenticatePasskey,
@@ -84,7 +76,6 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
   const [code, setCode] = useState("");
 
   const level = requirement?.level ?? "pin";
-  const vendorTier = level === "identity_check";
   const hasPasskey = (status?.passkey_count ?? 0) > 0;
 
   // How much this decision demands. A medium-risk flag needs one factor;
@@ -231,170 +222,164 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
     }
   }
 
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-start gap-3 rounded-2xl border border-[var(--brand-primary)]/20 bg-[var(--brand-primary)]/5 p-3.5">
-        <ShieldWarning size={18} weight="fill" className="mt-0.5 shrink-0 text-[var(--brand-primary)]" />
-        <p className="text-[12px] leading-relaxed text-gray-600 dark:text-white/60">
-          {vendorTier
-            ? "This transfer looked dangerous, so releasing it needs more than your session. Confirm each factor below."
-            : requirement?.detail ?? "This release needs extra verification."}
+  // Success: a clean tick, echoing the connect modal — the calm end state.
+  if (allDone) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-8 animate-check-pop">
+        <VerifyTick />
+        <p className="text-[15px] font-bold text-gray-900 dark:text-white">{busy ? "Verifying…" : "Verified"}</p>
+        <p className="text-[12px] text-gray-500 dark:text-white/40">
+          {busy ? "Sending your transfer securely." : "You're all set."}
         </p>
       </div>
+    );
+  }
 
-      {(requirement?.recent_failures ?? 0) > 0 && (
-        <p className="flex items-start gap-1.5 text-[11px] text-gray-500 dark:text-white/40">
-          <WarningCircle size={13} weight="fill" className="mt-0.5 shrink-0 text-red-500" />
-          {requirement!.recent_failures} recent failed verification
-          {requirement!.recent_failures === 1 ? "" : "s"} on this account.
-        </p>
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-10 text-[12px] text-gray-500 dark:text-white/40">
+        Checking your security…
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* One calm line, no alarm. */}
+      <p className="text-[12px] leading-relaxed text-gray-500 dark:text-white/45">
+        {mode === "composed"
+          ? "A quick two-step check before this transfer leaves your account."
+          : requirement?.detail ?? "Confirm it's really you."}
+      </p>
+
+      {/* Compact progress, only when there's more than one factor. */}
+      {steps.length > 1 && (
+        <div className="flex items-center">
+          {steps.map((s, i) => (
+            <StepDot
+              key={s}
+              label={factorLabel(s, channel)}
+              state={doneMap[s] ? "done" : active === s ? "active" : "todo"}
+              connect={i < steps.length - 1}
+            />
+          ))}
+        </div>
       )}
 
-      {loading ? (
-        <div className="flex items-center justify-center py-6 text-[12px] text-gray-500 dark:text-white/40">
-          Checking your security setup…
-        </div>
-      ) : (
-        <>
-          <div className="flex flex-col gap-1.5">
-            {steps.map((s) => (
-              <FactorRow key={s} factor={s} done={doneMap[s]} active={active === s} channel={channel} />
-            ))}
-          </div>
+      {/* The one factor in focus. */}
+      {active === "passkey" && (
+        <button
+          type="button"
+          onClick={runPasskey}
+          disabled={busy}
+          className="flex items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] py-3.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          <Fingerprint size={18} weight="bold" />
+          {busy ? "Waiting for device…" : "Confirm with fingerprint or face"}
+        </button>
+      )}
 
-          {active === "passkey" && (
-            <button
-              type="button"
-              onClick={runPasskey}
-              disabled={busy}
-              className="flex items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] py-3.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              <Fingerprint size={18} weight="bold" />
-              {busy ? "Waiting for device…" : "Confirm with device unlock"}
+      {active === "pin" &&
+        (status?.pin_set ? (
+          <div className="flex flex-col gap-2.5">
+            <input
+              value={pinValue}
+              onChange={(e) => setPinValue(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              onKeyDown={(e) => e.key === "Enter" && submitPin()}
+              inputMode="numeric"
+              type="password"
+              autoComplete="off"
+              autoFocus
+              placeholder="Enter your PIN"
+              className={pinInputCls}
+            />
+            <button type="button" onClick={submitPin} disabled={busy || pinValue.length < 4} className={primaryBtnCls}>
+              {busy ? "Checking…" : "Confirm"}
             </button>
-          )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            <p className="text-[12px] leading-relaxed text-gray-500 dark:text-white/45">
+              Set a transaction PIN to continue. You&apos;ll re-use it next time.
+            </p>
+            <input
+              value={newPin}
+              onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              inputMode="numeric"
+              type="password"
+              autoComplete="off"
+              autoFocus
+              placeholder="Choose a 4 or 6-digit PIN"
+              className={pinInputCls}
+            />
+            <button type="button" onClick={createPin} disabled={busy || (newPin.length !== 4 && newPin.length !== 6)} className={primaryBtnCls}>
+              {busy ? "Saving…" : "Set PIN"}
+            </button>
+          </div>
+        ))}
 
-          {active === "pin" &&
-            (status?.pin_set ? (
-              <div className="flex flex-col gap-2.5">
-                <input
-                  value={pinValue}
-                  onChange={(e) => setPinValue(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  onKeyDown={(e) => e.key === "Enter" && submitPin()}
-                  inputMode="numeric"
-                  type="password"
-                  autoComplete="off"
-                  placeholder="Enter your transaction PIN"
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-[18px] font-bold tracking-[0.3em] tabular-nums text-gray-900 outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"
-                />
-                <button
-                  type="button"
-                  onClick={submitPin}
-                  disabled={busy || pinValue.length < 4}
-                  className="rounded-xl bg-[var(--brand-primary)] py-3 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {busy ? "Checking…" : "Confirm PIN"}
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2.5">
-                <p className="text-[12px] leading-relaxed text-gray-600 dark:text-white/50">
-                  You don&apos;t have a transaction PIN yet. Create one to release this transfer, then re-use it for
-                  future verifications.
-                </p>
-                <input
-                  value={newPin}
-                  onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  inputMode="numeric"
-                  type="password"
-                  autoComplete="off"
-                  placeholder="Choose a 4 or 6-digit PIN"
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-[18px] font-bold tracking-[0.3em] tabular-nums text-gray-900 outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"
-                />
-                <button
-                  type="button"
-                  onClick={createPin}
-                  disabled={busy || (newPin.length !== 4 && newPin.length !== 6)}
-                  className="rounded-xl bg-[var(--brand-primary)] py-3 text-[13px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {busy ? "Saving…" : "Set PIN"}
-                </button>
-              </div>
-            ))}
-
-          {active === "otp" && (
-            <div className="flex flex-col gap-2.5">
-              {!otpChallenge ? (
-                <>
-                  {status?.phone_set && status?.email_set && (
-                    <div className="flex gap-2">
-                      {(["email", "sms"] as const).map((ch) => (
-                        <button
-                          key={ch}
-                          type="button"
-                          onClick={() => setChannel(ch)}
-                          className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border py-2.5 text-[12px] font-semibold transition-colors ${
-                            channel === ch
-                              ? "border-[var(--brand-primary)] bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]"
-                              : "border-gray-200 text-gray-500 dark:border-white/[0.08] dark:text-white/40"
-                          }`}
-                        >
-                          {ch === "email" ? <EnvelopeSimple size={15} /> : <DeviceMobile size={15} />}
-                          {ch === "email" ? "Email" : "SMS"}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={requestCode}
-                    disabled={busy}
-                    className="flex items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] py-3.5 text-[13px] font-bold text-white disabled:opacity-50"
-                  >
-                    {channel === "email" ? <EnvelopeSimple size={17} weight="bold" /> : <DeviceMobile size={17} weight="bold" />}
-                    {busy ? "Sending…" : `Send code by ${channel === "email" ? "email" : "SMS"}`}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <p className="text-[12px] text-gray-600 dark:text-white/50">
-                    Code sent to <span className="font-semibold">{otpDest}</span>.
-                  </p>
-                  {debugCode && (
-                    <p className="rounded-lg bg-gray-100 px-3 py-2 text-[11px] text-gray-600 dark:bg-white/[0.06] dark:text-white/50">
-                      No {channel === "sms" ? "SMS provider" : "mail server"} configured, so the code is shown here:{" "}
-                      <span className="font-mono font-bold">{debugCode}</span>
-                    </p>
-                  )}
-                  <input
-                    value={code}
-                    onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                    onKeyDown={(e) => e.key === "Enter" && submitCode()}
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    placeholder="6-digit code"
-                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-[18px] font-bold tracking-[0.3em] tabular-nums text-gray-900 outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"
-                  />
-                  <button
-                    type="button"
-                    onClick={submitCode}
-                    disabled={busy || code.length < 6}
-                    className="rounded-xl bg-[var(--brand-primary)] py-3 text-[13px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {busy ? "Checking…" : "Confirm code"}
-                  </button>
-                </>
+      {active === "otp" && (
+        <div className="flex flex-col gap-2.5">
+          {!otpChallenge ? (
+            <>
+              {/* Offer the channels the customer actually has. */}
+              {status?.phone_set && status?.email_set && (
+                <div className="flex gap-2">
+                  {(["email", "sms"] as const).map((ch) => (
+                    <button
+                      key={ch}
+                      type="button"
+                      onClick={() => setChannel(ch)}
+                      className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border py-2.5 text-[12px] font-semibold transition-colors ${
+                        channel === ch
+                          ? "border-[var(--brand-primary)] bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]"
+                          : "border-gray-200 text-gray-500 dark:border-white/[0.08] dark:text-white/40"
+                      }`}
+                    >
+                      {ch === "email" ? <EnvelopeSimple size={15} /> : <DeviceMobile size={15} />}
+                      {ch === "email" ? "Email" : "SMS"}
+                    </button>
+                  ))}
+                </div>
               )}
-            </div>
+              <button type="button" onClick={requestCode} disabled={busy} className={`flex items-center justify-center gap-2 ${primaryBtnCls}`}>
+                {channel === "email" ? <EnvelopeSimple size={17} weight="bold" /> : <DeviceMobile size={17} weight="bold" />}
+                {busy ? "Sending…" : `Send a code by ${channel === "email" ? "email" : "SMS"}`}
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-[12px] text-gray-500 dark:text-white/45">
+                Code sent to <span className="font-semibold text-gray-700 dark:text-white/70">{otpDest}</span>.
+              </p>
+              {debugCode && (
+                <p className="rounded-lg bg-gray-100 px-3 py-2 text-[11px] text-gray-600 dark:bg-white/[0.06] dark:text-white/50">
+                  No {channel === "sms" ? "SMS provider" : "mail server"} configured, so the code is shown here:{" "}
+                  <span className="font-mono font-bold">{debugCode}</span>
+                </p>
+              )}
+              <input
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                onKeyDown={(e) => e.key === "Enter" && submitCode()}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                autoFocus
+                placeholder="6-digit code"
+                className={pinInputCls}
+              />
+              <button type="button" onClick={submitCode} disabled={busy || code.length < 6} className={primaryBtnCls}>
+                {busy ? "Checking…" : "Confirm"}
+              </button>
+            </>
           )}
+        </div>
+      )}
 
-          {allDone && (
-            <div className="flex items-center justify-center gap-2 py-2 text-[13px] font-semibold text-emerald-500">
-              <CheckCircle size={18} weight="fill" />
-              {busy ? "Releasing…" : "Verified"}
-            </div>
-          )}
-        </>
+      {(requirement?.recent_failures ?? 0) > 0 && (
+        <p className="text-center text-[11px] text-gray-400 dark:text-white/30">
+          {requirement!.recent_failures} recent failed attempt{requirement!.recent_failures === 1 ? "" : "s"} on this account.
+        </p>
       )}
 
       {error && (
@@ -406,35 +391,54 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
   );
 }
 
-function FactorRow({
-  factor,
-  done,
-  active,
-  channel,
-}: {
-  factor: Factor;
-  done: boolean;
-  active: boolean;
-  channel: "email" | "sms";
-}) {
-  const meta: Record<Factor, { label: string; icon: React.ReactNode }> = {
-    passkey: { label: "Device unlock", icon: <Fingerprint size={15} weight="bold" /> },
-    pin: { label: "Transaction PIN", icon: <LockKey size={15} weight="bold" /> },
-    otp: { label: channel === "sms" ? "SMS code" : "Email code", icon: <EnvelopeSimple size={15} weight="bold" /> },
-  };
+const pinInputCls =
+  "w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-[18px] font-bold tracking-[0.3em] tabular-nums text-gray-900 outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white";
+const primaryBtnCls =
+  "rounded-xl bg-[var(--brand-primary)] py-3.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40";
+
+function factorLabel(factor: Factor, channel: "email" | "sms"): string {
+  if (factor === "passkey") return "Device";
+  if (factor === "pin") return "PIN";
+  return channel === "sms" ? "SMS code" : "Email code";
+}
+
+/** A small labelled progress dot with an optional connector — the whole
+ * multi-factor flow at a glance, without the boxy checklist. */
+function StepDot({ label, state, connect }: { label: string; state: "done" | "active" | "todo"; connect: boolean }) {
   return (
-    <div
-      className={`flex items-center gap-2.5 rounded-xl border px-3 py-2 text-[12px] font-medium transition-colors ${
-        done
-          ? "border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-500"
-          : active
-            ? "border-[var(--brand-primary)]/30 bg-[var(--brand-primary)]/[0.06] text-[var(--brand-primary)]"
-            : "border-gray-200 text-gray-400 dark:border-white/[0.06] dark:text-white/30"
-      }`}
-    >
-      {done ? <CheckCircle size={16} weight="fill" /> : meta[factor].icon}
-      {meta[factor].label}
-      {done && <span className="ml-auto text-[11px] font-semibold">Done</span>}
+    <div className="flex items-center">
+      <div className="flex flex-col items-center gap-1">
+        <span
+          className={`flex size-6 items-center justify-center rounded-full text-[10px] font-bold transition-colors ${
+            state === "done"
+              ? "bg-emerald-500 text-white"
+              : state === "active"
+                ? "bg-[var(--brand-primary)] text-white"
+                : "bg-gray-200 text-gray-400 dark:bg-white/[0.08] dark:text-white/30"
+          }`}
+        >
+          {state === "done" ? <CheckCircle size={13} weight="fill" /> : "•"}
+        </span>
+        <span
+          className={`text-[10px] font-medium ${
+            state === "todo" ? "text-gray-400 dark:text-white/30" : "text-gray-600 dark:text-white/55"
+          }`}
+        >
+          {label}
+        </span>
+      </div>
+      {connect && <span className="mx-1.5 mb-4 h-px w-6 bg-gray-200 dark:bg-white/[0.08]" />}
     </div>
+  );
+}
+
+/** Ring sweeps, then the tick strokes itself in — matched to the connect modal. */
+function VerifyTick() {
+  return (
+    <svg viewBox="0 0 64 64" className="size-14" fill="none" aria-hidden="true">
+      <circle cx="32" cy="32" r="27" className="stroke-emerald-500/15" strokeWidth="4" />
+      <circle cx="32" cy="32" r="27" className="stroke-emerald-500 animate-check-ring" strokeWidth="4" strokeLinecap="round" />
+      <path d="M21 33.5 L28.5 41 L43 25" className="stroke-emerald-500 animate-check-stroke" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
