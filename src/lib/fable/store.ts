@@ -372,7 +372,13 @@ export async function createGhost(windowSeconds = 15 * 60): Promise<GhostContain
   if (!txn) return null;
 
   let ghost: GhostContainer | null = null;
-  if (txn.remote && (await apiAvailable())) {
+  // A remote transfer's hold must live on the server, because that is where it
+  // will be released. This used to gate on a separate /health probe first, so a
+  // single flaky probe made the hold local — and then release hit the server
+  // with an id it had never seen and 409'd. The create call's own catch already
+  // handles a genuine outage, so try it directly and only fall back to a local
+  // hold when the create itself fails.
+  if (txn.remote) {
     try {
       const api = await apiGhostCreate(txn);
       ghost = {

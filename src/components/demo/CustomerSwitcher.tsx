@@ -38,10 +38,11 @@ export function CustomerSwitcher({ greeting: greetingProp }: { greeting?: string
   const timeGreeting = useTimeGreeting();
   const greeting = greetingProp ?? timeGreeting;
 
-  // Default to the first customer so a transfer is never attributed to nobody.
-  useEffect(() => {
-    if (!customer && customers.length > 0) selectCustomer(customers[0]);
-  }, [customer, customers, selectCustomer]);
+  // Defaulting to a customer is the provider's job, done *after* it restores
+  // the saved choice from sessionStorage. Doing it here too raced ahead of that
+  // restore — this child effect runs before the parent's — and overwrote the
+  // saved customer with the first one, so every reload snapped back to customer
+  // one. Removed; the provider is the single source of the default.
 
   const displayName = customer?.name ?? name;
   const firstName = displayName.split(" ")[0];
