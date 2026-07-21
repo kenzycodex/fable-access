@@ -80,44 +80,77 @@ interface ReverseGeocode {
   country_code: string | null;
 }
 
-/** Turn precise GPS coordinates into a place name. IP geolocation names the
- * ISP's city, not the customer's; reverse-geocoding the actual fix is what
- * makes "new city" mean the customer moved, not that their carrier rerouted.
- * BigDataCloud's client endpoint is free and keyless. */
-async function reverseGeocode(lat: number, lon: number): Promise<ReverseGeocode | null> {
+function timedFetch(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REVERSE_GEOCODE_TIMEOUT_MS);
+  return fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } }).finally(() =>
+    clearTimeout(timer),
+  );
+}
+
+/** Building/road-level place name from OpenStreetMap's Nominatim — free, no key.
+ * Its address breakdown reaches the amenity ("University of Lagos"), building
+ * and road, which is what makes the location read like a real place rather than
+ * just a city. Rate-limited (≈1 req/s), which the 5-minute cache respects. */
+async function reverseGeocodeNominatim(lat: number, lon: number): Promise<ReverseGeocode | null> {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REVERSE_GEOCODE_TIMEOUT_MS);
-    try {
-      const res = await fetch(
-        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`,
-        { signal: controller.signal },
-      );
-      if (!res.ok) return null;
-      const b = (await res.json()) as {
-        city?: string;
-        locality?: string;
-        principalSubdivision?: string;
-        countryName?: string;
-        countryCode?: string;
-      };
-      // locality is the finest name (a neighbourhood like "Akoka"); city is the
-      // broader settlement ("Lagos"). Keep both — the UI shows the area, the
-      // signal compares the city.
-      const locality = b.locality && b.locality !== b.city ? b.locality : null;
-      return {
-        locality,
-        city: b.city || b.locality || null,
-        region: b.principalSubdivision || null,
-        country: b.countryName || null,
-        country_code: b.countryCode || null,
-      };
-    } finally {
-      clearTimeout(timer);
-    }
+    const res = await timedFetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`,
+    );
+    if (!res.ok) return null;
+    const a = ((await res.json()) as { address?: Record<string, string> }).address ?? {};
+    const city = a.city || a.town || a.village || a.city_district || a.county || a.state || null;
+    // The finest human-meaningful label, coarsening until something is present.
+    const road = a.road ? `${a.house_number ? `${a.house_number} ` : ""}${a.road}` : null;
+    const finest = a.amenity || a.building || a.shop || a.office || road || a.neighbourhood || a.suburb || null;
+    const locality = finest && finest !== city ? finest : null;
+    if (!city && !locality) return null;
+    return {
+      locality,
+      city,
+      region: a.state || null,
+      country: a.country || null,
+      country_code: (a.country_code || "").toUpperCase() || null,
+    };
   } catch {
     return null;
   }
+}
+
+/** BigDataCloud fallback — keyless and very reliable, but only neighbourhood
+ * level. Used when Nominatim is rate-limited or unreachable. */
+async function reverseGeocodeBigDataCloud(lat: number, lon: number): Promise<ReverseGeocode | null> {
+  try {
+    const res = await timedFetch(
+      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`,
+    );
+    if (!res.ok) return null;
+    const b = (await res.json()) as {
+      city?: string;
+      locality?: string;
+      principalSubdivision?: string;
+      countryName?: string;
+      countryCode?: string;
+    };
+    const locality = b.locality && b.locality !== b.city ? b.locality : null;
+    return {
+      locality,
+      city: b.city || b.locality || null,
+      region: b.principalSubdivision || null,
+      country: b.countryName || null,
+      country_code: b.countryCode || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Turn precise GPS coordinates into a place name. IP geolocation names the
+ * ISP's city, not the customer's; reverse-geocoding the actual fix is what
+ * makes "new city" mean the customer moved, not that their carrier rerouted.
+ * Nominatim for building-level detail, BigDataCloud as a reliable fallback. */
+async function reverseGeocode(lat: number, lon: number): Promise<ReverseGeocode | null> {
+  return (await reverseGeocodeNominatim(lat, lon)) ?? (await reverseGeocodeBigDataCloud(lat, lon));
 }
 
 async function collect(): Promise<GeoLocation> {

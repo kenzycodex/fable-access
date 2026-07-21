@@ -22,6 +22,7 @@ import {
 import { Avatar, Card, Screen } from "@/components/demo/kit";
 import useSWR from "swr";
 import { accountBalance, customerTransactions } from "@/lib/fable/api";
+import { useCopilotBaseline } from "@/lib/fable/useBackend";
 import { summarizeCustomer } from "@/lib/fable/analytics";
 import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
 import { DEMO_USER } from "@/lib/fable/seed";
@@ -86,6 +87,11 @@ export default function DemoHomePage() {
   // Income, spend and categories remain derived from the feed; only the
   // balance is authoritative elsewhere.
   const summary = summarizeCustomer(allMyTxns, 0);
+
+  // What Copilot has actually learned about this customer — the same baseline
+  // Shield scores against, so the profile card reflects live knowledge rather
+  // than a fixed archetype label.
+  const { data: baseline } = useCopilotBaseline(customer?.user_id);
 
   return (
     <Screen>
@@ -279,12 +285,12 @@ export default function DemoHomePage() {
                 Details
               </Link>
             </div>
-            {customer ? (
+            {customer && baseline ? (
               <div className="flex flex-col gap-2.5">
-                <ProfileRow label="Typical transfer" value={customer.typical_range} />
-                <ProfileRow label="Profile" value={customer.persona} />
-                <ProfileRow label="Usual location" value={customer.city} />
-                <ProfileRow label="Transactions learned" value={String(allMyTxns.length)} />
+                <ProfileRow label="Typical transfer" value={baseline.typical_transfer_range} />
+                <ProfileRow label="Active hours" value={baseline.active_hours} />
+                <ProfileRow label="Trusted contacts" value={`${baseline.trusted_recipients_count} recipients`} />
+                <ProfileRow label="Transactions learned" value={String(baseline.transactions_analyzed)} />
               </div>
             ) : (
               <p className="py-3 text-center text-[12px] text-gray-400 dark:text-white/25">
