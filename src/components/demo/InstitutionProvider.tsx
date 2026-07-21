@@ -46,9 +46,19 @@ export function InstitutionProvider({
   useEffect(() => {
     setInstitution(institutionId);
     restoreCustomer();
-    setCustomerId(getTenant().customerId);
+    // Default to the first customer when none is selected. Selection lives in
+    // sessionStorage, so a fresh session (or landing straight on /transfer
+    // rather than the home screen) would otherwise leave `customer` null —
+    // which surfaced as an empty user id in the verification dialog, e.g.
+    // GET /v1/accounts//security. Every screen now resolves a real customer.
+    let cid = getTenant().customerId;
+    if (!cid && customers.length > 0) {
+      setTenantCustomer(customers[0].user_id, customers[0].name, institutionId);
+      cid = customers[0].user_id;
+    }
+    setCustomerId(cid);
     return subscribeTenant(() => setCustomerId(getTenant().customerId));
-  }, [institutionId]);
+  }, [institutionId, customers]);
 
   const value = useMemo<InstitutionContextValue>(() => {
     const customer = customers.find((c) => c.user_id === customerId) ?? null;

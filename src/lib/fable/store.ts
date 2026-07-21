@@ -311,6 +311,38 @@ export function commitPass(): Transaction | null {
   return resolvePending("completed");
 }
 
+/** Record an incoming credit (e.g. an Add-money top-up) in the feed.
+ *
+ * The balance is already server-authoritative, but income/spend on the home
+ * screen are derived from the transaction feed — so a top-up that only moved
+ * the balance showed ₦0 income. This puts the credit where those stats read
+ * from, as a cleared inbound transfer. */
+export function recordCredit(amount: number, source: string): Transaction {
+  const tenant = getTenant();
+  const txn: Transaction = {
+    id: uid("credit"),
+    timestamp: Date.now(),
+    amount,
+    direction: "credit",
+    channel: "app",
+    narration: source,
+    status: "completed",
+    recipientName: source,
+    recipientBank: "Fable",
+    recipientAccount: "",
+    customerName: tenant.customerName ?? "You",
+    riskScore: 0,
+    action: "PASS",
+    signals: [],
+    explanation: "",
+    latencyMs: 0,
+    live: true,
+    remote: false,
+  };
+  mutate((s) => ({ ...s, transactions: [txn, ...s.transactions] }));
+  return txn;
+}
+
 /** Proceed with a flagged (not blocked) pending transfer after the customer
  * verifies it's them. A flag is medium risk, so a verified transfer completes
  * directly with no cooling window — the proportional, lower-friction path.

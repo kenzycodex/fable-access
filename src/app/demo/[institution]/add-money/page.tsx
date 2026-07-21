@@ -7,6 +7,7 @@ import { Bank, CheckCircle, CreditCard, WarningCircle } from "@phosphor-icons/re
 import { Card, Screen, ScreenHeader } from "@/components/demo/kit";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { accountBalance, topUp, TopUpRejectedError } from "@/lib/fable/api";
+import { recordCredit } from "@/lib/fable/store";
 import { formatNaira } from "@/lib/fable/format";
 
 const QUICK = [5_000, 20_000, 50_000, 100_000];
@@ -57,6 +58,10 @@ export default function AddMoneyPage() {
       // Stable reference so a double-tap cannot credit twice.
       const reference = `topup:${customer.user_id}:${Date.now()}`;
       const res = await topUp(customer.user_id, value, institutionId, method, reference);
+      // Surface the credit in the feed so income/spend on the home screen
+      // reflect it — the balance already moved, but those stats read from the
+      // transaction feed, not the ledger.
+      recordCredit(res.credited, method === "card" ? "Card top-up" : "Bank transfer");
       await mutate();
       setDone({ credited: res.credited, balance: res.balance, left: res.top_ups_left_today });
     } catch (err) {
