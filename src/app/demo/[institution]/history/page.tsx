@@ -94,7 +94,7 @@ export default function HistoryPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name or narration"
-              className="w-full rounded-xl bg-gray-50 dark:bg-[#1a1a1a] py-2.5 pl-9 pr-3 text-[13px] text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-white/25 focus:ring-1 focus:ring-[#7C3AED]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
+              className="w-full rounded-xl bg-gray-50 dark:bg-[#1a1a1a] py-2.5 pl-9 pr-3 text-[13px] text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-white/25 focus:ring-1 focus:ring-[var(--brand-primary)]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
             />
           </div>
           <button
@@ -103,13 +103,13 @@ export default function HistoryPage() {
             aria-label={activeCount ? `Filters (${activeCount} active)` : "Filters"}
             className={`relative flex size-10 shrink-0 items-center justify-center rounded-xl border transition-colors ${
               activeCount
-                ? "border-[#7C3AED]/30 bg-[#7C3AED]/10 text-[#7C3AED]"
+                ? "border-[var(--brand-primary)]/30 bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]"
                 : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 dark:border-white/[0.04] dark:bg-[#1a1a1a] dark:text-white/50 dark:hover:bg-[#222]"
             }`}
           >
             <Faders size={18} />
             {activeCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-[#7C3AED] text-[9px] font-bold text-white">
+              <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-[var(--brand-primary)] text-[9px] font-bold text-white">
                 {activeCount}
               </span>
             )}
@@ -188,7 +188,7 @@ export default function HistoryPage() {
             <button
               type="button"
               onClick={() => setSheetOpen(false)}
-              className="flex-1 rounded-xl bg-[#7C3AED] py-3 text-[13px] font-bold text-white transition-opacity hover:opacity-90"
+              className="flex-1 rounded-xl bg-[var(--brand-primary)] py-3 text-[13px] font-bold text-white transition-opacity hover:opacity-90"
             >
               Show {filteredTxns.length} result{filteredTxns.length === 1 ? "" : "s"}
             </button>
@@ -215,7 +215,7 @@ function FilterChip({ active, onClick, children }: { active: boolean; onClick: (
       onClick={onClick}
       className={`rounded-xl border px-3.5 py-2 text-[12px] font-semibold transition-colors ${
         active
-          ? "border-[#7C3AED] bg-[#7C3AED] text-white"
+          ? "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white"
           : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 dark:border-white/[0.06] dark:bg-[#141414] dark:text-white/50 dark:hover:bg-[#1c1c1c]"
       }`}
     >
@@ -230,7 +230,7 @@ function FilterTab({ active, onClick, children }: { active: boolean; onClick: ()
       type="button"
       onClick={onClick}
       className={`rounded-full px-4 py-1.5 text-[12px] font-medium transition-colors ${
-        active ? "bg-[#7C3AED] text-white" : "bg-gray-100 dark:bg-[#1a1a1a] text-gray-600 dark:text-white/45 hover:bg-gray-200 dark:hover:bg-[#222] hover:text-gray-900 dark:hover:text-white/70"
+        active ? "bg-[var(--brand-primary)] text-white" : "bg-gray-100 dark:bg-[#1a1a1a] text-gray-600 dark:text-white/45 hover:bg-gray-200 dark:hover:bg-[#222] hover:text-gray-900 dark:hover:text-white/70"
       }`}
     >
       {children}

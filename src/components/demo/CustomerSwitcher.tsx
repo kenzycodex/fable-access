@@ -76,7 +76,7 @@ export function CustomerSwitcher({ greeting = "Good morning 👋" }: { greeting?
                 }}
                 className={`flex items-start gap-3 rounded-2xl border p-3.5 text-left transition-colors ${
                   active
-                    ? "border-[#7C3AED]/40 bg-[#7C3AED]/[0.07]"
+                    ? "border-[var(--brand-primary)]/40 bg-[var(--brand-primary)]/[0.07]"
                     : "border-gray-200 hover:bg-gray-50 dark:border-white/[0.06] dark:hover:bg-white/[0.03]"
                 }`}
               >
@@ -87,7 +87,7 @@ export function CustomerSwitcher({ greeting = "Good morning 👋" }: { greeting?
                       {c.name}
                     </span>
                     {active && (
-                      <CheckCircle size={16} weight="fill" className="shrink-0 text-[#7C3AED]" />
+                      <CheckCircle size={16} weight="fill" className="shrink-0 text-[var(--brand-primary)]" />
                     )}
                   </span>
                   <span className="mt-0.5 block text-[12px] leading-relaxed text-gray-500 dark:text-white/40">

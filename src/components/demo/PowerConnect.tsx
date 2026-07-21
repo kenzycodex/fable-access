@@ -230,7 +230,7 @@ export function PowerConnect() {
                 placeholder={connected ? "Replace the connected key…" : "fbl_live_..."}
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 font-mono text-[12px] text-gray-900 outline-none transition-shadow focus:ring-2 focus:ring-[#7C3AED]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 font-mono text-[12px] text-gray-900 outline-none transition-shadow focus:ring-2 focus:ring-[var(--brand-primary)]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"
               />
               <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-white/35">
                 From your provisioning email. The key, not the URL, decides the institution —
@@ -248,7 +248,7 @@ export function PowerConnect() {
                 type="button"
                 onClick={save}
                 disabled={!keyInput.trim() || verifying}
-                className="flex-1 rounded-xl bg-[#7C3AED] py-3 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 dark:disabled:bg-white/[0.05] dark:disabled:text-white/20"
+                className="flex-1 rounded-xl bg-[var(--brand-primary)] py-3 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 dark:disabled:bg-white/[0.05] dark:disabled:text-white/20"
               >
                 {verifying ? "Verifying…" : "Connect"}
               </button>

@@ -62,7 +62,7 @@ export function Card({ children, className = "", onClick }: { children: ReactNod
 }
 
 const AVATAR_TINTS = [
-  "bg-purple-100 text-purple-600 dark:bg-[#7C3AED]/20 dark:text-[#A78BFA]",
+  "bg-purple-100 text-purple-600 dark:bg-[var(--brand-primary)]/20 dark:text-[#A78BFA]",
   "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400",
   "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400",
   "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400",

@@ -11,7 +11,6 @@ the behavioral/device/location layers carry the weight users can't opt out of.
 """
 from datetime import datetime
 
-from config import BLOCK_THRESHOLD, FLAG_THRESHOLD
 from agents.copilot.baseline import (
     COLD_START_PREMIUM,
     get_population_baseline,
@@ -23,6 +22,14 @@ from agents.shield.nip_codes import get_nip_risk_signal
 from agents.shield.patterns import match_scam_pattern
 from agents.shield.anomaly import score_anomaly
 from agents.shield.explainer import explain_now
+from agents.shield.weights import (
+    WEIGHTS,
+    amount_anomaly_boost,
+    thresholds_for,
+    VELOCITY_WINDOW_MINUTES,
+    VELOCITY_FLAG_COUNT,
+    VELOCITY_HIGH_COUNT,
+)
 
 PCI_FIELDS = ("card_number", "cvv", "pin", "track_data")
 
@@ -39,6 +46,29 @@ LARGE_ABSOLUTE_FLOOR = 100_000
 def sanitize_transaction(transaction: dict) -> dict:
     """Strip PCI fields before any processing or logging touches them."""
     return {k: v for k, v in transaction.items() if k not in PCI_FIELDS}
+
+
+def _recent_transfer_count(user_id: str, institution_id: str | None) -> int:
+    """How many transfers this customer has made in the velocity window.
+
+    The cutoff is computed by SQLite, not Python: created_at is stored as
+    "2026-07-21 05:00:00" while a Python isoformat carries a 'T' and offset,
+    and the two compare wrong as strings. Any failure returns 0 — a missing
+    velocity signal must never take down a decision.
+    """
+    try:
+        from db import cursor
+
+        where = "user_id = ? AND created_at >= datetime('now', ?)"
+        params: list = [user_id, f"-{VELOCITY_WINDOW_MINUTES} minutes"]
+        if institution_id:
+            where += " AND institution_id = ?"
+            params.append(institution_id)
+        with cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS n FROM transactions WHERE {where}", params)
+            return cur.fetchone()["n"]
+    except Exception:
+        return 0
 
 
 def _client_local_hour(context: dict) -> int | None:
@@ -102,16 +132,7 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     # cases score *lower* than milder ones that also tripped a time anomaly.
     if baseline and amount > baseline["avg_amount"] * 3:
         mult = round(amount / max(baseline["avg_amount"], 1))
-        if mult >= 50:
-            boost = 0.40
-        elif mult >= 25:
-            boost = 0.34
-        elif mult >= 10:
-            boost = 0.28
-        elif mult >= 5:
-            boost = 0.20
-        else:
-            boost = 0.15
+        boost, _tier = amount_anomaly_boost(mult)
         signals.append(f"amount_anomaly: {mult}x above your baseline (+{boost})")
         score += boost
 
@@ -119,14 +140,14 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     known_recipients = baseline["known_recipients"] if baseline else set()
     if transaction["recipient_account"] not in known_recipients:
         signals.append("new_recipient: first transfer to this account")
-        score += 0.20
+        score += WEIGHTS["new_recipient"]
 
     # Step 3: Time anomaly — device-local hour vs the user's typical hours
     typical_hours = baseline["typical_hours"] if baseline else list(range(8, 22))
     if baseline and now_hour not in typical_hours:
         source = "device time" if client_hour is not None else "server time"
         signals.append(f"time_anomaly: outside your typical active hours ({source})")
-        score += 0.12
+        score += WEIGHTS["time_anomaly"]
 
     # Step 4: Channel risk weight
     channel = transaction.get("channel", "mobile_app")
@@ -162,7 +183,7 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     # A population baseline carries no known devices, so this layer only
     # applies once the customer has their own history to contradict.
     if baseline and not cold_start and fingerprint and baseline["known_devices"] and fingerprint not in baseline["known_devices"]:
-        boost = 0.18 if is_large else 0.08
+        boost = WEIGHTS["device_anomaly_large"] if is_large else WEIGHTS["device_anomaly"]
         signals.append(f"device_anomaly: unrecognized device (+{boost})")
         score += boost
 
@@ -172,18 +193,20 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     known_cities = baseline.get("known_cities", set()) if baseline else set()
     home_country = baseline.get("home_country") if baseline else None
     if home_country and country and country != home_country:
-        signals.append(f"location_anomaly: transacting from {city or 'unknown city'}, {country} — usually {home_country} (+0.22)")
-        score += 0.22
+        boost = WEIGHTS["location_country"]
+        signals.append(f"location_anomaly: transacting from {city or 'unknown city'}, {country} — usually {home_country} (+{boost})")
+        score += boost
     elif known_cities and city and city not in known_cities:
-        boost = 0.12 if is_large else 0.06
+        boost = WEIGHTS["location_city_large"] if is_large else WEIGHTS["location_city"]
         signals.append(f"location_anomaly: new city {city} (+{boost})")
         score += boost
 
     # Step 10: Session freshness — login-to-transfer under 30s on a large amount
     session_seconds = context.get("session_duration_seconds")
     if session_seconds is not None and session_seconds < 30 and is_large:
-        signals.append(f"session_freshness: transfer {session_seconds}s after login (+0.12)")
-        score += 0.12
+        boost = WEIGHTS["session_freshness"]
+        signals.append(f"session_freshness: transfer {session_seconds}s after login (+{boost})")
+        score += boost
 
     # Step 11: Behavioral anomaly — pasted account + zero hesitation + large amount
     pasted = context.get("paste_detected")
@@ -192,10 +215,10 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     behavioral_boost = 0.0
     behavioral_reasons = []
     if pasted and ("account_number" in pasted_fields or not pasted_fields):
-        behavioral_boost += 0.06
+        behavioral_boost += WEIGHTS["behavioral_paste"]
         behavioral_reasons.append("account number pasted")
     if submit_seconds is not None and submit_seconds < 10 and is_large:
-        behavioral_boost += 0.09
+        behavioral_boost += WEIGHTS["behavioral_fast"]
         behavioral_reasons.append(f"submitted in {submit_seconds}s")
     if behavioral_boost > 0 and is_large:
         behavioral_boost = round(behavioral_boost, 3)
@@ -214,19 +237,34 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         failed = 0
     failed = max(failed, int(context.get("previous_failed_attempts") or 0))
     if failed >= 3:
-        boost = 0.25 if is_large else 0.15
+        boost = WEIGHTS["failed_verification_high"] if is_large else WEIGHTS["failed_verification_large"]
         signals.append(f"failed_verification: {failed} failed identity checks recently (+{boost})")
         score += boost
     elif failed > 0 and is_large:
-        signals.append(f"failed_verification: {failed} failed identity check(s) (+0.08)")
-        score += 0.08
+        boost = WEIGHTS["failed_verification"]
+        signals.append(f"failed_verification: {failed} failed identity check(s) (+{boost})")
+        score += boost
 
     # Step 12: Timezone mismatch — device timezone disagrees with the baseline
     device_tz = context.get("client_timezone") or device.get("timezone")
     typical_tz = baseline.get("typical_timezone") if baseline else None
     if typical_tz and device_tz and device_tz != typical_tz:
-        signals.append(f"timezone_mismatch: device in {device_tz}, usually {typical_tz} (+0.08)")
-        score += 0.08
+        boost = WEIGHTS["timezone_mismatch"]
+        signals.append(f"timezone_mismatch: device in {device_tz}, usually {typical_tz} (+{boost})")
+        score += boost
+
+    # Step 14: Velocity — a burst of transfers in a short window is the classic
+    # account-drain / mule shape. Counted from transfers already recorded, so
+    # it uses data Fable has rather than a field it wishes it had.
+    recent = _recent_transfer_count(user_id, institution_id)
+    if recent >= VELOCITY_HIGH_COUNT:
+        boost = WEIGHTS["velocity_high"]
+        signals.append(f"velocity: {recent} transfers in {VELOCITY_WINDOW_MINUTES}m (+{boost})")
+        score += boost
+    elif recent >= VELOCITY_FLAG_COUNT:
+        boost = WEIGHTS["velocity"]
+        signals.append(f"velocity: {recent} transfers in {VELOCITY_WINDOW_MINUTES}m (+{boost})")
+        score += boost
 
     score = min(round(score, 3), 1.0)
 
@@ -234,8 +272,12 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     if nip_code == "34":
         score = max(score, 0.95)
 
-    action = "BLOCK" if score >= BLOCK_THRESHOLD else "FLAG" if score >= FLAG_THRESHOLD else "PASS"
-    risk_level = "HIGH" if score >= BLOCK_THRESHOLD else "MEDIUM" if score >= FLAG_THRESHOLD else "LOW"
+    # Channel-specific cutoffs: the same score means more on a riskier rail, so
+    # USSD/internet trip sooner than an in-person branch transfer. Falls back to
+    # the default when the channel is unknown.
+    th = thresholds_for(channel)
+    action = "BLOCK" if score >= th["block"] else "FLAG" if score >= th["flag"] else "PASS"
+    risk_level = "HIGH" if score >= th["block"] else "MEDIUM" if score >= th["flag"] else "LOW"
 
     # Cache or template only. Anything requiring a network round trip happens
     # after the verdict is returned — see routers/shield.py. The decision is

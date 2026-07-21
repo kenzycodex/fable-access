@@ -225,11 +225,11 @@ function MethodButton({
       onClick={onClick}
       className={`flex flex-col items-start gap-1.5 rounded-xl border p-3.5 text-left transition-colors ${
         active
-          ? "border-[#7C3AED]/40 bg-[#7C3AED]/[0.07]"
+          ? "border-[var(--brand-primary)]/40 bg-[var(--brand-primary)]/[0.07]"
           : "border-gray-200 hover:bg-gray-50 dark:border-white/[0.06] dark:hover:bg-white/[0.03]"
       }`}
     >
-      <span className="text-[#7C3AED]">{icon}</span>
+      <span className="text-[var(--brand-primary)]">{icon}</span>
       <span className="text-[13px] font-semibold text-gray-900 dark:text-white">{label}</span>
     </button>
   );

@@ -40,7 +40,7 @@ export interface Branding {
 const DEFAULT_BRANDING: Branding = {
   display_name: null,
   logo_url: null,
-  primary_color: "#7C3AED",
+  primary_color: "var(--brand-primary)",
   accent_color: "#00D4FF",
   slug: "",
   tagline: null,

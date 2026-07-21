@@ -265,10 +265,10 @@ export default function TransferPage() {
                       onClick={() => selectContact(c)}
                       className="flex shrink-0 flex-col items-center gap-1.5"
                     >
-                      <span className={`rounded-full p-0.5 transition-all ${selected ? "ring-2 ring-[#7C3AED]" : ""}`}>
+                      <span className={`rounded-full p-0.5 transition-all ${selected ? "ring-2 ring-[var(--brand-primary)]" : ""}`}>
                         <Avatar name={c.name} size="lg" />
                       </span>
-                      <span className={`text-[11px] font-medium ${selected ? "text-[#7C3AED]" : "text-gray-500 dark:text-white/35"}`}>
+                      <span className={`text-[11px] font-medium ${selected ? "text-[var(--brand-primary)]" : "text-gray-500 dark:text-white/35"}`}>
                         {c.name}
                       </span>
                     </button>
@@ -288,7 +288,7 @@ export default function TransferPage() {
                     onKeyDown={recordKey("account_number")}
                     onPaste={recordPaste("account_number")}
                     placeholder="Enter 10-digit account number"
-                    className="w-full rounded-xl bg-gray-50 dark:bg-[#111] px-4 py-3 text-[14px] text-gray-900 dark:text-white tabular-nums outline-none placeholder:text-gray-400 dark:placeholder:text-white/15 focus:ring-1 focus:ring-[#7C3AED]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
+                    className="w-full rounded-xl bg-gray-50 dark:bg-[#111] px-4 py-3 text-[14px] text-gray-900 dark:text-white tabular-nums outline-none placeholder:text-gray-400 dark:placeholder:text-white/15 focus:ring-1 focus:ring-[var(--brand-primary)]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
                   />
                 </div>
                 <div>
@@ -302,7 +302,7 @@ export default function TransferPage() {
                     <select
                       value={selectedBankCode}
                       onChange={(e) => handleBankSelect(e.target.value)}
-                      className="w-full appearance-none rounded-xl bg-gray-50 dark:bg-[#111] px-4 py-3 text-[13px] text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-[#7C3AED]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
+                      className="w-full appearance-none rounded-xl bg-gray-50 dark:bg-[#111] px-4 py-3 text-[13px] text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
                     >
                       <option value="" disabled>Select bank</option>
                       {banks.map((b) => <option key={`${b.code}-${b.name}`} value={b.code}>{b.name}</option>)}
@@ -392,12 +392,12 @@ export default function TransferPage() {
           {/* Fable SDK — live collection panel */}
           <Card>
             <div className="mb-3 flex items-center gap-2">
-              <Eye size={15} weight="fill" className="text-[#7C3AED]" />
+              <Eye size={15} weight="fill" className="text-[var(--brand-primary)]" />
               <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-white/25">Fable is watching — real data collected</p>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <div className="flex items-start gap-2.5 rounded-lg bg-gray-50 dark:bg-[#111] px-3 py-2.5 border border-gray-200 dark:border-white/[0.04]">
-                <Fingerprint size={16} className="mt-0.5 shrink-0 text-[#7C3AED]" />
+                <Fingerprint size={16} className="mt-0.5 shrink-0 text-[var(--brand-primary)]" />
                 <div className="min-w-0 text-[11px]">
                   <p className="font-semibold text-gray-700 dark:text-white/70">Device</p>
                   {device ? (
@@ -411,7 +411,7 @@ export default function TransferPage() {
                 </div>
               </div>
               <div className="flex items-start gap-2.5 rounded-lg bg-gray-50 dark:bg-[#111] px-3 py-2.5 border border-gray-200 dark:border-white/[0.04]">
-                <MapPin size={16} className="mt-0.5 shrink-0 text-[#7C3AED]" />
+                <MapPin size={16} className="mt-0.5 shrink-0 text-[var(--brand-primary)]" />
                 <div className="min-w-0 text-[11px]">
                   <p className="font-semibold text-gray-700 dark:text-white/70">Location</p>
                   {location ? (
@@ -420,7 +420,7 @@ export default function TransferPage() {
                     ) : (
                       <p className="truncate text-gray-500 dark:text-white/40">
                         {[location.city, location.country].filter(Boolean).join(", ") || `${location.latitude?.toFixed(3)}, ${location.longitude?.toFixed(3)}`}
-                        <span className="ml-1.5 rounded bg-[#7C3AED]/10 px-1 py-0.5 text-[9px] font-bold uppercase text-[#7C3AED]">{location.source}</span>
+                        <span className="ml-1.5 rounded bg-[var(--brand-primary)]/10 px-1 py-0.5 text-[9px] font-bold uppercase text-[var(--brand-primary)]">{location.source}</span>
                       </p>
                     )
                   ) : (
@@ -429,7 +429,7 @@ export default function TransferPage() {
                 </div>
               </div>
               <div className="flex items-start gap-2.5 rounded-lg bg-gray-50 dark:bg-[#111] px-3 py-2.5 border border-gray-200 dark:border-white/[0.04]">
-                <Timer size={16} className="mt-0.5 shrink-0 text-[#7C3AED]" />
+                <Timer size={16} className="mt-0.5 shrink-0 text-[var(--brand-primary)]" />
                 <div className="min-w-0 text-[11px]">
                   <p className="font-semibold text-gray-700 dark:text-white/70">Session</p>
                   {session ? (
@@ -442,7 +442,7 @@ export default function TransferPage() {
                 </div>
               </div>
               <div className="flex items-start gap-2.5 rounded-lg bg-gray-50 dark:bg-[#111] px-3 py-2.5 border border-gray-200 dark:border-white/[0.04]">
-                <Crosshair size={16} className="mt-0.5 shrink-0 text-[#7C3AED]" />
+                <Crosshair size={16} className="mt-0.5 shrink-0 text-[var(--brand-primary)]" />
                 <div className="min-w-0 text-[11px]">
                   <p className="font-semibold text-gray-700 dark:text-white/70">Behavior</p>
                   <p className="text-gray-500 dark:text-white/40">
@@ -465,7 +465,7 @@ export default function TransferPage() {
                 onKeyDown={recordKey("narration")}
                 onPaste={recordPaste("narration")}
                 placeholder="What's this for?"
-                className="w-full rounded-xl bg-gray-50 dark:bg-[#111] px-4 py-3 text-[13px] text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-white/15 focus:ring-1 focus:ring-[#7C3AED]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
+                className="w-full rounded-xl bg-gray-50 dark:bg-[#111] px-4 py-3 text-[13px] text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-white/15 focus:ring-1 focus:ring-[var(--brand-primary)]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
               />
               <p className="mt-1.5 text-[11px] text-gray-500 dark:text-white/30">
                 Try <span className="font-medium text-amber-500 dark:text-amber-400/60">&ldquo;urgent help abeg&rdquo;</span> to a new contact to test Fable Shield.
@@ -496,7 +496,7 @@ export default function TransferPage() {
                   >
                     {CHANNEL_LABELS[ch]}
                     {detectedChannel === ch && (
-                      <span className={`absolute -top-1.5 -right-1.5 rounded-full px-1.5 text-[8px] font-bold uppercase ${channel === ch ? "bg-white text-[#7C3AED]" : "bg-[#7C3AED] text-white"}`}>
+                      <span className={`absolute -top-1.5 -right-1.5 rounded-full px-1.5 text-[8px] font-bold uppercase ${channel === ch ? "bg-white text-[var(--brand-primary)]" : "bg-[var(--brand-primary)] text-white"}`}>
                         auto
                       </span>
                     )}

@@ -9,8 +9,8 @@ export default function NotificationsPage() {
       <ScreenHeader title="Notifications" />
       
       <div className="flex flex-col gap-4">
-        <div className="flex items-start gap-4 p-4 rounded-2xl bg-purple-50 border border-purple-100 dark:bg-[#7C3AED]/10 dark:border-[#7C3AED]/20">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-purple-100 text-purple-600 dark:bg-[#7C3AED]/20 dark:text-[#7C3AED]">
+        <div className="flex items-start gap-4 p-4 rounded-2xl bg-purple-50 border border-purple-100 dark:bg-[var(--brand-primary)]/10 dark:border-[var(--brand-primary)]/20">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-purple-100 text-purple-600 dark:bg-[var(--brand-primary)]/20 dark:text-[var(--brand-primary)]">
             <ShieldCheck size={20} weight="fill" />
           </span>
           <div className="flex flex-col gap-1">

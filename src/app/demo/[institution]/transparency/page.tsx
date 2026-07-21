@@ -71,7 +71,7 @@ export default function SecurityPage() {
           {/* What Fable knows — client-side transparency preview */}
           <Card className="!p-0">
             <div className="flex items-center gap-3 px-4 pt-4 pb-3">
-              <span className="flex size-9 items-center justify-center rounded-xl bg-[#7C3AED]/15 text-[#7C3AED]">
+              <span className="flex size-9 items-center justify-center rounded-xl bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]">
                 <ShieldCheck size={18} weight="fill" />
               </span>
               <div className="flex-1">
@@ -123,7 +123,7 @@ export default function SecurityPage() {
                 "Holds risky transfers until you verify it's you",
               ].map((step, i) => (
                 <div key={step} className="flex items-start gap-2.5">
-                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#7C3AED]/10 text-[10px] font-semibold text-[#7C3AED] mt-0.5">
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--brand-primary)]/10 text-[10px] font-semibold text-[var(--brand-primary)] mt-0.5">
                     {i + 1}
                   </span>
                   <p className="text-[13px] leading-relaxed text-gray-600 dark:text-white/50">{step}</p>
@@ -189,7 +189,7 @@ function VerificationSetup({
   return (
     <Card className="!p-0">
       <div className="flex items-center gap-3 px-4 pt-4 pb-3">
-        <span className="flex size-9 items-center justify-center rounded-xl bg-[#7C3AED]/15 text-[#7C3AED]">
+        <span className="flex size-9 items-center justify-center rounded-xl bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]">
           <LockKey size={18} weight="fill" />
         </span>
         <div>
@@ -246,9 +246,9 @@ function StatePill({ ok, okText, offText }: { ok: boolean; okText: string; offTe
 }
 
 const inputCls =
-  "w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-[13px] text-gray-900 outline-none focus:ring-2 focus:ring-[#7C3AED]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white";
+  "w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-[13px] text-gray-900 outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white";
 const btnCls =
-  "rounded-xl bg-[#7C3AED] px-4 py-2.5 text-[12px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40";
+  "rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-[12px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40";
 
 function useAction() {
   const [busy, setBusy] = useState(false);
@@ -300,7 +300,7 @@ function PinRow({ status, userId, institutionId, onDone }: { status: SecuritySta
       state={
         <button type="button" onClick={() => setOpen((o) => !o)} className="flex items-center gap-2">
           <StatePill ok={isSet} okText="Set" offText="Not set" />
-          <span className="text-[11px] font-semibold text-[#7C3AED]">{open ? "Close" : isSet ? "Change" : "Set up"}</span>
+          <span className="text-[11px] font-semibold text-[var(--brand-primary)]">{open ? "Close" : isSet ? "Change" : "Set up"}</span>
         </button>
       }
     >
@@ -352,7 +352,7 @@ function ContactRow({ status, userId, institutionId, onDone }: { status: Securit
           ) : (
             <StatePill ok={false} okText="" offText="None" />
           )}
-          <span className="text-[11px] font-semibold text-[#7C3AED]">{open ? "Close" : "Edit"}</span>
+          <span className="text-[11px] font-semibold text-[var(--brand-primary)]">{open ? "Close" : "Edit"}</span>
         </button>
       }
     >
@@ -391,7 +391,7 @@ function PasskeyRow({ status, userId, displayName, institutionId, supported, onD
         supported ? (
           <button type="button" onClick={add} disabled={busy} className="flex items-center gap-2">
             <StatePill ok={count > 0} okText={`${count}`} offText="None" />
-            <span className="text-[11px] font-semibold text-[#7C3AED]">{busy ? "…" : "Add device"}</span>
+            <span className="text-[11px] font-semibold text-[var(--brand-primary)]">{busy ? "…" : "Add device"}</span>
           </button>
         ) : (
           <span className="text-[11px] text-gray-400 dark:text-white/30">Not available here</span>
@@ -431,7 +431,7 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: () => void; la
       aria-label={label}
       onClick={onChange}
       className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-        on ? "bg-[#7C3AED] shadow-[0_0_12px_rgba(124,58,237,0.4)]" : "bg-gray-200 dark:bg-white/10"
+        on ? "bg-[var(--brand-primary)] shadow-[0_0_12px_rgba(124,58,237,0.4)]" : "bg-gray-200 dark:bg-white/10"
       }`}
     >
       <span
