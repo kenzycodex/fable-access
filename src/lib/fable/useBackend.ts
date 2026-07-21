@@ -121,11 +121,15 @@ export function useCompliance(pollMs = CADENCE.slow) {
   return useSWR<DashboardCompliance>(["fable:compliance", institution], () => dashboardCompliance(institution), livePolling(pollMs));
 }
 
-/** Copilot's learned baseline for the demo user (what Fable actually knows). */
-export function useCopilotBaseline() {
-  return useSWR<CopilotBaseline>("fable:copilot-baseline", () => copilotBaseline(), {
-    keepPreviousData: true,
-  });
+/** Copilot's learned baseline — what Fable actually knows about a customer.
+ * Keyed on the user so switching customers shows that customer's real baseline
+ * rather than a single hardcoded demo user. */
+export function useCopilotBaseline(userId?: string | null) {
+  return useSWR<CopilotBaseline>(
+    ["fable:copilot-baseline", userId ?? null],
+    () => copilotBaseline(userId ?? undefined),
+    { keepPreviousData: true },
+  );
 }
 
 /** Agents overview: live stats for Copilot, Shield, Ghost, Watch. */

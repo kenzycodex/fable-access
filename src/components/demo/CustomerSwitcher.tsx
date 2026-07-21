@@ -15,9 +15,28 @@ import { useInstitution } from "@/components/demo/InstitutionProvider";
  * The choice matters because Shield scores against the selected customer's own
  * baseline: ₦250,000 is routine for the trader and a flag for the student.
  */
-export function CustomerSwitcher({ greeting = "Good morning 👋" }: { greeting?: string }) {
+/** A greeting that fits the customer's device clock, with a little variety so
+ * the header doesn't read like a static label. Computed client-side after mount
+ * (the server can't know the device's local hour without a hydration mismatch),
+ * with a neutral default until then. */
+function useTimeGreeting(): string {
+  const [greeting, setGreeting] = useState("Hello 👋");
+  useEffect(() => {
+    const h = new Date().getHours();
+    const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+    if (h >= 5 && h < 12) setGreeting(pick(["Good morning ☀️", "Rise and shine ☀️", "Morning 👋"]));
+    else if (h >= 12 && h < 17) setGreeting(pick(["Good afternoon 👋", "Hope your day's going well 👋", "Afternoon 👋"]));
+    else if (h >= 17 && h < 22) setGreeting(pick(["Good evening 🌆", "Evening 👋", "Winding down? 🌆"]));
+    else setGreeting(pick(["Working late? 🌙", "Burning the midnight oil? 🌙", "Good evening 🌙"]));
+  }, []);
+  return greeting;
+}
+
+export function CustomerSwitcher({ greeting: greetingProp }: { greeting?: string }) {
   const { customers, customer, selectCustomer, name } = useInstitution();
   const [open, setOpen] = useState(false);
+  const timeGreeting = useTimeGreeting();
+  const greeting = greetingProp ?? timeGreeting;
 
   // Default to the first customer so a transfer is never attributed to nobody.
   useEffect(() => {

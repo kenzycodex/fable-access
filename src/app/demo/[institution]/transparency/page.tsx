@@ -50,7 +50,7 @@ export default function SecurityPage() {
   const store = useFableStore();
   const state = store?.transparency;
   const { customer, institutionId } = useInstitution();
-  const { data: baseline } = useCopilotBaseline();
+  const { data: baseline } = useCopilotBaseline(customer?.user_id);
   const SIGNALS = buildSignals(baseline);
 
   const preview = state ? previewScore(state) : 0;
