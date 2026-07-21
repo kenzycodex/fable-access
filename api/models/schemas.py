@@ -101,8 +101,28 @@ class ShieldAnalyzeResponse(BaseModel):
     signals: list[str]
     explanation: str
     agent: str = "fable-shield-v1"
+    # Total time spent in the handler. Kept for continuity with earlier
+    # responses; it is NOT the number the latency budget is written against.
     latency_ms: float
+    # Time to reach the verdict: funds check, twelve signal layers, scoring.
+    # This is the figure the sub-200ms budget governs, because it is the only
+    # part a payment rail has to wait for.
+    decision_ms: float
+    # How the explanation prose was produced. "cache" and "template" are
+    # synchronous; "pending" means an LLM write-up is being generated off the
+    # request path and can be collected from /v1/shield/explanation/{id}.
+    explanation_source: Literal["cache", "template", "llm", "pending"] = "template"
     transaction_id: str
+
+
+class ShieldExplanationResponse(BaseModel):
+    """Late-arriving prose for a decision that was already returned."""
+
+    transaction_id: str
+    explanation: str
+    explanation_source: Literal["cache", "template", "llm", "pending"]
+    ready: bool
+    explanation_ms: Optional[float] = None
 
 
 class GhostCreateRequest(BaseModel):

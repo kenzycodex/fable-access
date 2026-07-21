@@ -156,7 +156,32 @@ interface ApiShieldResponse {
   signals: string[];
   explanation: string;
   latency_ms: number;
+  decision_ms?: number;
+  explanation_source?: "cache" | "template" | "llm" | "pending";
   transaction_id: string;
+}
+
+export interface ShieldExplanation {
+  transaction_id: string;
+  explanation: string;
+  explanation_source: "cache" | "template" | "llm" | "pending";
+  ready: boolean;
+  explanation_ms: number | null;
+}
+
+/** Collect the fuller write-up for a decision that already came back.
+ *
+ * Shield answers with a deterministic explanation immediately and generates a
+ * richer one off the request path, so the verdict is never held up by prose.
+ * Returns null if the transfer is unknown or the call fails: the explanation
+ * already on screen stays, which is always valid to keep showing.
+ */
+export async function shieldExplanation(transactionId: string): Promise<ShieldExplanation | null> {
+  try {
+    return await fetchJson<ShieldExplanation>(`/v1/shield/explanation/${transactionId}`);
+  } catch {
+    return null;
+  }
 }
 
 /** Everything the Fable SDK collects on the client, bundled per transfer. */
@@ -289,6 +314,8 @@ export async function shieldAnalyze(
     signals: parseApiSignals(res.signals),
     explanation: res.explanation,
     latencyMs: Math.round(res.latency_ms),
+    decisionMs: res.decision_ms !== undefined ? Math.round(res.decision_ms) : undefined,
+    explanationSource: res.explanation_source,
     transactionId: res.transaction_id,
   };
 }
@@ -529,9 +556,14 @@ export interface DashboardStats {
   flagged: number;
   passed: number;
   fraud_prevented_ngn: number;
-  /** null until Shield has actually decided something with a timer running. */
+  /** Time to the verdict. null until Shield has actually decided something
+   * with a timer running. This is the series the 200ms budget governs. */
   latency_ms: { p50: number; p95: number; p99: number } | null;
   latency_sample_size: number;
+  /** Time to generate explanation prose. Tracked but deliberately not
+   * budgeted: it runs off the request path and no caller waits on it. */
+  explanation_ms: { p50: number; p95: number; p99: number } | null;
+  explanation_sample_size: number;
 }
 
 export function dashboardStats(institution?: string | null): Promise<DashboardStats> {

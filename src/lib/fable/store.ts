@@ -273,6 +273,17 @@ export async function submitTransfer(input: TransactionInput, sdk?: Partial<SdkT
   return txn;
 }
 
+/** Replace the pending decision's explanation with the fuller write-up that
+ * arrived after the verdict. Only the prose changes: the score, action and
+ * signals are the decision itself and are never rewritten after the fact. */
+export function upgradePendingExplanation(transactionId: string, explanation: string) {
+  mutate((s) =>
+    s.pending && s.pending.transactionId === transactionId
+      ? { ...s, pending: { ...s.pending, explanation } }
+      : s,
+  );
+}
+
 export function getPending(): Transaction | null {
   return read().pending;
 }

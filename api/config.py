@@ -81,6 +81,11 @@ WEBAUTHN_ORIGINS = [o.strip() for o in _raw_origins_wa.split(",") if o.strip()]
 BLOCK_THRESHOLD = 0.8
 FLAG_THRESHOLD = 0.5
 
+# Hard ceiling on any single explanation call. The explainer runs off the
+# request path, so this does not gate a decision — it stops a hung provider
+# from pinning a worker thread indefinitely.
+EXPLAINER_TIMEOUT_SECONDS = float(os.getenv("FABLE_EXPLAINER_TIMEOUT", "10"))
+
 # Ghost cooling windows (minutes) by risk score
 GHOST_COOLING_HIGH = 30    # risk >= 0.9
 GHOST_COOLING_MED = 15     # risk >= 0.7

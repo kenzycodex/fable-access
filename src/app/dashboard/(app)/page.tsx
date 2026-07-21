@@ -36,18 +36,23 @@ export default function OverviewPage() {
   const { data: intel } = useIntelligence();
   const amountProtected = intel?.summary.fraud_prevented_ngn ?? s.amountProtected;
 
-  // Decision time is reported as p95 against the 200ms budget, from the
-  // server's measured percentiles.
+  // Decision time. Two figures do two jobs here.
   //
-  // The card used to show the mean under a fixed "Well under 200ms budget"
-  // caption, which was wrong twice over. The caption was a literal — it kept
-  // claiming the budget was met while the card next to it read 3989ms. And the
-  // mean is the wrong statistic for a latency budget: a handful of slow
-  // decisions drag it far above a p95 that is genuinely 310ms, so the number
-  // was both alarming and uninformative. A budget is a promise about the tail,
-  // so show the tail, and say plainly when it is missed. We are currently over
-  // it; hiding that in the one console meant to surface uncomfortable facts is
-  // not a UI decision worth making.
+  // The headline is p50 — the typical decision. It is the stable, honest
+  // "how fast is this normally" number, and unlike the tail it doesn't lurch
+  // when a single cold-start request lands in a small sample.
+  //
+  // The budget, though, is a promise about the *tail*, so the caption checks
+  // p95 against 200ms and the card turns red when that promise is broken. Both
+  // are shown because a headline alone can hide a bad tail and a tail alone
+  // reads as alarming when the typical case is fine.
+  //
+  // Earlier this card showed a single mean under a hardcoded "Well under 200ms
+  // budget" caption — a literal that kept claiming success while the number
+  // beside it read 3989ms. And that 3989ms was the wrong series entirely:
+  // request time with the explanation LLM counted in, not decision time. The
+  // verdict lands in ~30ms; prose is generated off the request path now and
+  // reported separately below.
   const { data: stats } = useDashboardStats();
   const latency = stats?.latency_ms ?? null;
   const overBudget = latency !== null && latency.p95 > LATENCY_BUDGET_MS;
@@ -101,13 +106,13 @@ export default function OverviewPage() {
         />
         <StatCard
           label="Decision time"
-          value={latency ? `${Math.round(latency.p95)}ms` : "—"}
+          value={latency ? `${Math.round(latency.p50)}ms` : "—"}
           sub={
             !latency
               ? "No decisions measured yet"
               : overBudget
-                ? `p95 · ${Math.round(latency.p95 - LATENCY_BUDGET_MS)}ms over ${LATENCY_BUDGET_MS}ms budget`
-                : `p95 · within ${LATENCY_BUDGET_MS}ms budget`
+                ? `p95 ${Math.round(latency.p95)}ms · over ${LATENCY_BUDGET_MS}ms budget`
+                : `p95 ${Math.round(latency.p95)}ms · within ${LATENCY_BUDGET_MS}ms budget`
           }
           icon={<Lightning size={20} weight="fill" />}
           accent={overBudget ? "text-red-400" : "text-amber-400"}

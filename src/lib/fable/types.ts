@@ -51,6 +51,13 @@ export interface ScoreResult {
   signals: Signal[];
   explanation: string;
   latencyMs: number;
+  /** Time to the verdict alone, which is what the 200ms budget governs.
+   * `latencyMs` also covers persistence and the response itself. */
+  decisionMs?: number;
+  /** "pending" means a fuller write-up is being generated off the request
+   * path and can be collected with `shieldExplanation(transactionId)`. */
+  explanationSource?: "cache" | "template" | "llm" | "pending";
+  transactionId?: string;
 }
 
 /** A recorded transaction, as stored and shown in both surfaces. */

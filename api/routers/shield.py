@@ -1,15 +1,55 @@
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException, Request
 
-from models.schemas import ShieldAnalyzeRequest, ShieldAnalyzeResponse, FeedbackRequest
+from models.schemas import (
+    ShieldAnalyzeRequest,
+    ShieldAnalyzeResponse,
+    ShieldExplanationResponse,
+    FeedbackRequest,
+)
 from agents.shield.analyzer import analyze_transaction_safe
+from agents.shield.explainer import generate_llm_explanation, llm_available
 from agents.copilot.baseline import log_transaction
 from tenancy import resolve_institution
 from accounts import InsufficientFunds, assert_can_spend, debit
 
 router = APIRouter(prefix="/v1/shield", tags=["shield"])
+
+# Explanation work runs on its own small pool rather than FastAPI's
+# BackgroundTasks. BackgroundTasks share the threadpool that also serves sync
+# request handlers, so a burst of in-flight LLM calls pushed decision p95 from
+# 131ms to 206ms — prose competing with verdicts for the same threads, which is
+# exactly the coupling this change exists to remove. Two workers is deliberate:
+# the queue is allowed to back up, because a late explanation costs nothing and
+# a late decision costs everything.
+_explainer_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="fable-explainer")
+
+
+def _upgrade_explanation(transaction_id: str, signals: list[str], amount: float, action: str) -> None:
+    """Generate polished prose after the response has already gone out.
+
+    Nothing here is on the caller's clock. A failure leaves the deterministic
+    template in place, which is a complete and accurate explanation in its own
+    right.
+    """
+    from db import cursor
+
+    text, elapsed_ms = generate_llm_explanation(signals, amount, action)
+    if not text:
+        return
+    try:
+        with cursor() as cur:
+            cur.execute(
+                """UPDATE transactions
+                   SET explanation = ?, explanation_ms = ?, explanation_source = 'llm'
+                   WHERE id = ?""",
+                (text, elapsed_ms, transaction_id),
+            )
+    except Exception:
+        pass
 
 
 @router.post("/analyze", response_model=ShieldAnalyzeResponse)
@@ -40,13 +80,16 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
             )
             existing = cur.fetchone()
         if existing:
+            replay_ms = round((time.perf_counter() - start) * 1000, 2)
             return ShieldAnalyzeResponse(
                 risk_score=existing["risk_score"] or 0.0,
                 risk_level=existing["risk_level"] or "LOW",
                 action=existing["action_taken"] or "PASS",
                 signals=loads(existing["shield_signals"], []) or [],
                 explanation="Previously scored offline; synced without rescoring.",
-                latency_ms=0.0,
+                latency_ms=replay_ms,
+                decision_ms=replay_ms,
+                explanation_source="template",
                 transaction_id=existing["id"],
             )
 
@@ -71,8 +114,19 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
 
     result = analyze_transaction_safe(payload.user_id, transaction, device, context, institution_id)
 
-    latency_ms = round((time.perf_counter() - start) * 1000, 2)
+    # The verdict is final here. Everything after this point is bookkeeping and
+    # prose, so this is where the budgeted clock stops: a payment rail waits
+    # for the decision, not for the sentence describing it.
+    decision_ms = round((time.perf_counter() - start) * 1000, 2)
     transaction_id = f"txn_{uuid.uuid4().hex[:12]}"
+
+    # A template explanation means no cached prose existed for this decision
+    # shape, so a proper write-up is queued off the request path below. It has
+    # to be queued *after* the row exists: the worker updates the transaction
+    # by id, and racing the insert would leave it updating nothing.
+    explanation_source = result.get("explanation_source", "template")
+    pending = explanation_source == "template" and result["action"] != "PASS" and llm_available()
+
     log_transaction(
         user_id=payload.user_id,
         transaction_id=transaction_id,
@@ -87,8 +141,23 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         context=context,
         institution_id=institution_id,
         client_reference=payload.client_reference,
-        latency_ms=latency_ms,
+        latency_ms=round((time.perf_counter() - start) * 1000, 2),
+        decision_ms=decision_ms,
+        explanation=result["explanation"],
+        explanation_source=explanation_source,
     )
+
+    # Row is committed; the write-up worker now has something to update. It
+    # also populates the cache, so the next decision of this shape resolves
+    # synchronously with no LLM call at all.
+    if pending:
+        _explainer_pool.submit(
+            _upgrade_explanation,
+            transaction_id,
+            list(result["signals"]),
+            transaction["amount"],
+            result["action"],
+        )
 
     # A cleared transfer moves money now. Anything flagged or blocked does
     # not: it is either abandoned or routed into Ghost, and Ghost reserves
@@ -105,8 +174,42 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         action=result["action"],
         signals=result["signals"],
         explanation=result["explanation"],
-        latency_ms=latency_ms,
+        latency_ms=round((time.perf_counter() - start) * 1000, 2),
+        decision_ms=decision_ms,
+        explanation_source="pending" if pending else explanation_source,
         transaction_id=transaction_id,
+    )
+
+
+@router.get("/explanation/{transaction_id}", response_model=ShieldExplanationResponse)
+def explanation(transaction_id: str):
+    """Collect the polished write-up for a decision already returned.
+
+    The client shows the template immediately and calls this to swap in better
+    prose when it lands. `ready` false means generation is still running; the
+    explanation returned alongside it is the template, which is always valid to
+    keep displaying.
+    """
+    from db import cursor
+
+    with cursor() as cur:
+        cur.execute(
+            """SELECT explanation, explanation_source, explanation_ms
+               FROM transactions WHERE id = ?""",
+            (transaction_id,),
+        )
+        row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Unknown transaction")
+
+    source = row["explanation_source"] or "template"
+    return ShieldExplanationResponse(
+        transaction_id=transaction_id,
+        explanation=row["explanation"] or "",
+        explanation_source=source,
+        ready=source in ("llm", "cache"),
+        explanation_ms=row["explanation_ms"],
     )
 
 

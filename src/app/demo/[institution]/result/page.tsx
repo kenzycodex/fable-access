@@ -1,14 +1,67 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle, ShieldWarning, Ghost, ShareNetwork } from "@phosphor-icons/react";
 import { Card, Screen, ScreenHeader } from "@/components/demo/kit";
 import { RiskScoreCounter } from "@/components/demo/RiskScoreCounter";
 import { SignalCard } from "@/components/demo/SignalCard";
+import { shieldExplanation } from "@/lib/fable/api";
 import { formatNaira, formatRiskScore } from "@/lib/fable/format";
-import { commitPass, createGhost, resolvePending, useFableStore } from "@/lib/fable/store";
+import {
+  commitPass,
+  createGhost,
+  resolvePending,
+  upgradePendingExplanation,
+  useFableStore,
+} from "@/lib/fable/store";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
+
+/** Collect the fuller write-up Shield is generating off the request path.
+ *
+ * The verdict, score and signals are already on screen; only the prose is
+ * outstanding. Polls until it lands, then stops. If it never lands, the
+ * deterministic explanation already showing stays put, which is complete and
+ * accurate in its own right, so there is no error state to surface here.
+ */
+function usePolishedExplanation(transactionId: string | undefined, isPending: boolean) {
+  const [writing, setWriting] = useState(isPending);
+
+  useEffect(() => {
+    if (!isPending || !transactionId) {
+      setWriting(false);
+      return;
+    }
+    let cancelled = false;
+    let attempts = 0;
+    setWriting(true);
+
+    async function poll() {
+      // ~18s ceiling. Past that the template is the final answer.
+      if (cancelled || attempts >= 12) {
+        if (!cancelled) setWriting(false);
+        return;
+      }
+      attempts += 1;
+      const result = await shieldExplanation(transactionId!);
+      if (cancelled) return;
+      if (result?.ready && result.explanation) {
+        upgradePendingExplanation(transactionId!, result.explanation);
+        setWriting(false);
+        return;
+      }
+      setTimeout(poll, 1500);
+    }
+
+    const first = setTimeout(poll, 1200);
+    return () => {
+      cancelled = true;
+      clearTimeout(first);
+    };
+  }, [transactionId, isPending]);
+
+  return writing;
+}
 
 export default function ResultPage() {
   const { href } = useInstitution();
@@ -87,6 +140,10 @@ function FlagBlockResult() {
   const { href } = useInstitution();
   const store = useFableStore();
   const pending = store?.pending ?? null;
+  const writing = usePolishedExplanation(
+    pending?.transactionId,
+    pending?.explanationSource === "pending",
+  );
   if (!pending) return null;
 
   const isBlock = pending.action === "BLOCK";
@@ -127,7 +184,15 @@ function FlagBlockResult() {
           </Card>
 
           <Card className="animate-fade-in-up [animation-delay:0.1s]">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-white/35">Fable explains</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-white/35">Fable explains</span>
+              {writing && (
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-[#7C3AED]">
+                  <span className="size-1.5 animate-pulse rounded-full bg-[#7C3AED]" />
+                  Adding detail
+                </span>
+              )}
+            </div>
             <p className="mt-2 text-[13px] leading-relaxed text-white/65">{pending.explanation}</p>
           </Card>
         </div>

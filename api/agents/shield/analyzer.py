@@ -22,7 +22,7 @@ from agents.shield.channel_risk import get_channel_risk
 from agents.shield.nip_codes import get_nip_risk_signal
 from agents.shield.patterns import match_scam_pattern
 from agents.shield.anomaly import score_anomaly
-from agents.shield.explainer import generate_explanation
+from agents.shield.explainer import explain_now
 
 PCI_FIELDS = ("card_number", "cvv", "pin", "track_data")
 
@@ -152,7 +152,7 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     # Step 7 (auxiliary): Isolation Forest anomaly boost from own history
     if baseline:
         history_amounts, history_hours = get_user_history_arrays(user_id)
-        ml_boost = score_anomaly(history_amounts, history_hours, amount, now_hour)
+        ml_boost = score_anomaly(history_amounts, history_hours, amount, now_hour, cache_key=user_id)
         if ml_boost > 0.02:
             signals.append(f"ml_anomaly: isolation forest deviation (+{ml_boost})")
             score += ml_boost
@@ -237,7 +237,10 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     action = "BLOCK" if score >= BLOCK_THRESHOLD else "FLAG" if score >= FLAG_THRESHOLD else "PASS"
     risk_level = "HIGH" if score >= BLOCK_THRESHOLD else "MEDIUM" if score >= FLAG_THRESHOLD else "LOW"
 
-    explanation = generate_explanation(signals, amount, action)
+    # Cache or template only. Anything requiring a network round trip happens
+    # after the verdict is returned — see routers/shield.py. The decision is
+    # complete at this point and does not depend on the prose.
+    explanation, explanation_source = explain_now(signals, amount, action)
 
     return {
         "risk_score": score,
@@ -245,6 +248,7 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         "action": action,
         "signals": signals,
         "explanation": explanation,
+        "explanation_source": explanation_source,
     }
 
 
@@ -260,4 +264,5 @@ def analyze_transaction_safe(user_id: str, transaction: dict, device: dict, cont
             "action": "FLAG",
             "signals": [f"system_error: {type(exc).__name__}"],
             "explanation": "We couldn't fully verify this transfer due to a system issue, so we're asking you to confirm before it proceeds. Your money is safe.",
+            "explanation_source": "template",
         }

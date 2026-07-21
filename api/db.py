@@ -106,6 +106,18 @@ CREATE TABLE IF NOT EXISTS device_profiles (
     trust_score REAL DEFAULT 0.5
 );
 
+-- Explanations keyed by the shape of the decision that produced them, so an
+-- identical signal set never pays for the same sentence twice. Signal sets
+-- repeat heavily in practice: "new recipient + amount anomaly + USSD" is one
+-- of a few dozen combinations that cover most blocked transfers.
+CREATE TABLE IF NOT EXISTS explanation_cache (
+    signature TEXT PRIMARY KEY,
+    action TEXT NOT NULL,
+    explanation TEXT NOT NULL,
+    hits INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS user_locations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -270,6 +282,19 @@ MIGRATIONS = {
         # Real Shield decision latency. The dashboard reported a hardcoded
         # p50/p95/p99 that was never measured from anything.
         "latency_ms": "REAL",
+        # Time to the verdict alone, with the explanation write-up excluded.
+        # latency_ms mixed the two, so a 4-second GPT-4o call was reported as
+        # decision time and the console showed a ~4000ms p95 against a 200ms
+        # budget. A payment rail waits for the verdict, not the prose, so the
+        # budget is measured against this column. Left NULL on older rows,
+        # which were genuinely measured a different way and must not be
+        # silently folded into the same percentile.
+        "decision_ms": "REAL",
+        # The explanation and how it was produced, so a decision can always be
+        # re-read with the prose that accompanied it.
+        "explanation": "TEXT",
+        "explanation_ms": "REAL",
+        "explanation_source": "TEXT",
     },
     "ghost_containers": {
         "institution_id": "TEXT",

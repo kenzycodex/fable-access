@@ -178,6 +178,9 @@ def log_transaction(
     institution_id: str | None = None,
     client_reference: str | None = None,
     latency_ms: float | None = None,
+    decision_ms: float | None = None,
+    explanation: str | None = None,
+    explanation_source: str | None = None,
 ):
     from db import cursor as _cursor, dumps
 
@@ -198,8 +201,9 @@ def log_transaction(
                 client_ip, latitude, longitude, city, country, location_source,
                 session_duration_seconds, auth_method, typing_speed_ms, paste_detected,
                 time_to_submit_seconds, client_timestamp, client_timezone, institution_id,
-                recipient_name, client_reference, latency_ms)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                recipient_name, client_reference, latency_ms, decision_ms,
+                explanation, explanation_source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 transaction_id,
                 user_id,
@@ -236,6 +240,9 @@ def log_transaction(
                 transaction.get("recipient_name"),
                 client_reference,
                 latency_ms,
+                decision_ms,
+                explanation,
+                explanation_source,
             ),
         )
 

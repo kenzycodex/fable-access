@@ -83,13 +83,30 @@ def stats(institution: str | None = Query(None)):
         # Real percentiles from measured Shield decisions. This used to report
         # a hardcoded p50/p95/p99 that was never derived from anything, so the
         # console advertised a latency budget it had no evidence for.
+        #
+        # decision_ms, not latency_ms: the budget is a promise about how long
+        # the verdict takes. latency_ms also contained the explanation write-up,
+        # which was a multi-second LLM call, so the console reported a ~4000ms
+        # p95 for work that finishes in ~50ms. Rows predating the split have
+        # decision_ms NULL and are excluded rather than mixed in, because they
+        # measured a different thing.
         cur.execute(
-            f"""SELECT latency_ms FROM transactions
-                WHERE latency_ms IS NOT NULL{live_where}
-                ORDER BY latency_ms ASC""",
+            f"""SELECT decision_ms FROM transactions
+                WHERE decision_ms IS NOT NULL{live_where}
+                ORDER BY decision_ms ASC""",
             live_params,
         )
-        latencies = [r["latency_ms"] for r in cur.fetchall()]
+        latencies = [r["decision_ms"] for r in cur.fetchall()]
+
+        # Explanation time is tracked but deliberately not budgeted: it happens
+        # off the request path and no caller waits on it.
+        cur.execute(
+            f"""SELECT explanation_ms FROM transactions
+                WHERE explanation_ms IS NOT NULL{live_where}
+                ORDER BY explanation_ms ASC""",
+            live_params,
+        )
+        explanation_times = [r["explanation_ms"] for r in cur.fetchall()]
 
     threats_blocked = by_action.get("BLOCK", 0)
     flagged = by_action.get("FLAG", 0)
@@ -124,6 +141,10 @@ def stats(institution: str | None = Query(None)):
         # "not measured yet" state rather than an invented number.
         "latency_ms": _percentiles(latencies),
         "latency_sample_size": len(latencies),
+        # Prose generation, reported separately so it is visible without being
+        # counted against the decision budget.
+        "explanation_ms": _percentiles(explanation_times),
+        "explanation_sample_size": len(explanation_times),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
