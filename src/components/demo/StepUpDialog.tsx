@@ -98,21 +98,30 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
       .finally(() => setLoading(false));
   }, [userId]);
 
+  // Releasing needs TWO independent factors, not three. One "primary" — the
+  // device passkey if enrolled, otherwise the PIN — plus one out-of-band code
+  // to the customer's own email/phone. When there's no registered contact, the
+  // out-of-band step is replaced by the PIN, so a passkey+PIN customer never
+  // gets asked for a code that has nowhere to go.
+  const hasContact = !!(status?.email_set || status?.phone_set);
+  const composedSteps: Factor[] = hasPasskey
+    ? hasContact
+      ? ["passkey", "otp"]
+      : ["passkey", "pin"]
+    : hasContact
+      ? ["pin", "otp"]
+      : ["pin"]; // only a PIN and no contact — the one factor available
   const steps: Factor[] =
-    mode === "single_pin"
-      ? ["pin"]
-      : mode === "single_passkey"
-        ? ["passkey"]
-        : [...(hasPasskey ? (["passkey"] as Factor[]) : []), "pin", "otp"];
+    mode === "single_pin" ? ["pin"] : mode === "single_passkey" ? ["passkey"] : composedSteps;
   const doneMap: Record<Factor, boolean> = { passkey: !!passkeyToken, pin: !!pinToken, otp: !!otpToken };
   const active = steps.find((s) => !doneMap[s]) ?? null;
   const allDone = steps.every((s) => doneMap[s]);
 
-  /** Compose the collected factors into one release proof, once they're all in
-   * hand. Called from whichever handler completes the final factor, rather than
-   * from an effect, so state updates stay driven by user actions. */
+  /** Compose the collected factors into one release proof, once every required
+   * step is in hand. Called from whichever handler completes the final factor,
+   * rather than from an effect, so state updates stay driven by user actions. */
   async function compose(tokens: { passkey: string | null; pin: string | null; otp: string | null }) {
-    const ready = (!hasPasskey || tokens.passkey) && tokens.pin && tokens.otp;
+    const ready = steps.every((s) => tokens[s]);
     if (!ready) return;
     setBusy(true);
     setError(null);

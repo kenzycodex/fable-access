@@ -9,7 +9,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from agents.shield import assurance, stepup
-from tenancy import get_institution
 
 router = APIRouter(prefix="/v1/stepup", tags=["stepup"])
 
@@ -174,15 +173,16 @@ def otp_send(payload: OtpSendRequest):
             payload.user_id, payload.purpose, payload.reference, phone=phone, channel="sms",
         )
 
-    # Email: the customer's own registered address wins. Only if they never set
-    # one does it fall back to the institution's contact address — the closest
-    # thing the demo genuinely has, but not somewhere the customer controls.
+    # Only the customer's own registered address. There is no institution
+    # fallback: sending the customer's verification code to the bank's fraud
+    # inbox was nonsensical and confusing. If they haven't registered a contact,
+    # say so — the client offers a factor that doesn't need one instead.
     email = payload.email or contact.get("email")
-    if not email and payload.institution_id:
-        inst = get_institution(payload.institution_id)
-        email = (inst or {}).get("contact_email")
     if not email:
-        raise HTTPException(status_code=400, detail="No registered address to send a code to.")
+        raise HTTPException(
+            status_code=400,
+            detail="No email registered for codes. Add one in Security, or verify another way.",
+        )
 
     return stepup.send_otp(payload.user_id, payload.purpose, payload.reference, email=email)
 
@@ -275,33 +275,33 @@ def identity_check(payload: IdentityCheckRequest):
             ),
         )
 
-    # The substitute adapts to the factors the customer can actually hold. A
-    # device-bound passkey is the strongest, so it is demanded when one is
-    # enrolled — but requiring hardware the device may not have would make the
-    # strongest tier the one most likely to strand a real customer. Where no
-    # passkey exists, two independent factors stand in: a PIN (something known)
-    # and a code on a channel the session doesn't control (something held).
-    # That is what Nigerian banks do today, and it is honest about what it is.
-    has_passkey = stepup.has_passkey(payload.user_id)
-
-    supplied = {"pin": payload.pin_token, "otp": payload.otp_token}
-    if has_passkey:
-        supplied["passkey"] = payload.passkey_token
-
+    # Two independent factors, not three. Requiring a device-bound passkey AND
+    # a PIN AND an out-of-band code for every release is more friction than the
+    # risk warrants and more than a real bank asks; two distinct factors — a
+    # strong "something you have/are" plus a second independent one — is the
+    # defensible substitute for a liveness check. The client picks the best two
+    # it can offer (passkey+code, passkey+PIN, or PIN+code), so this just
+    # confirms that at least two of the three verify.
+    supplied = {
+        "passkey": payload.passkey_token,
+        "pin": payload.pin_token,
+        "otp": payload.otp_token,
+    }
     verified = {
         name: bool(stepup.verify_token(token, payload.user_id, payload.purpose, payload.reference))
         for name, token in supplied.items()
+        if token
     }
-    missing = [name for name, ok in verified.items() if not ok]
+    proven = [name for name, ok in verified.items() if ok]
 
-    if missing:
+    if len(proven) < 2:
         raise HTTPException(
             status_code=400,
             detail={
                 "error": "factors_incomplete",
-                "message": "Complete every factor to verify your identity.",
+                "message": "Two verification factors are required.",
                 "verified": verified,
-                "missing": missing,
+                "proven": proven,
                 "substitute_for": "liveness_check",
             },
         )
@@ -311,7 +311,8 @@ def identity_check(payload: IdentityCheckRequest):
         if token:
             stepup.consume_token(token)
 
-    factors = "passkey, PIN and a one-time code" if has_passkey else "PIN and a one-time code"
+    _label = {"passkey": "device unlock", "pin": "PIN", "otp": "a one-time code"}
+    factors = " and ".join(_label.get(name, name) for name in proven)
     issued = stepup.issue_token(payload.user_id, "identity_check", payload.purpose, payload.reference)
     return {
         "verified": True,
