@@ -275,13 +275,22 @@ def identity_check(payload: IdentityCheckRequest):
             ),
         )
 
-    # Two independent factors, not three. Requiring a device-bound passkey AND
-    # a PIN AND an out-of-band code for every release is more friction than the
-    # risk warrants and more than a real bank asks; two distinct factors — a
-    # strong "something you have/are" plus a second independent one — is the
-    # defensible substitute for a liveness check. The client picks the best two
-    # it can offer (passkey+code, passkey+PIN, or PIN+code), so this just
-    # confirms that at least two of the three verify.
+    # Prove every factor you have, up to two. Two independent factors — a strong
+    # "something you have/are" plus a second — is the defensible substitute for a
+    # liveness check, and more than that is friction a real bank doesn't ask.
+    # But a customer who has only set up one factor can't produce two, and must
+    # not be stranded with money in containment: for them, that one factor is
+    # the bar. So the requirement is min(2, factors they actually have).
+    import security
+
+    st = security.status(payload.user_id)
+    available = sum([
+        bool(stepup.has_passkey(payload.user_id)),
+        bool(st.get("pin_set")),
+        bool(st.get("email_set") or st.get("phone_set")),
+    ])
+    required = max(1, min(2, available))
+
     supplied = {
         "passkey": payload.passkey_token,
         "pin": payload.pin_token,
@@ -294,14 +303,15 @@ def identity_check(payload: IdentityCheckRequest):
     }
     proven = [name for name, ok in verified.items() if ok]
 
-    if len(proven) < 2:
+    if len(proven) < required:
         raise HTTPException(
             status_code=400,
             detail={
                 "error": "factors_incomplete",
-                "message": "Two verification factors are required.",
+                "message": f"{required} verification factor(s) required.",
                 "verified": verified,
                 "proven": proven,
+                "required": required,
                 "substitute_for": "liveness_check",
             },
         )

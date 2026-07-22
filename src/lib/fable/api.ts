@@ -438,7 +438,11 @@ export async function ghostResolve(
       detail.message ?? "Verification required before this transfer can be released.",
     );
   }
-  if (!res.ok) throw new Error(`Fable API ${res.status} on ghost/${endpoint}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const detail = body?.detail;
+    throw new Error(typeof detail === "string" ? detail : `Fable API ${res.status} on ghost/${endpoint}`);
+  }
 }
 
 /** Ghost container detail, including the signals that justified the hold. */

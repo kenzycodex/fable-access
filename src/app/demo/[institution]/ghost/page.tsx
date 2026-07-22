@@ -149,14 +149,16 @@ export default function GhostPage() {
             <button
               type="button"
               onClick={cancel}
-              className="rounded-xl bg-red-500 py-3.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 shadow-lg shadow-red-500/20"
+              disabled={releasing}
+              className="rounded-xl bg-red-500 py-3.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 shadow-lg shadow-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancel &amp; get money back
             </button>
             <button
               type="button"
               onClick={() => confirm()}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1a1a1a] py-3 text-[13px] font-semibold text-white/40 transition-colors hover:bg-[#222] hover:text-white/60"
+              disabled={releasing}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1a1a1a] py-3 text-[13px] font-semibold text-white/40 transition-colors hover:bg-[#222] hover:text-white/60 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <HandPointing size={16} />
               {releasing ? "Verifying…" : "I’m sure — release transfer"}
