@@ -76,10 +76,15 @@ def set_pin(user_id: str, payload: SetPinRequest):
 
 class TwoFactorRequest(BaseModel):
     enabled: bool
+    current_pin: Optional[str] = None
 
 
 @router.post("/{user_id}/security/two-factor")
 def set_two_factor(user_id: str, payload: TwoFactorRequest):
+    try:
+        security.require_pin_if_set(user_id, payload.current_pin)
+    except security.SecurityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return security.set_two_factor(user_id, payload.enabled)
 
 
@@ -87,11 +92,14 @@ class SetContactRequest(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     institution_id: Optional[str] = None
+    current_pin: Optional[str] = None
 
 
 @router.post("/{user_id}/security/contact")
 def set_contact(user_id: str, payload: SetContactRequest):
     try:
-        return security.set_contact(user_id, payload.email, payload.phone, payload.institution_id)
+        return security.set_contact(
+            user_id, payload.email, payload.phone, payload.institution_id, payload.current_pin
+        )
     except security.SecurityError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

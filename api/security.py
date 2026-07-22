@@ -109,9 +109,28 @@ def _mask_phone(phone: str) -> str:
 _EMAIL_RE = __import__("re").compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+def require_pin_if_set(user_id: str, current_pin: str | None) -> None:
+    """Guard a security-settings change with an existing factor.
+
+    Changing where codes are sent, or enrolling a new device, is exactly what a
+    session-riding attacker wants — redirect the OTP, trust their own phone. So
+    once a PIN exists, changing any security setting must prove it, the same
+    rule that already protects a PIN change. Bootstrapping the very first factor
+    is allowed, because there is nothing yet to prove."""
+    row = _record(user_id)
+    if not (row and row.get("pin_hash")):
+        return  # no PIN yet — first-factor setup
+    if not current_pin:
+        raise SecurityError("Enter your transaction PIN to change this.")
+    if not check_pin(user_id, current_pin):  # counts failures / locks out
+        raise SecurityError("Your PIN isn't right.")
+
+
 def set_contact(user_id: str, email: str | None, phone: str | None,
-                institution_id: str | None = None) -> dict:
-    """Register the customer's own email and/or phone for verification codes."""
+                institution_id: str | None = None, current_pin: str | None = None) -> dict:
+    """Register the customer's own email and/or phone for verification codes.
+    Gated by the PIN once one exists, so an attacker can't reroute codes."""
+    require_pin_if_set(user_id, current_pin)
     email = (email or "").strip() or None
     phone = (phone or "").strip() or None
 

@@ -1017,16 +1017,22 @@ export function securityStatus(userId: string): Promise<SecurityStatus> {
   return fetchJson<SecurityStatus>(`/v1/accounts/${encodeURIComponent(userId)}/security`);
 }
 
-/** Register the customer's own email and/or phone for verification codes. */
+/** Register the customer's own email and/or phone for verification codes.
+ * `currentPin` is required once a PIN exists (gated so codes can't be rerouted). */
 export async function setContact(
   userId: string,
-  input: { email?: string | null; phone?: string | null },
+  input: { email?: string | null; phone?: string | null; currentPin?: string | null },
   institution: string | null,
 ): Promise<SecurityStatus> {
   const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/contact`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ email: input.email ?? null, phone: input.phone ?? null, institution_id: institution }),
+    body: JSON.stringify({
+      email: input.email ?? null,
+      phone: input.phone ?? null,
+      institution_id: institution,
+      current_pin: input.currentPin ?? null,
+    }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -1053,10 +1059,10 @@ export async function setPin(
   return (await res.json()) as SecurityStatus;
 }
 
-export function setTwoFactor(userId: string, enabled: boolean): Promise<SecurityStatus> {
+export function setTwoFactor(userId: string, enabled: boolean, currentPin?: string | null): Promise<SecurityStatus> {
   return fetchJson<SecurityStatus>(`/v1/accounts/${encodeURIComponent(userId)}/security/two-factor`, {
     method: "POST",
-    body: JSON.stringify({ enabled }),
+    body: JSON.stringify({ enabled, current_pin: currentPin ?? null }),
   });
 }
 

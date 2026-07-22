@@ -326,14 +326,17 @@ function ContactRow({ status, userId, institutionId, onDone }: { status: Securit
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [pin, setPin] = useState("");
   const { busy, error, ok, run } = useAction();
   const hasContact = !!status?.email_set || !!status?.phone_set;
+  const needsPin = !!status?.pin_set;
 
   function save() {
     void run(async () => {
-      await apiSetContact(userId, { email: email || null, phone: phone || null }, institutionId);
+      await apiSetContact(userId, { email: email || null, phone: phone || null, currentPin: needsPin ? pin : null }, institutionId);
       setEmail("");
       setPhone("");
+      setPin("");
       setOpen(false);
       onDone();
     }, "Contact saved.");
@@ -359,12 +362,13 @@ function ContactRow({ status, userId, institutionId, onDone }: { status: Securit
       {open && (
         <div className="flex flex-col gap-2">
           <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" inputMode="email" placeholder="Email for codes" className={inputCls} />
-          <div className="flex gap-2">
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" inputMode="tel" placeholder="Phone (e.g. 0803…)" className={inputCls} />
-            <button type="button" onClick={save} disabled={busy || (!email && !phone)} className={btnCls}>
-              {busy ? "…" : "Save"}
-            </button>
-          </div>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" inputMode="tel" placeholder="Phone (e.g. 0803…)" className={inputCls} />
+          {needsPin && (
+            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" placeholder="Confirm with your transaction PIN" className={inputCls} />
+          )}
+          <button type="button" onClick={save} disabled={busy || (!email && !phone) || (needsPin && pin.length < 4)} className={btnCls}>
+            {busy ? "…" : "Save"}
+          </button>
           <Feedback error={error} ok={ok} />
         </div>
       )}
@@ -373,12 +377,17 @@ function ContactRow({ status, userId, institutionId, onDone }: { status: Securit
 }
 
 function PasskeyRow({ status, userId, displayName, institutionId, supported, onDone }: { status: SecurityStatus | null; userId: string; displayName: string; institutionId: string | null; supported: boolean; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [pin, setPin] = useState("");
   const { busy, error, ok, run } = useAction();
   const count = status?.passkey_count ?? 0;
+  const needsPin = !!status?.pin_set;
 
   function add() {
     void run(async () => {
-      await registerPasskey(userId, displayName, institutionId);
+      await registerPasskey(userId, displayName, institutionId, needsPin ? pin : null);
+      setPin("");
+      setOpen(false);
       onDone();
     }, "Passkey added.");
   }
@@ -389,22 +398,54 @@ function PasskeyRow({ status, userId, displayName, institutionId, supported, onD
       title="Device unlock"
       state={
         supported ? (
-          <button type="button" onClick={add} disabled={busy} className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => (needsPin ? setOpen((o) => !o) : add())}
+            disabled={busy}
+            className="flex items-center gap-2"
+          >
             <StatePill ok={count > 0} okText={`${count}`} offText="None" />
-            <span className="text-[11px] font-semibold text-[var(--brand-primary)]">{busy ? "…" : "Add device"}</span>
+            <span className="text-[11px] font-semibold text-[var(--brand-primary)]">{busy ? "…" : open ? "Close" : "Add device"}</span>
           </button>
         ) : (
           <span className="text-[11px] text-gray-400 dark:text-white/30">Not available here</span>
         )
       }
     >
+      {needsPin && open && (
+        <div className="flex flex-col gap-2">
+          <p className="text-[11px] leading-relaxed text-gray-500 dark:text-white/40">
+            Confirm with your PIN to trust a new device.
+          </p>
+          <div className="flex gap-2">
+            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" placeholder="Transaction PIN" className={inputCls} />
+            <button type="button" onClick={add} disabled={busy || pin.length < 4} className={btnCls}>
+              {busy ? "…" : "Continue"}
+            </button>
+          </div>
+        </div>
+      )}
       <Feedback error={error} ok={ok} />
     </RowShell>
   );
 }
 
 function TwoFactorRow({ status, userId, onDone }: { status: SecurityStatus | null; userId: string; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [pin, setPin] = useState("");
+  const { busy, error, run } = useAction();
   const on = !!status?.two_factor_enabled;
+  const needsPin = !!status?.pin_set;
+
+  function toggle(nextPin?: string) {
+    void run(async () => {
+      await apiSetTwoFactor(userId, !on, needsPin ? nextPin ?? pin : null);
+      setPin("");
+      setOpen(false);
+      onDone();
+    }, "");
+  }
+
   return (
     <RowShell
       icon={<DeviceMobile size={16} weight="bold" />}
@@ -413,12 +454,22 @@ function TwoFactorRow({ status, userId, onDone }: { status: SecurityStatus | nul
         <Toggle
           on={on}
           label="Two-factor"
-          onChange={() => {
-            void apiSetTwoFactor(userId, !on).then(onDone).catch(() => {});
-          }}
+          onChange={() => (needsPin ? setOpen((o) => !o) : toggle())}
         />
       }
-    />
+    >
+      {needsPin && open && (
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" placeholder="Confirm with your PIN" className={inputCls} />
+            <button type="button" onClick={() => toggle()} disabled={busy || pin.length < 4} className={btnCls}>
+              {busy ? "…" : on ? "Turn off" : "Turn on"}
+            </button>
+          </div>
+          <Feedback error={error} ok={null} />
+        </div>
+      )}
+    </RowShell>
   );
 }
 

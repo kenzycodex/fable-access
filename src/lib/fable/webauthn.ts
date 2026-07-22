@@ -78,15 +78,18 @@ interface PublicKeyCredentialRequestOptionsJSON {
   userVerification?: string;
 }
 
-/** Enrol a passkey for a customer. Triggers the real biometric prompt. */
+/** Enrol a passkey for a customer. Triggers the real biometric prompt.
+ * `currentPin` is required once the customer has a PIN — enrolling a device is
+ * a security change, so it must be authorised by an existing factor. */
 export async function registerPasskey(
   userId: string,
   displayName: string,
   institutionId: string | null,
+  currentPin?: string | null,
 ): Promise<{ credential_id: string; device_label: string }> {
   const { challenge_id, options } = await post<RegistrationOptions>(
     "/v1/stepup/passkey/register/begin",
-    { user_id: userId, display_name: displayName, institution_id: institutionId },
+    { user_id: userId, display_name: displayName, institution_id: institutionId, current_pin: currentPin ?? null },
   );
 
   const created = (await navigator.credentials.create({

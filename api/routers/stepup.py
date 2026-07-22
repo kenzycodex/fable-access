@@ -50,10 +50,19 @@ class RegisterBeginRequest(BaseModel):
     user_id: str
     display_name: str
     institution_id: Optional[str] = None
+    # Enrolling a device is a security-settings change: gated by the PIN once
+    # one exists, so a session-riding attacker can't add and trust their phone.
+    current_pin: Optional[str] = None
 
 
 @router.post("/passkey/register/begin")
 def passkey_register_begin(payload: RegisterBeginRequest):
+    import security
+
+    try:
+        security.require_pin_if_set(payload.user_id, payload.current_pin)
+    except security.SecurityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return stepup.begin_registration(payload.user_id, payload.display_name, payload.institution_id)
 
 
