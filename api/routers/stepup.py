@@ -63,6 +63,9 @@ class RegisterCompleteRequest(BaseModel):
     credential: dict
     device_label: Optional[str] = None
     institution_id: Optional[str] = None
+    # The browser fingerprint of the device the passkey is being enrolled on,
+    # so it can be trusted for the device-anomaly signal.
+    device_fingerprint: Optional[str] = None
 
 
 @router.post("/passkey/register/complete")
@@ -70,7 +73,7 @@ def passkey_register_complete(payload: RegisterCompleteRequest):
     try:
         return stepup.complete_registration(
             payload.user_id, payload.challenge_id, payload.credential,
-            payload.device_label, payload.institution_id,
+            payload.device_label, payload.institution_id, payload.device_fingerprint,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

@@ -246,7 +246,7 @@ def begin_registration(user_id: str, display_name: str, institution_id: str | No
 
 
 def complete_registration(user_id: str, challenge_id: str, credential: dict, device_label: str | None,
-                          institution_id: str | None) -> dict:
+                          institution_id: str | None, device_fingerprint: str | None = None) -> dict:
     stored = _take_challenge(challenge_id, user_id, "webauthn_register")
     if not stored:
         record_failure(user_id, "webauthn_register", "challenge_invalid")
@@ -280,6 +280,16 @@ def complete_registration(user_id: str, challenge_id: str, credential: dict, dev
                 device_label or "This device",
             ),
         )
+        # Trust the device this passkey was enrolled on, so Shield stops treating
+        # transfers from it as coming from an unrecognized device.
+        if device_fingerprint:
+            cur.execute(
+                """INSERT INTO device_profiles (fingerprint_id, user_id, trusted, last_seen)
+                   VALUES (?, ?, 1, datetime('now'))
+                   ON CONFLICT(fingerprint_id) DO UPDATE SET
+                     user_id = excluded.user_id, trusted = 1, last_seen = datetime('now')""",
+                (device_fingerprint, user_id),
+            )
     return {"credential_id": credential_id, "device_label": device_label or "This device"}
 
 

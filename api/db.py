@@ -312,6 +312,14 @@ MIGRATIONS = {
     "api_keys": {
         "institution_id": "TEXT",
     },
+    "device_profiles": {
+        # A device the customer explicitly trusted by enrolling a passkey on it.
+        # Such a device counts as "known" for the device-anomaly signal even
+        # before a transfer from it has settled — enrolling device unlock is a
+        # deliberate act of trust, so future transfers from it aren't treated as
+        # coming from a stranger.
+        "trusted": "INTEGER DEFAULT 0",
+    },
     "user_security": {
         # The customer's own out-of-band channels. Until now a verification
         # code fell back to the *institution's* contact address, which the

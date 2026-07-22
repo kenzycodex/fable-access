@@ -40,6 +40,17 @@ def get_user_baseline(user_id: str) -> dict | None:
     devices = {r["device_fingerprint"] for r in rows if r["device_fingerprint"]}
     channels = [r["channel"] for r in rows if r["channel"]]
 
+    # Devices the customer explicitly trusted by enrolling a passkey on them are
+    # known too, even before a transfer from them has settled. Enrolling device
+    # unlock is a deliberate act of trust, so the next transfer from that device
+    # shouldn't be flagged as coming from a stranger.
+    with cursor() as cur:
+        cur.execute(
+            "SELECT fingerprint_id FROM device_profiles WHERE user_id = ? AND trusted = 1",
+            (user_id,),
+        )
+        devices |= {r["fingerprint_id"] for r in cur.fetchall() if r["fingerprint_id"]}
+
     # New behavioral dimensions (columns may be NULL for old/seed rows)
     cities = {r["city"] for r in rows if r.get("city")}
     countries = [r["country"] for r in rows if r.get("country")]

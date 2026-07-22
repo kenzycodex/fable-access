@@ -11,6 +11,7 @@
 // ArrayBuffers, so these helpers translate in both directions.
 
 import { API_BASE } from "./api";
+import { collectDeviceFingerprint } from "./fingerprint";
 
 function b64urlToBuffer(value: string): ArrayBuffer {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -103,11 +104,16 @@ export async function registerPasskey(
   if (!created) throw new Error("No passkey was created.");
   const response = created.response as AuthenticatorAttestationResponse;
 
+  // Enrolling device unlock also trusts this device for the fraud engine, so
+  // send its fingerprint; the next transfer from here isn't a "new device".
+  const fp = await collectDeviceFingerprint().catch(() => null);
+
   return post("/v1/stepup/passkey/register/complete", {
     user_id: userId,
     challenge_id,
     institution_id: institutionId,
     device_label: deviceLabel(),
+    device_fingerprint: fp?.fingerprint_id ?? null,
     credential: {
       id: created.id,
       rawId: bufferToB64url(created.rawId),
