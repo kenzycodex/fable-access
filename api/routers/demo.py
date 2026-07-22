@@ -5,13 +5,54 @@ import json
 import random
 import uuid
 from datetime import datetime, timedelta
+from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
-from db import DEFAULT_INSTITUTION_ID, cursor
+from db import DEFAULT_INSTITUTION_ID, cursor, loads, row_to_dict
 from models.schemas import DemoSeedRequest, InstitutionSeedRequest
 
 router = APIRouter(prefix="/v1/demo", tags=["demo"])
+
+
+@router.get("/overview/{user_id}")
+def customer_overview(user_id: str, institution: Optional[str] = Query(None), limit: int = Query(60, ge=1, le=200)):
+    """One round-trip for a customer's home screen: balance, recent transfers
+    and the learned baseline together.
+
+    The demo bank used to fire three separate requests (account, transactions,
+    transparency) on every customer switch and poll. Composing them here means
+    switching customers, or refreshing, is a single call instead of three across
+    a cross-region hop."""
+    import accounts as ledger
+    from agents.copilot.transparency import get_transparency_data
+
+    where = "WHERE user_id = ?"
+    params: list = [user_id]
+    if institution:
+        where += " AND institution_id = ?"
+        params.append(institution)
+
+    with cursor() as cur:
+        cur.execute(
+            f"""SELECT id, user_id, amount, recipient_id, recipient_name, recipient_account,
+                       recipient_bank, narration, channel, device_fingerprint, risk_score,
+                       risk_level, action_taken, shield_signals, latency_ms, created_at,
+                       status, explanation
+                FROM transactions {where}
+                ORDER BY created_at DESC LIMIT ?""",
+            params + [limit],
+        )
+        rows = [row_to_dict(r) for r in cur.fetchall()]
+    for r in rows:
+        r["signals"] = loads(r.pop("shield_signals"), [])
+
+    return {
+        "user_id": user_id,
+        "balance": {**ledger.get_balance(user_id, institution), "limits": ledger.limits()},
+        "transactions": rows,
+        "baseline": get_transparency_data(user_id).get("what_we_know", {}),
+    }
 
 RECURRING_RECIPIENTS = [
     {"recipient_id": "mum", "recipient_account": "0123453456", "recipient_bank": "Access Bank", "amount_range": (8000, 12000), "narration": "food money", "day_of_month": 28},

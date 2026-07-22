@@ -882,6 +882,32 @@ export async function customerTransactions(
   return res.transactions.map(mapApiRow);
 }
 
+export interface CustomerOverview {
+  balance: AccountBalance;
+  transactions: Transaction[];
+  baseline: CopilotBaseline;
+}
+
+/** Balance, recent transactions and the learned baseline in one request.
+ * Replaces three separate calls the home screen fired per customer, so a
+ * switch or refresh is a single round-trip. */
+export async function customerOverview(
+  userId: string,
+  institution: string | null,
+  limit = 60,
+): Promise<CustomerOverview> {
+  const res = await fetchJson<{
+    balance: AccountBalance;
+    transactions: ApiTransactionRow[];
+    baseline: CopilotBaseline;
+  }>(`/v1/demo/overview/${encodeURIComponent(userId)}?limit=${limit}${tenantParam(institution)}`);
+  return {
+    balance: res.balance,
+    transactions: res.transactions.map(mapApiRow),
+    baseline: res.baseline,
+  };
+}
+
 export function getBranding(institutionId: string): Promise<Branding> {
   return fetchJson<Branding>(`/v1/branding/${encodeURIComponent(institutionId)}`);
 }

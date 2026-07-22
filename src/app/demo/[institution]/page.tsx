@@ -21,8 +21,7 @@ import {
 } from "@phosphor-icons/react";
 import { Avatar, Card, Screen } from "@/components/demo/kit";
 import useSWR from "swr";
-import { accountBalance, customerTransactions } from "@/lib/fable/api";
-import { useCopilotBaseline } from "@/lib/fable/useBackend";
+import { customerOverview } from "@/lib/fable/api";
 import { summarizeCustomer } from "@/lib/fable/analytics";
 import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
 import { DEMO_USER } from "@/lib/fable/seed";
@@ -55,14 +54,18 @@ export default function DemoHomePage() {
     ensureSession();
   }, []);
 
-  // This customer's real history, from the server. The local store keys on
-  // customer name, which collided the moment two institutions had a
-  // similarly-named customer; user_id is unique per tenant.
-  const { data: serverTxns } = useSWR(
-    customer ? ["demo:txns", customer.user_id, institutionId] : null,
-    () => customerTransactions(customer!.user_id, institutionId),
-    { refreshInterval: 5_000, keepPreviousData: true },
+  // Balance, transactions and the learned baseline in one request. This screen
+  // used to fire three separate polls per customer (and re-fire all three on
+  // every switch); the batched overview is a single round-trip. The balance is
+  // still the server's authoritative ledger figure, not client arithmetic.
+  const { data: overview } = useSWR(
+    customer ? ["demo:overview", customer.user_id, institutionId] : null,
+    () => customerOverview(customer!.user_id, institutionId),
+    { refreshInterval: 8_000, keepPreviousData: true },
   );
+  const serverTxns = overview?.transactions;
+  const account = overview?.balance;
+  const baseline = overview?.baseline;
 
   // Live transfers made this session land in the local store first, so they
   // show immediately rather than waiting on the next poll. Scoped to the
@@ -75,23 +78,9 @@ export default function DemoHomePage() {
   ].sort((a, b) => b.timestamp - a.timestamp);
   const myTxns = allMyTxns.slice(0, 5);
 
-  // The balance comes from the server's ledger, not from arithmetic on the
-  // client. It is the same number the transfer path checks against, so what
-  // the customer sees and what the system enforces cannot drift apart.
-  const { data: account } = useSWR(
-    customer ? ["balance", customer.user_id, institutionId] : null,
-    () => accountBalance(customer!.user_id, institutionId),
-    { refreshInterval: 15_000, keepPreviousData: true },
-  );
-
   // Income, spend and categories remain derived from the feed; only the
   // balance is authoritative elsewhere.
   const summary = summarizeCustomer(allMyTxns, 0);
-
-  // What Copilot has actually learned about this customer — the same baseline
-  // Shield scores against, so the profile card reflects live knowledge rather
-  // than a fixed archetype label.
-  const { data: baseline } = useCopilotBaseline(customer?.user_id);
 
   return (
     <Screen>

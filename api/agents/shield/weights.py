@@ -76,16 +76,35 @@ def amount_anomaly_boost(multiplier: float) -> tuple[float, int]:
 # riskier rail. USSD and internet — the channels NIBSS ties to the most loss —
 # trip sooner; an in-person branch transfer is given more room. A card-not-
 # present, an NIP payout and a USSD push should never share one boundary.
-_DEFAULT_THRESHOLD = {"block": 0.80, "flag": 0.50}
+#
+# Every cutoff is env-overridable: FABLE_THRESHOLD_<CHANNEL>_<BLOCK|FLAG>
+# (e.g. FABLE_THRESHOLD_USSD_BLOCK=0.72), and the fallback default is
+# FABLE_BLOCK_THRESHOLD / FABLE_FLAG_THRESHOLD, shared with config.py.
+_DEFAULT_BLOCK = float(os.getenv("FABLE_BLOCK_THRESHOLD", "0.80"))
+_DEFAULT_FLAG = float(os.getenv("FABLE_FLAG_THRESHOLD", "0.50"))
+_DEFAULT_THRESHOLD = {"block": _DEFAULT_BLOCK, "flag": _DEFAULT_FLAG}
+
+_CHANNEL_DEFAULTS = {
+    "ussd": (0.75, 0.45),
+    "internet": (0.75, 0.45),
+    "pos": (0.78, 0.48),
+    "atm": (0.78, 0.48),
+    "mobile_app": (0.80, 0.50),
+    "qr": (0.80, 0.50),
+    "branch": (0.85, 0.55),
+}
+
+
+def _channel_threshold(channel: str, block_default: float, flag_default: float) -> dict:
+    return {
+        "block": float(os.getenv(f"FABLE_THRESHOLD_{channel.upper()}_BLOCK", block_default)),
+        "flag": float(os.getenv(f"FABLE_THRESHOLD_{channel.upper()}_FLAG", flag_default)),
+    }
+
 
 CHANNEL_THRESHOLDS = {
-    "ussd": {"block": 0.75, "flag": 0.45},
-    "internet": {"block": 0.75, "flag": 0.45},
-    "pos": {"block": 0.78, "flag": 0.48},
-    "atm": {"block": 0.78, "flag": 0.48},
-    "mobile_app": {"block": 0.80, "flag": 0.50},
-    "qr": {"block": 0.80, "flag": 0.50},
-    "branch": {"block": 0.85, "flag": 0.55},
+    channel: _channel_threshold(channel, blk, flg)
+    for channel, (blk, flg) in _CHANNEL_DEFAULTS.items()
 }
 
 

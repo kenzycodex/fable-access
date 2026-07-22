@@ -77,9 +77,10 @@ WEBAUTHN_RP_ID = os.getenv("WEBAUTHN_RP_ID", "localhost")
 _raw_origins_wa = os.getenv("WEBAUTHN_ORIGINS", "http://localhost:3000,http://localhost:3001")
 WEBAUTHN_ORIGINS = [o.strip() for o in _raw_origins_wa.split(",") if o.strip()]
 
-# Risk thresholds
-BLOCK_THRESHOLD = 0.8
-FLAG_THRESHOLD = 0.5
+# Risk thresholds — the default decision boundary, overridable per deployment.
+# Per-channel overrides live in agents/shield/weights.py (FABLE_THRESHOLD_*).
+BLOCK_THRESHOLD = float(os.getenv("FABLE_BLOCK_THRESHOLD", "0.8"))
+FLAG_THRESHOLD = float(os.getenv("FABLE_FLAG_THRESHOLD", "0.5"))
 
 # Hard ceiling on any single explanation call. The explainer runs off the
 # request path, so this does not gate a decision — it stops a hung provider
