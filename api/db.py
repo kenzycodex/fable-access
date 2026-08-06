@@ -28,7 +28,11 @@ _initialized = False
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS fable_users (
     user_id TEXT PRIMARY KEY,
-    institution_id TEXT DEFAULT 'demo_bank',
+    -- 'demo_bank' used to be the default here and hardcoded in the seed
+    -- endpoint, while DEFAULT_INSTITUTION_ID is 'meridian'. No institutions row
+    -- has ever existed for 'demo_bank', so anything created through that path
+    -- was orphaned to a tenant no dashboard could select.
+    institution_id TEXT DEFAULT 'meridian',
     enrolled_at TEXT DEFAULT (datetime('now')),
     copilot_enabled INTEGER DEFAULT 1,
     shield_enabled INTEGER DEFAULT 1,
@@ -357,8 +361,27 @@ def _migrate(conn):
         "UPDATE transactions SET institution_id = ? WHERE institution_id IS NULL",
         (DEFAULT_INSTITUTION_ID,),
     )
+    # Scoped to containers whose owner genuinely belongs to the default tenant.
+    #
+    # This was an unconditional claim on every NULL, which turned a one-off
+    # backfill into a permanent trap: seeding wrote containers with no tenant,
+    # and the next startup handed all of them to the default institution
+    # regardless of which bank they belonged to. One bank's "fraud prevented"
+    # appeared on another's dashboard. The insert is fixed, so this now only
+    # has genuine pre-multi-tenancy rows to catch, and it can no longer take a
+    # container whose transactions point elsewhere.
     conn.execute(
-        "UPDATE ghost_containers SET institution_id = ? WHERE institution_id IS NULL",
+        """UPDATE ghost_containers SET institution_id = ?
+           WHERE institution_id IS NULL
+             AND user_id NOT IN (
+                 SELECT DISTINCT user_id FROM transactions
+                 WHERE institution_id IS NOT NULL AND institution_id != ?
+             )""",
+        (DEFAULT_INSTITUTION_ID, DEFAULT_INSTITUTION_ID),
+    )
+    # Legacy rows from when the schema defaulted to a tenant that never existed.
+    conn.execute(
+        "UPDATE fable_users SET institution_id = ? WHERE institution_id = 'demo_bank'",
         (DEFAULT_INSTITUTION_ID,),
     )
     # Existing API keys predate institution_id; derive it from the stored name.

@@ -7,10 +7,13 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
+import config
+from agents.ghost.account import calculate_cooling_window
 from db import DEFAULT_INSTITUTION_ID, cursor, loads, row_to_dict
 from models.schemas import DemoSeedRequest, InstitutionSeedRequest
+from tenancy import resolve_institution
 
 router = APIRouter(prefix="/v1/demo", tags=["demo"])
 
@@ -94,25 +97,56 @@ def _seed_transaction(user_id: str, recipient: dict, created_at: datetime):
 
 
 @router.post("/seed-institution")
-def seed_institution_endpoint(payload: InstitutionSeedRequest):
-    """Seed all demo customers for one tenant (used at provisioning time and
-    by the demo bank when it opens onto an institution with no history)."""
+def seed_institution_endpoint(payload: InstitutionSeedRequest, request: Request):
+    """Seed a tenant's demo customers. Used at provisioning time and to reset."""
+    _require_operator(request)
     from agents.copilot.demo_customers import seed_institution
 
-    return seed_institution(payload.institution_id, payload.days)
+    return seed_institution(payload.institution_id, payload.days, payload.customers)
+
+
+def _require_operator(request: Request) -> None:
+    """Seeding wipes and rewrites a customer's history, so it is not public.
+
+    Both seed endpoints were unauthenticated, and this one deletes every
+    transaction and container for any user id a caller names. Gated behind the
+    same operator key as provisioning, and disabled when that key is unset.
+    """
+    if not config.ADMIN_OPERATOR_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Seeding is disabled. Set FABLE_OPERATOR_KEY to enable it.",
+        )
+    import hmac
+    if not hmac.compare_digest(request.headers.get("x-fable-operator-key", ""), config.ADMIN_OPERATOR_KEY):
+        raise HTTPException(status_code=401, detail="Operator key required.")
 
 
 @router.post("/seed")
-def seed(payload: DemoSeedRequest):
+def seed(payload: DemoSeedRequest, request: Request):
+    _require_operator(request)
+
     user_id = payload.user_id
     days = payload.days
+    # The tenant was hardcoded to 'demo_bank', an id that exists in no
+    # institutions row, so anything seeded here was orphaned to a tenant no
+    # dashboard could select. Threats were separately defaulted to the platform
+    # default tenant, so a seed for one bank's customer wrote history into
+    # another bank's feed.
+    institution_id = resolve_institution(request, payload.institution_id)
 
     with cursor() as cur:
-        cur.execute("DELETE FROM transactions WHERE user_id = ?", (user_id,))
-        cur.execute("DELETE FROM ghost_containers WHERE user_id = ?", (user_id,))
+        # Scoped to seed rows. Without is_seed = 1 this deleted the customer's
+        # real transfers too, which is destructive well beyond what re-seeding
+        # a demo should mean.
+        cur.execute("DELETE FROM transactions WHERE user_id = ? AND is_seed = 1", (user_id,))
         cur.execute(
-            "INSERT OR IGNORE INTO fable_users (user_id, institution_id) VALUES (?, 'demo_bank')",
+            "DELETE FROM ghost_containers WHERE user_id = ? AND explanation LIKE 'Seeded%'",
             (user_id,),
+        )
+        cur.execute(
+            "INSERT OR IGNORE INTO fable_users (user_id, institution_id) VALUES (?, ?)",
+            (user_id, institution_id),
         )
 
     now = datetime.utcnow()
@@ -132,11 +166,12 @@ def seed(payload: DemoSeedRequest):
             _seed_transaction(user_id, recipient, day)
             count += 1
 
-    threats = seed_threat_history(user_id, days)
+    threats = seed_threat_history(user_id, days, institution_id)
 
     return {
         "status": "seeded",
         "user_id": user_id,
+        "institution_id": institution_id,
         "days": days,
         "transactions_created": count,
         "threats_created": threats,
@@ -160,18 +195,25 @@ THREAT_TEMPLATES = [
 ]
 
 
-def seed_threat_history(user_id: str, days: int, institution_id: str = DEFAULT_INSTITUTION_ID) -> int:
+def seed_threat_history(user_id: str, days: int, institution_id: str = DEFAULT_INSTITUTION_ID,
+                        count: int = 22, rng: random.Random | None = None) -> int:
+    """Seed historical BLOCK/FLAG activity for one customer.
+
+    `rng` lets the caller pass a seeded generator so a given institution always
+    gets the same history. Without it, re-seeding produced different baselines
+    each time and two runs were not comparable.
+    """
+    rnd = rng or random
     created = 0
     now = datetime.utcnow()
-    # ~22 historical threats spread across the window
-    for _ in range(22):
-        tmpl = random.choice(THREAT_TEMPLATES)
-        day_offset = random.randint(0, max(days - 1, 1))
-        ts = (now - timedelta(days=day_offset)).replace(hour=random.choice([1, 2, 3, 22, 23, 13]), minute=random.randint(0, 59))
-        amount = round(random.uniform(*tmpl["amount"]), -3)
-        score = round(random.uniform(*tmpl["score"]), 3)
+    for _ in range(count):
+        tmpl = rnd.choice(THREAT_TEMPLATES)
+        day_offset = rnd.randint(0, max(days - 1, 1))
+        ts = (now - timedelta(days=day_offset)).replace(hour=rnd.choice([1, 2, 3, 22, 23, 13]), minute=rnd.randint(0, 59))
+        amount = round(rnd.uniform(*tmpl["amount"]), -3)
+        score = round(rnd.uniform(*tmpl["score"]), 3)
         txid = f"txn_{uuid.uuid4().hex[:12]}"
-        acct = f"0{random.randint(100000000, 999999999)}"
+        acct = f"0{rnd.randint(100000000, 999999999)}"
 
         with cursor() as cur:
             cur.execute(
@@ -183,22 +225,33 @@ def seed_threat_history(user_id: str, days: int, institution_id: str = DEFAULT_I
                    VALUES (?, ?, ?, 'NGN', 'unknown', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)""",
                 (
                     txid, user_id, amount, acct, tmpl["bank"], tmpl["narration"], tmpl["channel"],
-                    f"fp_threat_{random.randint(1000,9999)}", ts.hour, score, tmpl["level"],
+                    f"fp_threat_{rnd.randint(1000,9999)}", ts.hour, score, tmpl["level"],
                     tmpl["action"], json.dumps(tmpl["signals"]), ts.isoformat(),
                     institution_id,
                 ),
             )
             # Blocked high-risk transfers where the user reached for Ghost and
             # cancelled = fraud prevented (money returned).
-            if tmpl["ghost"] and random.random() < 0.7:
+            if tmpl["ghost"] and rnd.random() < 0.7:
                 gid = f"ghost_{uuid.uuid4().hex[:12]}"
+                cooling = calculate_cooling_window(score)
                 cur.execute(
+                    # institution_id was missing from this column list, so every
+                    # seeded container was written with a NULL tenant. It then
+                    # matched no tenant-scoped query (so "fraud prevented" read
+                    # zero for the bank that just seeded it), and on the next
+                    # startup the migration backfill claimed all of them for the
+                    # default tenant — silently moving one bank's headline
+                    # figure onto another's dashboard.
                     """INSERT INTO ghost_containers
                        (ghost_id, user_id, amount, recipient_id, recipient_account, recipient_bank,
-                        status, cooling_window_minutes, risk_score, explanation, created_at, expires_at, resolved_at)
-                       VALUES (?, ?, ?, 'unknown', ?, ?, 'CANCELLED', 30, ?, 'Seeded historical containment.', ?, ?, ?)""",
-                    (gid, user_id, amount, acct, tmpl["bank"], score, ts.isoformat(),
-                     (ts + timedelta(minutes=30)).isoformat(), (ts + timedelta(minutes=8)).isoformat()),
+                        status, cooling_window_minutes, risk_score, explanation, created_at,
+                        expires_at, resolved_at, institution_id)
+                       VALUES (?, ?, ?, 'unknown', ?, ?, 'CANCELLED', ?, ?, 'Seeded historical containment.', ?, ?, ?, ?)""",
+                    (gid, user_id, amount, acct, tmpl["bank"], cooling, score, ts.isoformat(),
+                     (ts + timedelta(minutes=cooling)).isoformat(),
+                     (ts + timedelta(minutes=max(cooling // 3, 1))).isoformat(),
+                     institution_id),
                 )
         created += 1
     return created
