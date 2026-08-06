@@ -4,12 +4,32 @@ Builds a 90-day behavioral profile per user from transaction history so
 Shield can judge anomalies against *this user's* normal, not a global
 average.
 """
+import os
 import statistics
 from datetime import datetime, timedelta
 
 from db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict, loads
 
 MIN_TRANSACTIONS_FOR_BASELINE = 3
+
+# How far back recipients stay familiar, independent of the 90-day statistical
+# window. Amounts and hours should reflect recent behaviour, but "have I paid
+# this person before?" is a memory question, not a recent-behaviour one. On a
+# 90-day window, school fees (termly), insurance and annual subscriptions were
+# treated as first contact every single time — among the most predictable
+# payments a customer makes, and each one paid the new-recipient penalty.
+RECIPIENT_MEMORY_DAYS = int(os.getenv("FABLE_RECIPIENT_MEMORY_DAYS", "540"))
+
+# Tenure discount. A customer with a long, clean, confirmed history has earned
+# some benefit of the doubt, and previously earned none: past the three-
+# transaction cold-start threshold the friction model was completely flat, so
+# 500 clean transfers scored exactly like 3.
+#
+# Deliberately small and capped. This reduces friction for established
+# customers; it must never be large enough to wave through a genuinely
+# anomalous transfer, so it is a nudge rather than an override.
+TENURE_DISCOUNT_MAX = float(os.getenv("FABLE_TENURE_DISCOUNT_MAX", "0.08"))
+TENURE_FULL_AT = int(os.getenv("FABLE_TENURE_FULL_AT", "120"))
 
 # A brand-new account is precisely when mule and takeover activity happens, so
 # "no history" must not mean "no scrutiny". Below the personal threshold Shield
@@ -36,7 +56,20 @@ def get_user_baseline(user_id: str) -> dict | None:
 
     amounts = [r["amount"] for r in rows]
     hours = [r["hour_of_day"] for r in rows if r["hour_of_day"] is not None]
-    recipients = {r["recipient_account"] for r in rows if r["recipient_account"]}
+
+    # Recipients are remembered far longer than the statistical window.
+    # Someone paid quarterly or annually is not a stranger, but a 90-day window
+    # said they were, so every termly school fee and yearly renewal re-paid the
+    # new-recipient penalty.
+    recipient_cutoff = (datetime.utcnow() - timedelta(days=RECIPIENT_MEMORY_DAYS)).isoformat()
+    with cursor() as cur:
+        cur.execute(
+            """SELECT DISTINCT recipient_account FROM transactions
+               WHERE user_id = ? AND created_at >= ? AND confirmed_legitimate = 1
+                 AND recipient_account IS NOT NULL AND recipient_account != ''""",
+            (user_id, recipient_cutoff),
+        )
+        recipients = {r["recipient_account"] for r in cur.fetchall()}
     devices = {r["device_fingerprint"] for r in rows if r["device_fingerprint"]}
     channels = [r["channel"] for r in rows if r["channel"]]
 
@@ -50,6 +83,11 @@ def get_user_baseline(user_id: str) -> dict | None:
             (user_id,),
         )
         devices |= {r["fingerprint_id"] for r in cur.fetchall() if r["fingerprint_id"]}
+
+    # How well established this customer is, 0..1. Drives the tenure discount.
+    # `trust_score` and `times_seen` were already being maintained on every
+    # device sighting and read by nothing at all.
+    tenure = min(len(rows) / TENURE_FULL_AT, 1.0) if TENURE_FULL_AT else 0.0
 
     # New behavioral dimensions (columns may be NULL for old/seed rows)
     cities = {r["city"] for r in rows if r.get("city")}
@@ -84,8 +122,34 @@ def get_user_baseline(user_id: str) -> dict | None:
         "avg_time_to_submit": statistics.mean(submit_times) if submit_times else None,
         "preferred_channel": preferred_channel,
         "transaction_count": len(rows),
+        "tenure": round(tenure, 3),
+        "tenure_discount": round(tenure * TENURE_DISCOUNT_MAX, 4),
+        "device_trust": _device_trust(user_id),
         "last_updated": datetime.utcnow().isoformat(),
     }
+
+
+def _device_trust(user_id: str) -> dict[str, float]:
+    """Per-device trust, keyed by fingerprint.
+
+    `trust_score` climbs 0.05 per sighting toward 1.0 and was written on every
+    transfer while being read by nothing. A device seen fifty times is
+    meaningfully different from one seen twice, and the device-anomaly signal
+    was treating both as simply "not in the known set".
+    """
+    try:
+        with cursor() as cur:
+            cur.execute(
+                "SELECT fingerprint_id, trust_score, times_seen FROM device_profiles WHERE user_id = ?",
+                (user_id,),
+            )
+            return {
+                r["fingerprint_id"]: float(r["trust_score"] or 0.0)
+                for r in cur.fetchall()
+                if r["fingerprint_id"]
+            }
+    except Exception:
+        return {}
 
 
 def get_population_baseline(institution_id: str | None) -> dict | None:

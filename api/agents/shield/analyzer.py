@@ -213,8 +213,20 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     # applies once the customer has their own history to contradict.
     if baseline and not cold_start and fingerprint and baseline["known_devices"] and fingerprint not in baseline["known_devices"]:
         boost = WEIGHTS["device_anomaly_large"] if is_large else WEIGHTS["device_anomaly"]
-        signals.append(f"device_anomaly: unrecognized device (+{boost})")
-        score += boost
+        # A device Fable has seen repeatedly is not a stranger, even if no
+        # transfer from it has settled yet. trust_score climbs with each sighting
+        # and was previously maintained and never read, so a device seen fifty
+        # times scored identically to one seen twice.
+        trust = (baseline.get("device_trust") or {}).get(fingerprint, 0.0)
+        if trust > 0.5:
+            damped = round(boost * (1 - min(trust, 0.9)), 3)
+            signals.append(
+                f"device_anomaly: unrecognized device, but seen before (+{damped})"
+            )
+            score += damped
+        else:
+            signals.append(f"device_anomaly: unrecognized device (+{boost})")
+            score += boost
 
     # Step 9: Location anomaly — not in any known city / outside home country
     city = context.get("city")
@@ -295,7 +307,26 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         signals.append(f"velocity: {recent} transfers in {VELOCITY_WINDOW_MINUTES}m (+{boost})")
         score += boost
 
-    score = min(round(score, 3), 1.0)
+    # Tenure discount. Past the cold-start threshold the friction model was
+    # completely flat: a customer with 3 clean transfers and one with 500 over
+    # two years scored identically, so no amount of good history ever bought
+    # anything. A long, clean, confirmed record is evidence, and it was the one
+    # kind the engine ignored.
+    #
+    # Applied last, capped small, and never below zero. It softens ordinary
+    # friction for established customers without being able to rescue a
+    # genuinely anomalous transfer: at the maximum it is worth less than a
+    # single new-recipient signal.
+    if baseline and not cold_start:
+        discount = baseline.get("tenure_discount") or 0.0
+        if discount > 0 and score > 0:
+            applied = min(discount, score)
+            signals.append(
+                f"tenure: {baseline.get('transaction_count', 0)} clean transfers on record (-{round(applied, 3)})"
+            )
+            score -= applied
+
+    score = min(round(max(score, 0.0), 3), 1.0)
 
     # Critical override: NIP code 34 (NIBSS-flagged fraud) always BLOCK
     if nip_code == "34":
