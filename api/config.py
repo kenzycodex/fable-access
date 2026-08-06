@@ -46,6 +46,26 @@ CORS_ORIGINS = ["*"] if _raw_origins.strip() == "*" else [o.strip() for o in _ra
 # Optional Sentry error monitoring.
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 
+# --- Dashboard sessions ---
+# Signs the console's session tokens. Must be set in production: without it a
+# random secret is generated per process, so every restart silently invalidates
+# every session, and two processes would reject each other's tokens.
+# Generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"
+SESSION_SECRET = os.getenv("FABLE_SESSION_SECRET", "").strip()
+if not SESSION_SECRET:
+    import secrets as _secrets
+    SESSION_SECRET = _secrets.token_urlsafe(48)
+    _SESSION_SECRET_IS_EPHEMERAL = True
+else:
+    _SESSION_SECRET_IS_EPHEMERAL = False
+
+# Gates POST /admin/provision, which mints institution API keys and admin
+# credentials. Unset means the endpoint is disabled rather than open: an
+# unauthenticated provisioning endpoint hands out live credentials to anyone
+# who finds it, and "off" is the safe default for something that has no
+# business being reachable in normal operation.
+ADMIN_OPERATOR_KEY = os.getenv("FABLE_OPERATOR_KEY", "").strip()
+
 # Return the OTP in the API response when delivery fails. Development only.
 # This exists so the step-up flow stays testable with no SMS/SMTP provider
 # wired; it must never be enabled anywhere real, because the whole point of an

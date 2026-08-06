@@ -1,5 +1,7 @@
 import importlib
 import logging
+import os
+import secrets
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -68,6 +70,16 @@ logger.info("Fable API routers loaded: %s", ", ".join(_loaded))
 # an API that answered /health with 200 while /v1/shield/analyze returned 404 —
 # the entire product absent, with almost no signal. Anything in _REQUIRED is
 # load-bearing, so its absence is shouted rather than logged.
+if config._SESSION_SECRET_IS_EPHEMERAL:
+    logger.warning(
+        "FABLE_SESSION_SECRET is not set, so a random one was generated for "
+        "this process. Console sessions will be invalidated on every restart. "
+        "Set it in production: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+    )
+
+if not config.ADMIN_OPERATOR_KEY:
+    logger.info("FABLE_OPERATOR_KEY is not set, so POST /admin/provision is disabled.")
+
 _REQUIRED = {"shield", "ghost", "copilot"}
 _missing = _REQUIRED - set(_loaded)
 if _missing:
@@ -79,12 +91,20 @@ if _missing:
     )
 
 
-# Default demo admin so the pre-filled dashboard login works out of the box.
-# Idempotent, and wrapped so it can never crash startup. Provisioning new
-# institutions live (POST /admin/provision) still works independently.
-DEFAULT_ADMIN_EMAIL = "risk@meridian.ng"
-DEFAULT_ADMIN_PASSWORD = "fable-demo"
-DEFAULT_ADMIN_INSTITUTION = "meridian"
+# Default demo admin so the console is reachable on a fresh database.
+#
+# The password used to be the literal "fable-demo", committed to a public
+# repository, and created on every startup. Anyone who read the source could
+# sign into the demo tenant; chained with the tenant-from-query-parameter hole
+# that meant every tenant's data and API key.
+#
+# It is now taken from the environment, and when unset a random one is
+# generated and logged ONCE at startup so a fresh deployment is still usable
+# without configuration. Nothing is created if the admin already exists, so an
+# existing password is never silently reset.
+DEFAULT_ADMIN_EMAIL = os.getenv("FABLE_DEMO_ADMIN_EMAIL", "risk@meridian.ng")
+DEFAULT_ADMIN_PASSWORD = os.getenv("FABLE_DEMO_ADMIN_PASSWORD", "").strip()
+DEFAULT_ADMIN_INSTITUTION = os.getenv("FABLE_DEMO_ADMIN_INSTITUTION", "meridian")
 
 
 @app.on_event("startup")
@@ -96,11 +116,22 @@ def ensure_default_admin() -> None:
         with cursor() as cur:
             cur.execute("SELECT 1 FROM admins WHERE email = ?", (DEFAULT_ADMIN_EMAIL,))
             if not cur.fetchone():
+                password = DEFAULT_ADMIN_PASSWORD or secrets.token_urlsafe(12)
                 cur.execute(
                     "INSERT INTO admins (email, institution_id, hashed_password) VALUES (?, ?, ?)",
-                    (DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_INSTITUTION, hash_password(DEFAULT_ADMIN_PASSWORD)),
+                    (DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_INSTITUTION, hash_password(password)),
                 )
-                logger.info("Seeded default demo admin: %s", DEFAULT_ADMIN_EMAIL)
+                if DEFAULT_ADMIN_PASSWORD:
+                    logger.info("Seeded demo admin %s from FABLE_DEMO_ADMIN_PASSWORD.", DEFAULT_ADMIN_EMAIL)
+                else:
+                    # Printed once, on creation only. The hash is all that is
+                    # stored, so this line is the only chance to capture it.
+                    logger.warning(
+                        "Seeded demo admin %s with a GENERATED password: %s\n"
+                        "Record it now; it is not recoverable. Set "
+                        "FABLE_DEMO_ADMIN_PASSWORD to choose your own.",
+                        DEFAULT_ADMIN_EMAIL, password,
+                    )
 
             # The default tenant predates provisioning — it comes from the
             # multi-tenancy backfill — so it has no API key unless we issue

@@ -1,6 +1,7 @@
+import hmac
 import smtplib
 from email.message import EmailMessage
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel
 import secrets
 import string
@@ -83,12 +84,56 @@ def send_provision_email(admin_email: str, institution_name: str, temp_password:
         print(f"Failed to send email: {e}")
         # We don't raise here because we still want to return the keys if email fails
 
+def _require_operator(request: Request) -> None:
+    """Provisioning mints live credentials, so it is not a public endpoint.
+
+    It was reachable with no authentication at all, returning an institution
+    API key and an admin password in the response body. In the default config
+    APIKeyMiddleware is a no-op, so this was open to the internet.
+
+    Disabled outright when no operator key is configured. An endpoint that
+    hands out credentials should fail closed when its guard is missing, not
+    fall back to open.
+    """
+    if not config.ADMIN_OPERATOR_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Provisioning is disabled. Set FABLE_OPERATOR_KEY to enable it.",
+        )
+    supplied = request.headers.get("x-fable-operator-key", "")
+    if not hmac.compare_digest(supplied, config.ADMIN_OPERATOR_KEY):
+        raise HTTPException(status_code=401, detail="Operator key required.")
+
+
 @router.post("/provision")
-def provision_institution(req: ProvisionRequest, background_tasks: BackgroundTasks):
+def provision_institution(req: ProvisionRequest, background_tasks: BackgroundTasks, request: Request):
+    _require_operator(request)
+
+    institution_id = slugify_institution(req.institution_name)
+
+    # Slug collision is tenant takeover, not a naming inconvenience.
+    # "Zenith Bank", "zenith bank" and "Zenith  Bank" all slugify to
+    # zenith_bank, and provisioning a colliding name previously issued an API
+    # key bound to the *existing* tenant, overwrote their admin row via
+    # INSERT OR REPLACE, and then wiped their transactions during seeding.
+    with cursor() as cur:
+        cur.execute("SELECT 1 FROM institutions WHERE institution_id = ?", (institution_id,))
+        if cur.fetchone():
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "institution_exists",
+                    "message": (
+                        f"An institution already uses the id '{institution_id}'. "
+                        "Choose a distinct name."
+                    ),
+                    "institution_id": institution_id,
+                },
+            )
+
     temp_pw = generate_temp_password()
     api_key = generate_api_key()
     hashed_pw = hash_password(temp_pw)
-    institution_id = slugify_institution(req.institution_name)
 
     # Save the generated API key and Admin User to the DB
     with cursor() as cur:
