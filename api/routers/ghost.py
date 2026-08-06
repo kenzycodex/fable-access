@@ -1,5 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
+import audit
 import notifications
 
 from models.schemas import GhostCreateRequest, GhostActionRequest
@@ -35,6 +36,10 @@ def create(payload: GhostCreateRequest, request: Request, background: Background
     # Backgrounded because the hold is already in place and the money is
     # already safe: a slow SMTP server must not delay the response, and a
     # failed send must not fail containment.
+    audit.record(audit.CONTAINMENT_CREATED, payload.user_id,
+                 ghost_id=container["ghost_id"], amount=transaction.get("amount"),
+                 risk_score=payload.risk_score, institution_id=institution_id)
+
     background.add_task(
         notifications.notify_containment,
         payload.user_id, institution_id, container["ghost_id"],

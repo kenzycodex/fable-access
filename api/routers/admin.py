@@ -58,7 +58,6 @@ def send_provision_email(admin_email: str, institution_name: str, temp_password:
           <h3 style="margin-top: 0;">API Integration</h3>
           <p><strong>API Key:</strong> <code style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">{api_key}</code></p>
           <p>Use this key in the <code>Authorization: Bearer &lt;key&gt;</code> header to authenticate with the Fable Engine.</p>
-          <p><strong>Webhook Endpoint:</strong> Configure your webhook receiver URL in the Dashboard Settings to receive real-time signals.</p>
         </div>
 
         <div style="background-color: #f9f9f9; border-left: 4px solid #7C3AED; padding: 15px; margin-bottom: 20px;">

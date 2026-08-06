@@ -242,11 +242,10 @@ def pin_verify(payload: PinVerifyRequest):
     if not ok:
         raise HTTPException(status_code=400, detail="That PIN isn't right.")
 
-    # A PIN alone satisfies the pin tier. For the composed tier it is one of
-    # three parts, and the token is only issued once the caller says which
-    # level it is completing.
-    level = "pin" if payload.required_level != "identity_check" else "pin"
-    token = stepup.issue_token(payload.user_id, level, payload.purpose, payload.reference)
+    # A PIN alone satisfies the pin tier, and is one part of the composed tier.
+    # Either way the token records what was actually proved, which is a PIN.
+    # (This was a ternary whose branches were identical.)
+    token = stepup.issue_token(payload.user_id, "pin", payload.purpose, payload.reference)
     return {"verified": True, "level": level, **token}
 
 

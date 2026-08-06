@@ -290,13 +290,23 @@ def compliance(request: Request, institution: str | None = Query(None)):
         )
         ghost_cancelled = cur.fetchone()["n"]
 
+    # The real audit trail, not just counts derived from the transactions
+    # table. `audit_log` existed since the first schema and had never had a row
+    # written to it, so this page cited FATF typologies while the one table that
+    # would substantiate any of it was empty.
+    import audit
+
+    events = audit.recent(institution, limit=50)
+
     return {
         "audit": {
             "transactions_logged": s["transactions_analyzed"],
             "ghost_containers": ghost_total,
             "ghost_cancelled": ghost_cancelled,
             "decisions_explained": s["blocked"] + s["flagged"],
+            "events_recorded": len(events),
         },
+        "audit_trail": events,
         # Friction is measured; satisfaction is not. There is no survey, no
         # rating and no feedback channel in this system, so a CSAT "score"
         # would be a number with nothing behind it.

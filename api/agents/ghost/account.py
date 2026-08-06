@@ -98,7 +98,11 @@ def sweep_expired() -> int:
             "WHERE status = 'HELD' AND expires_at IS NOT NULL "
             "  AND datetime(expires_at) <= datetime('now')",
         )
-        return cur.rowcount
+        swept = cur.rowcount
+    if swept:
+        import audit
+        audit.record(audit.CONTAINMENT_EXPIRED, None, count=swept)
+    return swept
 
 
 def has_expired(container: dict) -> bool:
@@ -154,6 +158,10 @@ def cancel_ghost(ghost_id: str, user_id: str) -> dict:
     if not _resolve(ghost_id, "CANCELLED"):
         current = (get_ghost_container(ghost_id) or {}).get("status")
         raise ValueError(f"Container already resolved: {current}")
+
+    import audit
+    audit.record(audit.CONTAINMENT_CANCELLED, user_id, ghost_id=ghost_id,
+                 amount=container.get("amount"), institution_id=container.get("institution_id"))
 
     # Nothing to reverse: holding reserved the funds without debiting them,
     # so cancelling just drops the reservation and the balance is untouched.
@@ -238,6 +246,11 @@ def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) 
         user_id, container["amount"], container.get("institution_id"),
         transaction_id=ghost_id, reference=f"ghost-release:{ghost_id}",
     )
+
+    import audit
+    audit.record(audit.CONTAINMENT_RELEASED, user_id, ghost_id=ghost_id,
+                 amount=container.get("amount"), risk_score=container.get("risk_score"),
+                 factor=proved, institution_id=container.get("institution_id"))
 
     return {
         "ghost_id": ghost_id,

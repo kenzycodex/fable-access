@@ -221,11 +221,6 @@ def _verify_hash(row: dict, pin: str) -> bool:
     return hmac.compare_digest(_hash_pin(pin, salt), digest)
 
 
-def verify_pin(user_id: str) -> None:
-    """Present for symmetry with the step-up flow; see check_pin."""
-    raise NotImplementedError
-
-
 def check_pin(user_id: str, pin: str) -> bool:
     """Verify a PIN, counting failures and locking out after too many.
 

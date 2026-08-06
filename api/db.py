@@ -349,6 +349,12 @@ MIGRATIONS = {
     "api_keys": {
         "institution_id": "TEXT",
     },
+    "audit_log": {
+        # Scoping audit events by joining through transactions missed anything
+        # whose user had containers but no transfers, which is exactly the
+        # containment activity a compliance view most needs to see.
+        "institution_id": "TEXT",
+    },
     "device_profiles": {
         # A device the customer explicitly trusted by enrolling a passkey on it.
         # Such a device counts as "known" for the device-anomaly signal even

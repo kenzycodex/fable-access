@@ -139,4 +139,9 @@ def approve(txid: str, payload: ApproveRequest, request: Request):
             (txid,),
         )
 
+    import audit
+    audit.record(audit.TRANSFER_APPROVED, payload.user_id, transaction_id=txid,
+                 amount=row["amount"], required_factor=required,
+                 institution_id=institution_id)
+
     return {"id": txid, "status": "completed"}

@@ -47,6 +47,9 @@ def login(req: LoginRequest):
                 (hash_password(req.password), req.email),
             )
 
+    import audit
+    audit.record(audit.ADMIN_LOGIN, req.email, institution_id=row["institution_id"])
+
     session = sessions.issue(req.email, row["institution_id"])
     return {
         "success": True,
