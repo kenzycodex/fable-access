@@ -10,6 +10,24 @@ import { API_BASE } from "@/lib/fable/api";
 import { login, useFableStore } from "@/lib/fable/store";
 import { toast } from "sonner";
 
+/** Demo credentials shown on the sign-in card.
+ *
+ * Configured rather than hardcoded. The previous version baked an email and
+ * password into the bundle, which meant that after re-provisioning the page
+ * advertised an account that no longer existed, so the only thing it reliably
+ * produced was a failed login.
+ *
+ * Set both in Vercel to show the card, or leave either unset to hide it
+ * entirely (which is what you want the moment this stops being a demo):
+ *   NEXT_PUBLIC_DEMO_EMAIL, NEXT_PUBLIC_DEMO_PASSWORD
+ *
+ * These are NEXT_PUBLIC_ and therefore inlined into the client bundle, which is
+ * fine only because the whole point is to publish them. Never put a real
+ * operator credential here.
+ */
+const DEMO_EMAIL = process.env.NEXT_PUBLIC_DEMO_EMAIL ?? "";
+const DEMO_PASSWORD = process.env.NEXT_PUBLIC_DEMO_PASSWORD ?? "";
+
 const HIGHLIGHTS = [
   "Every transfer scored in under 200ms",
   "Copilot, Shield, Ghost & Watch in one console",
@@ -142,13 +160,22 @@ export default function DashboardLoginPage() {
                 )}
               </button>
 
-              {/* A credentials card used to sit here, printing a working email
-                  and password on a publicly reachable login page. Two problems:
-                  it published a live credential to anyone who loaded the URL,
-                  and after re-provisioning it published a stale one, so the
-                  only people it helped were the wrong ones. Demo credentials
-                  belong in whatever channel the demo is being shared through,
-                  not on the door. */}
+              {DEMO_EMAIL && DEMO_PASSWORD && (
+                <div className="mt-4 rounded-lg border border-[#7C3AED]/20 bg-[#7C3AED]/5 p-3 text-center text-[13px] text-white/80">
+                  <p className="font-medium text-[#7C3AED] mb-1">Hackathon Demo Account</p>
+                  <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-white/60">
+                    <p>Email: <span className="font-mono text-white">{DEMO_EMAIL}</span></p>
+                    <p>Pass: <span className="font-mono text-white">{DEMO_PASSWORD}</span></p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setEmail(DEMO_EMAIL); setPassword(DEMO_PASSWORD); }}
+                    className="mt-2 text-[12px] text-[#7C3AED] hover:underline hover:text-[#8b5cf6] transition-colors"
+                  >
+                    Fill these in
+                  </button>
+                </div>
+              )}
 
               <div className="mt-4 text-center text-[13px] text-gray-400 font-normal">
                 Don't have an account? <button type="button" className="text-[#7C3AED] hover:underline hover:text-[#8b5cf6] transition-colors">Contact Sales</button>.

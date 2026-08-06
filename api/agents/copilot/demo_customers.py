@@ -116,6 +116,27 @@ def user_id_for(institution_id: str, key: str) -> str:
     return f"{institution_id}_{key}"
 
 
+def customer_name_for(user_id: str) -> str | None:
+    """Display name for a `{institution_id}_{key}` user id.
+
+    The console had no way to do this: /v1/dashboard/transactions returned only
+    a user_id, so the frontend rendered a hardcoded name for every row and every
+    customer at every institution appeared as the same person.
+
+    Returns None for anything that is not a demo archetype, so a real
+    integrator's customer ids are never given an invented name.
+    """
+    if not user_id or "_" not in user_id:
+        return None
+    institution_id, _, key = user_id.rpartition("_")
+    if key not in {c["key"] for c in DEMO_CUSTOMERS}:
+        return None
+    try:
+        return customer_identity(institution_id, key)[0]
+    except KeyError:
+        return None
+
+
 def customer_identity(institution_id: str, key: str) -> tuple[str, int]:
     """Name and opening balance for one archetype at one institution."""
     return _tenant_pick(institution_id, key)

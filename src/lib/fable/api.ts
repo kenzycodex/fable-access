@@ -462,6 +462,10 @@ export function ghostDetail(ghostId: string): Promise<{
 
 interface ApiTransactionRow {
   id: string;
+  /** Which customer made it. */
+  user_id?: string | null;
+  /** Resolved display name, when the API can name this customer. */
+  customer_name?: string | null;
   amount: number;
   recipient_id: string | null;
   recipient_name?: string | null;
@@ -483,6 +487,15 @@ function prettyRecipient(id: string | null, account: string | null): string {
   if (id && id !== "unknown") return id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   if (id === "unknown") return "Unknown";
   return account ? `•••• ${account.slice(-4)}` : "Unknown";
+}
+
+/** Fallback label for a user id the API could not name (a real integrator's
+ *  customer, rather than a demo archetype). Renders the id's own suffix rather
+ *  than inventing a person. */
+function prettyUserId(userId: string | null | undefined): string {
+  if (!userId) return "Unknown customer";
+  const key = userId.includes("_") ? userId.slice(userId.lastIndexOf("_") + 1) : userId;
+  return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
 function mapApiRow(r: ApiTransactionRow): Transaction {
@@ -511,7 +524,10 @@ function mapApiRow(r: ApiTransactionRow): Transaction {
     recipientName: r.recipient_name || prettyRecipient(r.recipient_id, r.recipient_account),
     recipientBank: r.recipient_bank ?? "—",
     recipientAccount: r.recipient_account ?? "",
-    customerName: "Ada Obi",
+    // The API resolves this now. It used to be hardcoded, so every customer
+    // at every institution rendered as the same person, and the console kept
+    // showing a name from a tenant that had been deleted.
+    customerName: r.customer_name || prettyUserId(r.user_id),
     remote: true,
   };
 }

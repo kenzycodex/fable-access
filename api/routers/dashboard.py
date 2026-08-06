@@ -189,8 +189,14 @@ def transactions(
         )
         rows = [row_to_dict(r) for r in cur.fetchall()]
 
+    # Resolve the display name here rather than leaving the client to guess.
+    # It previously had only a user_id to work with and rendered a hardcoded
+    # name, so every customer at every institution showed as the same person.
+    from agents.copilot.demo_customers import customer_name_for
+
     for r in rows:
         r["signals"] = loads(r.pop("shield_signals"), [])
+        r["customer_name"] = customer_name_for(r.get("user_id"))
 
     return {"total": total, "limit": limit, "offset": offset, "transactions": rows}
 
