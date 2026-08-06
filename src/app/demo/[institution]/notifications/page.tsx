@@ -1,179 +1,125 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { ArrowDown, ArrowUp, Ghost, ShieldCheck, ShieldWarning } from "@phosphor-icons/react";
+import { ArrowDown, Ghost, ShieldCheck, ShieldWarning } from "@phosphor-icons/react";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { Card, Screen, ScreenHeader } from "@/components/demo/kit";
-import { customerTransactions } from "@/lib/fable/api";
-import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
-import { useFableStore } from "@/lib/fable/store";
-import type { Transaction } from "@/lib/fable/types";
+import { customerNotifications, markNotificationsRead, type FableNotification } from "@/lib/fable/api";
+import { formatRelativeTime } from "@/lib/fable/format";
 
 /**
- * Notifications, derived from the customer's real activity.
+ * Notifications: what this customer was actually told.
  *
- * This page previously rendered two hardcoded cards. One of them announced
- * that "Fable blocked a suspicious login attempt from an unknown device in
- * Lagos" — an event that had not happened, describing a capability the system
- * does not have. Showing a customer a fabricated security alert is worse than
- * showing them nothing, so every item here now comes from a real decision.
+ * Two iterations of this screen were wrong in different ways. It began as two
+ * hardcoded cards, one of which announced that Fable had "blocked a suspicious
+ * login attempt from an unknown device in Lagos" — an event that never
+ * happened, describing a capability the product does not have.
  *
- * There is no notifications table and no push delivery; this is a derived view
- * over the transaction feed, which is the honest shape until real delivery
- * exists.
+ * Replacing that with a view derived from transaction history was closer, but
+ * still wrong: it surfaced the seeded 90-day threat backfill as notifications,
+ * so a brand-new customer opened the app to eleven alerts about blocked
+ * transfers they had never made and were never told about. Seeded history
+ * exists to give the console's charts something to draw.
+ *
+ * A notification is a record of something the customer was told, so it reads a
+ * table of exactly that. The feed is empty on a fresh account and fills as
+ * decisions are made, which is the honest behaviour.
  */
 
-type Kind = "blocked" | "flagged" | "contained" | "credit" | "cleared";
-
-interface Notice {
-  id: string;
-  kind: Kind;
-  title: string;
-  body: string;
-  at: number;
-  txnId?: string;
-}
-
-const STYLES: Record<Kind, { icon: React.ReactNode; wrap: string; badge: string }> = {
-  blocked: {
+const STYLES: Record<string, { icon: React.ReactNode; wrap: string; badge: string }> = {
+  containment: {
+    icon: <Ghost size={20} weight="fill" />,
+    wrap: "border bg-purple-50 border-purple-100 dark:bg-[var(--brand-primary)]/10 dark:border-[var(--brand-primary)]/20",
+    badge: "bg-purple-100 text-purple-600 dark:bg-[var(--brand-primary)]/20 dark:text-[var(--brand-primary)]",
+  },
+  block: {
     icon: <ShieldWarning size={20} weight="fill" />,
-    wrap: "bg-red-50 border-red-100 dark:bg-red-500/10 dark:border-red-500/20",
+    wrap: "border bg-red-50 border-red-100 dark:bg-red-500/10 dark:border-red-500/20",
     badge: "bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400",
   },
-  flagged: {
+  flag: {
     icon: <ShieldWarning size={20} weight="fill" />,
-    wrap: "bg-amber-50 border-amber-100 dark:bg-amber-500/10 dark:border-amber-500/20",
+    wrap: "border bg-amber-50 border-amber-100 dark:bg-amber-500/10 dark:border-amber-500/20",
     badge: "bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400",
-  },
-  contained: {
-    icon: <Ghost size={20} weight="fill" />,
-    wrap: "bg-purple-50 border-purple-100 dark:bg-[var(--brand-primary)]/10 dark:border-[var(--brand-primary)]/20",
-    badge: "bg-purple-100 text-purple-600 dark:bg-[var(--brand-primary)]/20 dark:text-[var(--brand-primary)]",
   },
   credit: {
     icon: <ArrowDown size={20} />,
     wrap: "",
     badge: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400",
   },
-  cleared: {
-    icon: <ShieldCheck size={20} weight="fill" />,
-    wrap: "",
-    badge: "bg-gray-100 text-gray-500 dark:bg-white/[0.05] dark:text-white/50",
-  },
 };
 
-/** One transfer becomes at most one notice. Routine cleared transfers are
- *  deliberately excluded: a notification for every successful payment is noise,
- *  and noise is what trains people to ignore the alert that matters. */
-function toNotice(t: Transaction): Notice | null {
-  const when = formatNaira(t.amount);
-  const who = t.recipientName || "a new recipient";
-
-  if (t.direction === "credit") {
-    return {
-      id: t.id,
-      kind: "credit",
-      title: "Money in",
-      body: `${when} was added to your account.`,
-      at: t.timestamp,
-    };
-  }
-  if (t.status === "held") {
-    return {
-      id: t.id,
-      kind: "contained",
-      title: "Transfer held for review",
-      body: `${when} to ${who} is in a cooling window. You can cancel it and keep the money, or confirm it's you.`,
-      at: t.timestamp,
-      txnId: t.id,
-    };
-  }
-  if (t.action === "BLOCK") {
-    return {
-      id: t.id,
-      kind: "blocked",
-      title: "Transfer blocked",
-      body: `${when} to ${who} was stopped. ${t.explanation || "Your money is safe and has not left your account."}`,
-      at: t.timestamp,
-      txnId: t.id,
-    };
-  }
-  if (t.action === "FLAG") {
-    return {
-      id: t.id,
-      kind: "flagged",
-      title: "Transfer needed a check",
-      body: `${when} to ${who} looked unusual, so we asked you to confirm it first.`,
-      at: t.timestamp,
-      txnId: t.id,
-    };
-  }
-  return null;
+function parseTs(iso: string): number {
+  // SQLite writes "YYYY-MM-DD HH:MM:SS" in UTC with no zone marker, which
+  // Safari refuses outright and Chrome reads as local time.
+  const t = Date.parse(iso.includes("T") ? iso : `${iso.replace(" ", "T")}Z`);
+  return Number.isNaN(t) ? Date.now() : t;
 }
 
 export default function NotificationsPage() {
-  const store = useFableStore();
   const router = useRouter();
-  const { customer, institutionId, href } = useInstitution();
+  const { customer, href } = useInstitution();
 
-  const { data: serverTxns } = useSWR(
-    customer ? ["demo:notifications", customer.user_id, institutionId] : null,
-    () => customerTransactions(customer!.user_id, institutionId, 100),
+  const { data } = useSWR(
+    customer ? ["demo:notifications", customer.user_id] : null,
+    () => customerNotifications(customer!.user_id, 30),
     { refreshInterval: 10_000, keepPreviousData: true },
   );
 
-  // Session transfers appear immediately rather than waiting for the next poll,
-  // scoped to the selected customer so one customer's activity never shows up
-  // under another's.
-  const local = (store?.transactions ?? []).filter((t) => t.live && t.userId === customer?.user_id);
-  const all: Transaction[] = [
-    ...local,
-    ...(serverTxns ?? []).filter((t) => !local.some((l) => l.id === t.id)),
-  ];
+  // Opening the screen is what marks them read; there is no separate action.
+  useEffect(() => {
+    if (customer && (data?.unread ?? 0) > 0) void markNotificationsRead(customer.user_id);
+  }, [customer, data?.unread]);
 
-  const notices = all
-    .map(toNotice)
-    .filter((n): n is Notice => n !== null)
-    .sort((a, b) => b.at - a.at)
-    .slice(0, 30);
+  const items: FableNotification[] = data?.notifications ?? [];
 
   return (
     <Screen>
       <ScreenHeader title="Notifications" />
 
-      {notices.length === 0 ? (
+      {items.length === 0 ? (
         <Card className="flex flex-col items-center gap-2 py-12 text-center">
           <span className="flex size-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
             <ShieldCheck size={24} weight="fill" />
           </span>
-          <span className="text-[14px] font-semibold text-gray-900 dark:text-white">Nothing needs your attention</span>
+          <span className="text-[14px] font-semibold text-gray-900 dark:text-white">
+            Nothing needs your attention
+          </span>
           <span className="max-w-[260px] text-[13px] leading-relaxed text-gray-500 dark:text-white/45">
             You&rsquo;ll see a message here if Fable ever holds or questions a transfer.
           </span>
         </Card>
       ) : (
         <div className="flex flex-col gap-4">
-          {notices.map((n) => {
-            const s = STYLES[n.kind];
-            const clickable = Boolean(n.txnId);
+          {items.map((n) => {
+            const s = STYLES[n.kind] ?? STYLES.credit;
+            const clickable = Boolean(n.reference);
             const Wrapper = s.wrap ? "div" : Card;
             return (
               <Wrapper
                 key={n.id}
-                onClick={clickable ? () => router.push(href(`/tx/${n.txnId}`)) : undefined}
-                className={`flex items-start gap-4 rounded-2xl p-4 ${s.wrap ? `border ${s.wrap}` : ""} ${
+                onClick={clickable ? () => router.push(href(`/tx/${n.reference}`)) : undefined}
+                className={`flex items-start gap-4 rounded-2xl p-4 ${s.wrap} ${
                   clickable ? "cursor-pointer transition-opacity hover:opacity-80" : ""
                 }`}
               >
                 <span className={`flex size-10 shrink-0 items-center justify-center rounded-full ${s.badge}`}>
                   {s.icon}
                 </span>
-                <div className="flex flex-col gap-1">
+                <div className="flex min-w-0 flex-col gap-1">
                   <span className="text-[14px] font-semibold text-gray-900 dark:text-white">{n.title}</span>
-                  <span className="text-[13px] leading-relaxed text-gray-600 dark:text-white/60">{n.body}</span>
-                  <span className="mt-1 text-[11px] font-medium text-gray-400 dark:text-white/30">
-                    {formatRelativeTime(n.at)}
+                  <span className="whitespace-pre-line text-[13px] leading-relaxed text-gray-600 dark:text-white/60">
+                    {n.body}
+                  </span>
+                  <span className="mt-1 flex items-center gap-2 text-[11px] font-medium text-gray-400 dark:text-white/30">
+                    {formatRelativeTime(parseTs(n.created_at))}
+                    {n.channel !== "in_app" && (
+                      <span className={n.delivered ? "text-emerald-500" : "text-amber-500"}>
+                        · {n.delivered ? `sent by ${n.channel}` : `${n.channel} not delivered`}
+                      </span>
+                    )}
                   </span>
                 </div>
               </Wrapper>

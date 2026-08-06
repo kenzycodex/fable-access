@@ -124,4 +124,10 @@ export interface Institution {
 export interface SessionState {
   loggedIn: boolean;
   institutionId: string | null;
+  /** Signed session token from /auth/login. Presented on every API call so the
+   *  server derives the tenant from a verified identity rather than from a
+   *  query parameter the caller chooses. */
+  token: string | null;
+  /** Unix seconds. Lets the client stop using a token it knows is stale. */
+  expiresAt: number | null;
 }

@@ -10,7 +10,7 @@ import {
 } from "@phosphor-icons/react";
 import { Card, PageHeader, RiskBadge, StatCard } from "@/components/dashboard/primitives";
 import { formatNaira, formatNairaCompact, formatRelativeTime } from "@/lib/fable/format";
-import { INSTITUTION } from "@/lib/fable/seed";
+import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 import { useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
 import type { Transaction } from "@/lib/fable/types";
 
@@ -18,13 +18,18 @@ import type { Transaction } from "@/lib/fable/types";
 const LATENCY_BUDGET_MS = 200;
 
 const AGENTS = [
-  { name: "Copilot", role: "Baseline engine", icon: Brain },
-  { name: "Shield", role: "Threat defense", icon: ShieldCheck },
-  { name: "Ghost", role: "Containment", icon: Ghost },
-  { name: "Watch", role: "Passive monitor", icon: Eye },
+  { name: "Copilot", role: "Baseline engine", icon: Brain, built: true },
+  { name: "Shield", role: "Threat defense", icon: ShieldCheck, built: true },
+  { name: "Ghost", role: "Containment", icon: Ghost, built: true },
+  // Watch is not built. It was rendering with a pulsing green "Active" badge
+  // like the three agents that do run, which claims a capability the system
+  // does not have. The docs already mark it "coming soon"; the console should
+  // say the same thing.
+  { name: "Watch", role: "Passive monitor", icon: Eye, built: false },
 ];
 
 export default function OverviewPage() {
+  const { institution } = useSignedInInstitution();
   const feed = useDashboardFeed();
   const s = feed.stats;
   const recent = feed.transactions.slice(0, 8);
@@ -81,7 +86,7 @@ export default function OverviewPage() {
 
         <div className="relative z-10">
           <PageHeader
-            title={`Good morning, ${INSTITUTION.name}`}
+            title={institution ? `Good morning, ${institution.name}` : "Good morning"}
             description="Live view of every decision Fable made across your customers today."
             actions={<EngineChip source={feed.source} />}
           />
@@ -193,10 +198,17 @@ export default function OverviewPage() {
                       <span className="text-[13px] font-bold text-gray-900 dark:text-white transition-colors group-hover/agent:text-[#a78bfa]">{a.name}</span>
                       <span className="text-[11px] text-gray-500 dark:text-white/40">{a.role}</span>
                     </div>
-                    <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-                      <span className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
-                      Active
-                    </span>
+                    {a.built ? (
+                      <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                        <span className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
+                        Active
+                      </span>
+                    ) : (
+                      <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-white/30">
+                        <span className="size-1.5 rounded-full bg-gray-300 dark:bg-white/20" />
+                        Coming soon
+                      </span>
+                    )}
                   </div>
                 );
               })}

@@ -48,7 +48,7 @@ const CHANGE_EVENT = "fable:change";
 const SESSION_KEY = "fable_console_session";
 
 function readSession(): SessionState {
-  if (!canUseDom()) return { loggedIn: false, institutionId: null };
+  if (!canUseDom()) return { loggedIn: false, institutionId: null, token: null, expiresAt: null };
   try {
     const raw = window.localStorage.getItem(SESSION_KEY);
     if (raw) return JSON.parse(raw) as SessionState;
@@ -65,7 +65,7 @@ function readSession(): SessionState {
   } catch {
     // fall through to signed out
   }
-  return { loggedIn: false, institutionId: null };
+  return { loggedIn: false, institutionId: null, token: null, expiresAt: null };
 }
 
 function writeSession(session: SessionState): void {
@@ -122,7 +122,7 @@ function seedState(): StoreState {
     transactions: [],
     ghosts: [],
     transparency: DEFAULT_TRANSPARENCY,
-    session: { loggedIn: false, institutionId: null },
+    session: { loggedIn: false, institutionId: null, token: null, expiresAt: null },
     pending: null,
   };
 }
@@ -461,20 +461,50 @@ export function setTransparency(patch: Partial<TransparencyState>): void {
   mutate((s) => ({ ...s, transparency: { ...s.transparency, ...patch } }));
 }
 
-/** Sign the console in as a specific institution. The id comes from
- * /auth/login and scopes every dashboard query; it falls back to the seeded
- * demo tenant so the offline/local path still works. */
-export function login(institutionId?: string | null): void {
-  if (canUseDom()) document.cookie = "fable_auth=1; path=/; max-age=86400";
+/** Sign the console in, holding the signed token /auth/login issued.
+ *
+ * The cookie used to be the literal string "1", and Next's middleware checked
+ * only that it existed — so `document.cookie = "fable_auth=1"` in any console
+ * granted access. It now holds the real token, which the middleware can
+ * actually inspect, and which every API call presents so the server derives
+ * the tenant from a verified identity.
+ *
+ * It is not httpOnly, deliberately: the console and the API are on different
+ * origins, so this is read by JS to set an Authorization header rather than
+ * being sent as ambient authority. That is also why there is no CSRF surface
+ * here — a cross-site request cannot attach a header it cannot read.
+ */
+export function login(institutionId?: string | null, token?: string | null, expiresAt?: number | null): void {
+  if (canUseDom() && token) {
+    const maxAge = expiresAt ? Math.max(expiresAt - Math.floor(Date.now() / 1000), 0) : 43200;
+    const secure = window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `fable_auth=${encodeURIComponent(token)}; path=/; max-age=${maxAge}; SameSite=Lax${secure}`;
+  }
   mutate((s) => ({
     ...s,
-    session: { loggedIn: true, institutionId: institutionId ?? INSTITUTION.id },
+    session: {
+      loggedIn: true,
+      institutionId: institutionId ?? null,
+      token: token ?? null,
+      expiresAt: expiresAt ?? null,
+    },
   }));
 }
 
 export function logout(): void {
   if (canUseDom()) document.cookie = "fable_auth=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-  mutate((s) => ({ ...s, session: { loggedIn: false, institutionId: null } }));
+  mutate((s) => ({
+    ...s,
+    session: { loggedIn: false, institutionId: null, token: null, expiresAt: null },
+  }));
+}
+
+/** The live session token, or null when there is none or it has expired. */
+export function sessionToken(): string | null {
+  const s = read().session;
+  if (!s.token) return null;
+  if (s.expiresAt && s.expiresAt <= Math.floor(Date.now() / 1000)) return null;
+  return s.token;
 }
 
 /** Wipe all demo state back to the seed (used by the dashboard settings). */

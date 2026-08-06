@@ -70,6 +70,41 @@ def _fallback_institution() -> str:
     return rows[0]["institution_id"] if len(rows) == 1 else DEFAULT_INSTITUTION_ID
 
 
+def tenant_for_read(request, claimed: str | None = None) -> str:
+    """The institution a dashboard read is allowed to see.
+
+    Every console read used to take its tenant from an `institution` query
+    parameter bound to no identity at all, so `?institution=<other_bank>`
+    returned their data, and omitting the parameter aggregated *every* tenant.
+
+    Precedence, strongest first:
+
+      1. A verified session token. The console presents one on every call, and
+         the institution inside it is signed, so it cannot be edited.
+      2. A provisioned API key, which is how an integrating bank authenticates.
+      3. The claimed slug, only while no credential is present at all.
+
+    Step 3 is a deliberate, temporary allowance so the demo bank keeps working
+    while the console migrates; it disappears with the query parameter itself.
+    A caller that presents a credential can never widen its scope by also
+    passing a slug.
+    """
+    import sessions
+
+    try:
+        return sessions.verify(sessions.extract_token(request))["inst"]
+    except sessions.SessionError:
+        pass
+
+    from_key = institution_from_api_key(extract_api_key(request))
+    if from_key:
+        return from_key
+
+    if claimed and institution_exists(claimed):
+        return claimed
+    return _fallback_institution()
+
+
 def institution_exists(institution_id: str) -> bool:
     with cursor() as cur:
         cur.execute("SELECT 1 FROM institutions WHERE institution_id = ?", (institution_id,))

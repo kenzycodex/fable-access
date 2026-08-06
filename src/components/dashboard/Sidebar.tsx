@@ -5,10 +5,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { SignOut, CaretUp, GearSix } from "@phosphor-icons/react";
 import { DASHBOARD_NAV, DASHBOARD_FOOTER_NAV } from "@/components/dashboard/nav";
-import { INSTITUTION } from "@/lib/fable/seed";
+import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 import { logout } from "@/lib/fable/store";
 
 export function Sidebar() {
+  const { institution } = useSignedInInstitution();
   const pathname = usePathname();
   const router = useRouter();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -126,10 +127,10 @@ export function Sidebar() {
           >
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-white/20 text-[11px] font-bold text-white dark:bg-black/10 dark:text-gray-900 shadow-sm transition-colors group-hover:bg-white/20 dark:group-hover:bg-black/10">
-                {INSTITUTION.name.charAt(0)}
+                {(institution?.name ?? "…").charAt(0)}
               </div>
               <div className="flex flex-col items-start min-w-0 transition-colors">
-                <span className="text-[12px] font-bold truncate max-w-[120px]">{INSTITUTION.name}</span>
+                <span className="text-[12px] font-bold truncate max-w-[120px]">{institution?.name ?? "Loading…"}</span>
               </div>
             </div>
             <CaretUp size={14} weight="bold" className={`transition-transform ${isProfileOpen ? "rotate-180" : ""}`} />

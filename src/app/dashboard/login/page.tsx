@@ -20,8 +20,12 @@ const HIGHLIGHTS = [
 export default function DashboardLoginPage() {
   const router = useRouter();
   const store = useFableStore();
-  const [email, setEmail] = useState(DEMO_CREDENTIALS.email);
-  const [password, setPassword] = useState(DEMO_CREDENTIALS.password);
+  // Not pre-filled. These used to default to a hardcoded demo account that no
+  // longer exists after re-provisioning, so the form arrived populated with
+  // credentials guaranteed to fail, which reads as a broken login rather than
+  // an empty one.
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -44,9 +48,11 @@ export default function DashboardLoginPage() {
         setSubmitting(false);
         return;
       }
-      // Sign in as the institution this admin actually belongs to — the
-      // dashboard filters every query by it.
-      login(data.institution_id);
+      // Sign in as the institution this admin actually belongs to, and keep the
+      // signed session token the API issued. Every dashboard call presents it,
+      // which is what lets the server derive the tenant from a verified
+      // identity instead of trusting a query parameter.
+      login(data.institution_id, data.token, data.expires_at);
       router.push("/dashboard");
     } catch (err) {
       toast.error("Failed to connect to Fable API.");

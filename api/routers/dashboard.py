@@ -11,9 +11,10 @@ institution's transactions.
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from db import cursor, row_to_dict, loads
+from tenancy import tenant_for_read
 from intelligence.context import (
     channel_breakdown,
     institution_summary,
@@ -41,7 +42,8 @@ def _percentiles(sorted_values: list[float]) -> dict | None:
 
 
 @router.get("/stats")
-def stats(institution: str | None = Query(None)):
+def stats(request: Request, institution: str | None = Query(None)):
+    institution = tenant_for_read(request, institution)
     where, params = tenant_clause(institution)
     ghost_where, ghost_params = tenant_clause(institution)
 
@@ -151,12 +153,14 @@ def stats(institution: str | None = Query(None)):
 
 @router.get("/transactions")
 def transactions(
+    request: Request,
     limit: int = Query(25, ge=1, le=200),
     offset: int = Query(0, ge=0),
     action: str | None = Query(None),
     institution: str | None = Query(None),
     user: str | None = Query(None),
 ):
+    institution = tenant_for_read(request, institution)
     where = "WHERE 1=1"
     params: list = []
     if action:
@@ -192,7 +196,8 @@ def transactions(
 
 
 @router.get("/alerts")
-def alerts(limit: int = Query(50, ge=1, le=200), institution: str | None = Query(None)):
+def alerts(request: Request, limit: int = Query(50, ge=1, le=200), institution: str | None = Query(None)):
+    institution = tenant_for_read(request, institution)
     """Watch Alerts feed: every flagged/blocked transfer, newest first, with a
     plain-language reason and severity, plus rollup counts."""
     where, params = tenant_clause(institution, prefix="AND")
@@ -233,7 +238,8 @@ def alerts(limit: int = Query(50, ge=1, le=200), institution: str | None = Query
 
 
 @router.get("/intelligence")
-def intelligence(institution: str | None = Query(None)):
+def intelligence(request: Request, institution: str | None = Query(None)):
+    institution = tenant_for_read(request, institution)
     """Intelligence screen: scam-pattern library usage, channel risk, and
     which Shield signals fire most often."""
     return {
@@ -245,7 +251,8 @@ def intelligence(institution: str | None = Query(None)):
 
 
 @router.get("/compliance")
-def compliance(institution: str | None = Query(None)):
+def compliance(request: Request, institution: str | None = Query(None)):
+    institution = tenant_for_read(request, institution)
     """Compliance screen: audit-trail counts, a CSAT-style satisfaction proxy
     (safe users see near-zero friction), and a recent incident log from blocks."""
     s = institution_summary(institution)

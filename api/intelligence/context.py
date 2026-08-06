@@ -35,10 +35,29 @@ PATTERN_LABELS = {
 }
 
 
+class UnscopedQuery(RuntimeError):
+    """A tenant-scoped query was built without a tenant."""
+
+
 def tenant_clause(institution_id: str | None, prefix: str = "WHERE") -> tuple[str, list]:
-    """SQL fragment + params restricting a query to one institution."""
+    """SQL fragment + params restricting a query to one institution.
+
+    Raises rather than returning an empty clause. An empty clause silently
+    turned a per-tenant rollup into a platform-wide one, so simply *omitting*
+    the institution parameter returned every bank's numbers together. The
+    docstring above already warned that aggregating across tenants was "only
+    appropriate for internal operator views, never for a customer-facing
+    dashboard" — but nothing enforced it, and every read endpoint defaulted the
+    parameter to None.
+
+    Fail closed: a missing tenant is a bug in the caller, and the safe
+    behaviour is no data rather than everyone's.
+    """
     if not institution_id:
-        return "", []
+        raise UnscopedQuery(
+            "A tenant-scoped query was built with no institution. Derive it "
+            "from the session or API key before querying."
+        )
     return f" {prefix} institution_id = ?", [institution_id]
 
 

@@ -10,6 +10,7 @@ from models.schemas import (
     ShieldExplanationResponse,
     FeedbackRequest,
 )
+import notifications
 from agents.shield.analyzer import analyze_transaction_safe
 from agents.shield.explainer import generate_llm_explanation, llm_available
 from agents.copilot.baseline import log_transaction
@@ -146,6 +147,20 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         explanation=result["explanation"],
         explanation_source=explanation_source,
     )
+
+    # Tell the customer, in-app, that this was stopped or questioned. Recorded
+    # only for real decisions: seeded history bypasses this endpoint entirely,
+    # which is why the feed shows what actually happened to the customer rather
+    # than 90 days of backfill nobody was ever notified about.
+    if result["action"] in ("BLOCK", "FLAG"):
+        try:
+            notifications.notify_decision(
+                payload.user_id, institution_id, transaction_id, result["action"],
+                transaction.get("amount", 0), transaction.get("recipient_name"),
+                result["explanation"],
+            )
+        except Exception:  # noqa: BLE001 — a notification must never fail a decision
+            pass
 
     # Row is committed; the write-up worker now has something to update. It
     # also populates the cache, so the next decision of this shape resolves

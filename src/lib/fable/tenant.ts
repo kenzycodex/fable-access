@@ -122,8 +122,39 @@ export function setApiKey(key: string | null): void {
   emit();
 }
 
-/** Auth header for Fable API calls, when the demo bank has been connected. */
+/** Auth headers for Fable API calls.
+ *
+ * Two independent credentials, and they mean different things:
+ *
+ * - `X-API-Key` is the institution's integration key, present when the demo
+ *   bank has been connected to a tenant. It identifies the *bank*.
+ * - `X-Fable-Session` is the console operator's signed session token. It
+ *   identifies *who is signed in*, and is what lets the server derive the
+ *   tenant for dashboard reads from a verified identity rather than from a
+ *   query parameter the caller picks.
+ *
+ * Read lazily from the session store rather than captured at module load, so a
+ * sign-in mid-session starts being honoured immediately.
+ */
 export function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
   const key = getApiKey();
-  return key ? { "X-API-Key": key } : {};
+  if (key) headers["X-API-Key"] = key;
+
+  if (typeof window !== "undefined") {
+    try {
+      // Imported lazily: tenant.ts is imported by api.ts, which store.ts also
+      // imports, so a static import here would be circular.
+      const raw = window.localStorage.getItem("fable_console_session");
+      if (raw) {
+        const s = JSON.parse(raw) as { token?: string | null; expiresAt?: number | null };
+        const live = s.token && (!s.expiresAt || s.expiresAt > Math.floor(Date.now() / 1000));
+        if (live && s.token) headers["X-Fable-Session"] = s.token;
+      }
+    } catch {
+      // No session, or unreadable storage: fall through unauthenticated and
+      // let the server decide.
+    }
+  }
+  return headers;
 }

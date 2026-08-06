@@ -814,6 +814,23 @@ export interface InstitutionCredentials {
   created_at: string | null;
 }
 
+export interface InstitutionProfile {
+  institution_id: string;
+  name: string;
+  type: string;
+  contact_email: string | null;
+}
+
+/** GET /v1/institutions/{id} — the signed-in tenant's real profile.
+ *
+ * The console used to render a hardcoded institution constant, so the sidebar,
+ * the greeting and the settings page all showed the same fictional bank
+ * regardless of who was signed in — and kept showing it after that institution
+ * had been deleted from the database. */
+export async function institutionProfile(institutionId: string): Promise<InstitutionProfile> {
+  return fetchJson<InstitutionProfile>(`/v1/institutions/${encodeURIComponent(institutionId)}`);
+}
+
 /** GET /v1/institutions/{id}/credentials — the tenant's own live API key. */
 export function institutionCredentials(institutionId: string): Promise<InstitutionCredentials> {
   return fetchJson<InstitutionCredentials>(
@@ -885,6 +902,39 @@ export async function customerTransactions(
     `/v1/dashboard/transactions?limit=${limit}&user=${encodeURIComponent(userId)}${tenantParam(institution)}`,
   );
   return res.transactions.map(mapApiRow);
+}
+
+export interface FableNotification {
+  id: number;
+  kind: "containment" | "block" | "flag" | "credit";
+  title: string;
+  body: string;
+  reference: string | null;
+  channel: "in_app" | "email" | "sms";
+  /** Whether it actually reached the customer out-of-band, or only in-app. */
+  delivered: boolean;
+  read_at: string | null;
+  created_at: string;
+}
+
+/** GET /v1/notifications/{user} — what this customer was actually told.
+ *
+ * Reads a real table rather than deriving a feed from transaction history.
+ * Seeded history exists to populate the console's charts and nobody was ever
+ * notified about any of it, so presenting it as "your notifications" would be
+ * telling the customer about alerts they never received. */
+export async function customerNotifications(
+  userId: string,
+  limit = 30,
+): Promise<{ unread: number; notifications: FableNotification[] }> {
+  const res = await fetchJson<{ unread: number; notifications: FableNotification[] }>(
+    `/v1/notifications/${encodeURIComponent(userId)}?limit=${limit}`,
+  );
+  return { unread: res.unread ?? 0, notifications: res.notifications ?? [] };
+}
+
+export async function markNotificationsRead(userId: string): Promise<void> {
+  await fetchJson(`/v1/notifications/${encodeURIComponent(userId)}/read`, { method: "POST" });
 }
 
 export interface CustomerOverview {
