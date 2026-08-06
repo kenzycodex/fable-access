@@ -3,6 +3,7 @@ import smtplib
 from email.message import EmailMessage
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel
+from typing import Optional
 import secrets
 import string
 import config
@@ -16,6 +17,8 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 class ProvisionRequest(BaseModel):
     institution_name: str
     admin_email: str
+    # Demo archetypes to seed. None uses FABLE_DEMO_CUSTOMERS.
+    customers: Optional[int] = None
 
 def generate_temp_password(length=12):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
@@ -150,7 +153,7 @@ def provision_institution(req: ProvisionRequest, background_tasks: BackgroundTas
 
     # Give the new tenant a populated world to log into: three demo customers
     # with 90 days of their own history, scoped to this institution.
-    seed_institution(institution_id, days=90)
+    seed_institution(institution_id, days=90, customers=req.customers)
 
     # Send email in background so the endpoint is fast
     background_tasks.add_task(

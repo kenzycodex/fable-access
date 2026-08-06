@@ -8,6 +8,7 @@ character for Chioma — which is what makes Copilot's per-customer baselines
 visible instead of theoretical.
 """
 import hashlib
+import os
 import random
 import uuid
 from datetime import datetime, timedelta
@@ -93,6 +94,24 @@ DEMO_CUSTOMERS = [
 ]
 
 
+# How many archetypes a newly provisioned institution gets, and in what order
+# they are dropped when fewer are wanted.
+#
+# The ordering is deliberate: the demo's strongest single moment is the same
+# ₦250,000 clearing for the trader and stopping the student, whose baselines sit
+# roughly 50x apart. Ada sits between them and blunts that contrast, so she is
+# the first to go when the roster shrinks.
+ROSTER_PRIORITY = ["tunde", "chioma", "ada"]
+DEFAULT_ROSTER_SIZE = int(os.getenv("FABLE_DEMO_CUSTOMERS", "2"))
+
+
+def roster_for(size: int | None = None) -> list[dict]:
+    """The archetypes to seed, most contrasting first."""
+    n = max(1, min(size or DEFAULT_ROSTER_SIZE, len(DEMO_CUSTOMERS)))
+    by_key = {c["key"]: c for c in DEMO_CUSTOMERS}
+    return [by_key[k] for k in ROSTER_PRIORITY[:n] if k in by_key]
+
+
 def user_id_for(institution_id: str, key: str) -> str:
     return f"{institution_id}_{key}"
 
@@ -105,7 +124,7 @@ def customer_identity(institution_id: str, key: str) -> tuple[str, int]:
 def customers_for_institution(institution_id: str) -> list[dict]:
     """The roster the demo bank renders in its customer picker."""
     out = []
-    for c in DEMO_CUSTOMERS:
+    for c in roster_for():
         name, balance = customer_identity(institution_id, c["key"])
         out.append({
             "user_id": user_id_for(institution_id, c["key"]),
@@ -120,10 +139,12 @@ def customers_for_institution(institution_id: str) -> list[dict]:
     return out
 
 
-def _insert_seed_transaction(user_id: str, institution_id: str, customer: dict, recipient: dict, day: datetime) -> None:
-    amount = round(random.uniform(*customer["amount_range"]), -2)
-    hour = random.choice(customer["hours"])
-    ts = day.replace(hour=hour, minute=random.randint(0, 59))
+def _insert_seed_transaction(user_id: str, institution_id: str, customer: dict, recipient: dict,
+                             day: datetime, rng: random.Random | None = None) -> None:
+    rnd = rng or random
+    amount = round(rnd.uniform(*customer["amount_range"]), -2)
+    hour = rnd.choice(customer["hours"])
+    ts = day.replace(hour=hour, minute=rnd.randint(0, 59))
 
     with cursor() as cur:
         cur.execute(
@@ -151,40 +172,76 @@ def _insert_seed_transaction(user_id: str, institution_id: str, customer: dict, 
         )
 
 
-def seed_customer(institution_id: str, customer: dict, days: int) -> int:
+def seed_customer(institution_id: str, customer: dict, days: int,
+                  rng: random.Random | None = None) -> int:
     """Build one customer's history. Returns the number of transactions made."""
+    rnd = rng or random
     user_id = user_id_for(institution_id, customer["key"])
+    _, opening_balance = customer_identity(institution_id, customer["key"])
     now = datetime.utcnow()
     count = 0
 
     with cursor() as cur:
-        cur.execute("DELETE FROM transactions WHERE user_id = ?", (user_id,))
-        cur.execute("DELETE FROM ghost_containers WHERE user_id = ?", (user_id,))
+        # Scoped to seed rows. Unscoped, re-provisioning an institution deleted
+        # its customers' real transfers as well as the synthetic ones, and
+        # provisioning is reachable by name collision.
+        cur.execute("DELETE FROM transactions WHERE user_id = ? AND is_seed = 1", (user_id,))
+        cur.execute(
+            "DELETE FROM ghost_containers WHERE user_id = ? AND explanation LIKE 'Seeded%'",
+            (user_id,),
+        )
         cur.execute(
             "INSERT OR IGNORE INTO fable_users (user_id, institution_id) VALUES (?, ?)",
             (user_id, institution_id),
         )
 
+    # Give the archetype the opening balance its persona implies. ensure_account
+    # was only ever called with the default of 0.0, so every seeded customer
+    # started empty while the picker advertised a balance they did not have,
+    # and a customer with 90 days of ₦400k history could not send ₦1,000.
+    from accounts import ensure_account
+    ensure_account(user_id, institution_id, opening_balance=opening_balance)
+
     for i in range(days):
         day = now - timedelta(days=days - i)
-        if random.random() < customer["per_day_chance"]:
-            recipient = random.choice(customer["recipients"])
-            _insert_seed_transaction(user_id, institution_id, customer, recipient, day)
+        if rnd.random() < customer["per_day_chance"]:
+            recipient = rnd.choice(customer["recipients"])
+            _insert_seed_transaction(user_id, institution_id, customer, recipient, day, rnd)
             count += 1
 
     return count
 
 
-def seed_institution(institution_id: str, days: int = 90) -> dict:
-    """Seed every demo customer for a tenant, plus its historical threat feed."""
+def seed_institution(institution_id: str, days: int = 90, customers: int | None = None) -> dict:
+    """Seed a tenant's demo customers, plus historical threat activity."""
     from routers.demo import seed_threat_history
 
-    per_customer = {}
-    for customer in DEMO_CUSTOMERS:
-        per_customer[customer["name"]] = seed_customer(institution_id, customer, days)
+    # Deterministic per institution. Bare random() meant re-seeding the same
+    # bank produced different history and therefore different baselines, so two
+    # runs were not comparable — while _tenant_pick right above was carefully
+    # deterministic. Same input, same demo.
+    rnd = random.Random(hashlib.sha256(institution_id.encode()).hexdigest())
 
-    # Threats land on Ada so the institution feed has blocked/flagged history.
-    threats = seed_threat_history(user_id_for(institution_id, "ada"), days, institution_id)
+    roster = roster_for(customers)
+    per_customer: dict[str, int] = {}
+    for customer in roster:
+        # Key on the tenant's actual name, not the archetype's placeholder.
+        # Reporting "Ada Obi" for a bank whose picker shows "Ngozi Eze" made the
+        # provisioning response contradict the product.
+        name, _ = customer_identity(institution_id, customer["key"])
+        per_customer[name] = seed_customer(institution_id, customer, days, rnd)
+
+    # Threats used to land entirely on one archetype, so every alert in the
+    # console belonged to the same person and the other customers had a
+    # spotless history. Spread across the roster, weighted by persona: the
+    # student sees more small-value scams, the trader more supplier fraud.
+    threats = 0
+    share = max(1, 22 // len(roster))
+    for customer in roster:
+        threats += seed_threat_history(
+            user_id_for(institution_id, customer["key"]), days, institution_id,
+            count=share, rng=rnd,
+        )
 
     return {
         "institution_id": institution_id,
