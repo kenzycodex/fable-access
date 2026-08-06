@@ -6,7 +6,7 @@ import { Power } from "@phosphor-icons/react";
 import { DemoSheet } from "@/components/demo/DemoSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { resolveApiKey } from "@/lib/fable/api";
-import { getApiKey, setApiKey } from "@/lib/fable/tenant";
+import { getConnected, setConnected, maskKey } from "@/lib/fable/tenant";
 
 /** Ring sweeps, then the tick strokes itself in. Pure SVG, no dependency. */
 function SuccessTick() {
@@ -53,7 +53,7 @@ export function PowerConnect() {
 
   useEffect(() => {
     setMounted(true);
-    setConnectedKey(getApiKey());
+    setConnectedKey(getConnected()?.maskedKey ?? null);
     return () => clearTimeout(closeTimer.current);
   }, []);
 
@@ -67,8 +67,12 @@ export function PowerConnect() {
       // and showing a green light told the operator they were connected to
       // one institution while writes were attributed to another — or to none.
       const resolved = await resolveApiKey(trimmed);
-      setApiKey(trimmed);
-      setConnectedKey(trimmed);
+      // Only the mask and the resolved tenant are kept. The raw key is used
+      // for this one verification call and then discarded, so it never reaches
+      // localStorage and never rides on a later request.
+      const masked = maskKey(trimmed);
+      setConnected({ institutionId: resolved.institution_id, name: resolved.name, maskedKey: masked });
+      setConnectedKey(masked);
       setKeyInput("");
       setJustConnected(true);
       setConnectedTo(resolved.name);
@@ -91,7 +95,7 @@ export function PowerConnect() {
   }
 
   function disconnect() {
-    setApiKey(null);
+    setConnected(null);
     setConnectedKey(null);
     setConnectedTo(null);
     setKeyInput("");

@@ -77,6 +77,14 @@ if config._SESSION_SECRET_IS_EPHEMERAL:
         "Set it in production: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
     )
 
+if config.ENVIRONMENT == "production" and config.WEBAUTHN_RP_ID == "localhost":
+    logger.error(
+        "WEBAUTHN_RP_ID is still 'localhost' in production. Every passkey "
+        "registration and assertion will fail origin validation, silently "
+        "pushing all step-up onto the weaker PIN/OTP path. Set it to the "
+        "site's registered domain (no scheme, no port)."
+    )
+
 if not config.ADMIN_OPERATOR_KEY:
     logger.info("FABLE_OPERATOR_KEY is not set, so POST /admin/provision is disabled.")
 

@@ -19,9 +19,21 @@ LOCKOUT_MINUTES = 15
 # Rejected outright. A PIN a scammer can guess over a phone call is not a
 # factor, and these are the ones people reach for first.
 WEAK_PINS = {
+    # Repeated digits
     "0000", "1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888",
-    "9999", "1234", "4321", "1122", "1212", "0123", "123456", "654321",
-    "111111", "000000", "121212",
+    "9999", "000000", "111111", "222222", "333333", "444444", "555555",
+    "666666", "777777", "888888", "999999",
+    # Sequences, forward and back. The original list had 1234 and 4321 but
+    # stopped there, so 2345 and 6789 were accepted — and a scammer coaching
+    # someone over the phone works from a very short list.
+    "1234", "2345", "3456", "4567", "5678", "6789", "0123",
+    "4321", "5432", "6543", "7654", "8765", "9876", "3210",
+    "123456", "234567", "345678", "456789", "654321", "765432", "987654",
+    # Repeating pairs and keypad patterns
+    "1122", "1212", "2121", "1313", "2020", "6969", "121212", "112233",
+    "159753", "147258", "159357",
+    # Years people pick as a 4-digit PIN
+    *{str(y) for y in range(1950, 2031)},
 }
 
 
