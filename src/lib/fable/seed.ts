@@ -13,12 +13,12 @@ export const INSTITUTION: Institution = {
   contactEmail: "risk@meridian.ng",
 };
 
-/** Demo login credentials, shown on the login screen so a judge can sign
- * straight in. Not real, not checked against anything. */
-export const DEMO_CREDENTIALS = {
-  email: "risk@meridian.ng",
-  password: "fable-demo",
-};
+// DEMO_CREDENTIALS lived here and was rendered on the login page, publishing a
+// working email and password to anyone who loaded a public URL. The comment
+// claimed they were "not real, not checked against anything", which stopped
+// being true once /auth/login started checking them. Removed rather than
+// updated: a login page should not print credentials, and the same login now
+// unlocks the institution's API key.
 
 /** The demo bank's account holder (the person using /demo). */
 export const DEMO_USER = {
