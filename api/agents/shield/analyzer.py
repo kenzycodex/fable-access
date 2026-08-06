@@ -184,18 +184,23 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         mult = round(amount / avg)
         stdev = baseline.get("stdev_amount") or (avg * 0.5)
         sigma = (amount - avg) / max(stdev, avg * 0.15)
-        # The *lower* of the two readings, so a transfer has to look unusual on
-        # both measures before it costs much.
+        # The mean of the two readings, not the lower of them.
         #
-        # Sigma alone over-reacts for a very consistent customer: someone who
-        # sends almost exactly ₦5,500 every week hits 12 sigma at ₦30,000, which
-        # is only 5x their normal and not a scam-shaped number. A raw multiple
-        # alone under-reacts for an erratic one, as Tunde's routine ₦300k showed.
-        # Taking the minimum gives the consistent customer the multiple's
-        # moderation and the erratic customer sigma's tolerance.
+        # Each measure fails in an opposite direction. Sigma over-reacts for a
+        # very consistent customer: someone who sends almost exactly ₦5,500 a
+        # week hits 12 sigma at ₦30,000, which is 5x their normal and not a
+        # scam-shaped number. A raw multiple under-reacts for an erratic one,
+        # which is why a trader's routine ₦300k used to flag.
+        #
+        # Taking the minimum was the first attempt and it was wrong: it let the
+        # multiple cap a genuinely extreme transfer. A trader moving 8x his
+        # normal — twenty standard deviations out — scored as a mild 8x and
+        # passed unchallenged, which a test caught before it shipped. Averaging
+        # keeps each measure's moderating effect without letting either veto
+        # the other.
         by_sigma = _amount_boost_from_sigma(sigma)
         by_multiple, _tier = amount_anomaly_boost(mult)
-        boost = round(min(by_sigma, by_multiple), 3)
+        boost = round((by_sigma + by_multiple) / 2, 3)
         if boost > 0:
             signals.append(
                 f"amount_anomaly: {mult}x above your baseline, "

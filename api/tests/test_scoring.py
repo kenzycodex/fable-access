@@ -14,9 +14,33 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ.setdefault("FABLE_DB_PATH", os.path.join(tempfile.mkdtemp(), "test.db"))
-os.environ.setdefault("FABLE_SESSION_SECRET", "test-secret")
-os.environ.setdefault("SMTP_USERNAME", "")
+
+# Pin the tuning these assertions were written against.
+#
+# These tests exercise the scoring *code*, not whatever a given deployment has
+# in its .env. Without this they inherit the server's live weights, so tuning
+# the thresholds on one box "breaks" the suite everywhere and the failure says
+# nothing about the code. Set before any Fable module is imported, because
+# config reads the environment at import time.
+#
+# Note the deliberate consequence: a deployment can tune itself out of these
+# guarantees and the suite will not notice. That is what the separate
+# `test_deployment_tuning_is_not_reckless` check below is for.
+_PINNED = {
+    "FABLE_DB_PATH": os.path.join(tempfile.mkdtemp(), "test.db"),
+    "FABLE_SESSION_SECRET": "test-secret",
+    "SMTP_USERNAME": "",
+    "FABLE_W_NEW_RECIPIENT": "0.14",
+    "FABLE_W_TIME_ANOMALY": "0.12",
+    "FABLE_W_DEVICE_ANOMALY": "0.08",
+    "FABLE_W_LOCATION_CITY": "0.06",
+    "FABLE_CHANNEL_MOBILE_APP": "0.12",
+    "FABLE_CHANNEL_USSD": "0.12",
+    "FABLE_TENURE_DISCOUNT_MAX": "0.08",
+    "FABLE_TENURE_FULL_AT": "120",
+}
+_LIVE_ENV = {k: os.environ.get(k) for k in _PINNED}
+os.environ.update(_PINNED)
 
 
 @pytest.fixture(scope="module")
@@ -171,6 +195,38 @@ def test_unscoped_tenant_query_raises_rather_than_aggregating():
     with pytest.raises(UnscopedQuery):
         tenant_clause(None)
     assert tenant_clause("testbank")[1] == ["testbank"]
+
+
+def test_deployment_tuning_is_not_reckless():
+    """Guards the tuning this box is actually running, not the pinned defaults.
+
+    The rest of the suite pins its own weights so it tests the code. This one
+    reads the deployment's real .env, because tuning is where the damage
+    happens: a friction-reduction pass once took the tenure discount to 0.12
+    and full tenure to 60 transactions, which let a trader move 8x his normal
+    — twenty standard deviations out — unchallenged.
+
+    Deliberately loose. It does not dictate a policy, it refuses the obviously
+    dangerous end of the range.
+    """
+    def env(name, default):
+        try:
+            return float(_LIVE_ENV.get(name) or default)
+        except (TypeError, ValueError):
+            return float(default)
+
+    tenure_max = env("FABLE_TENURE_DISCOUNT_MAX", 0.08)
+    new_recipient = env("FABLE_W_NEW_RECIPIENT", 0.14)
+
+    # A discount worth more than a new-recipient signal can cancel one outright.
+    assert tenure_max <= 0.10, (
+        f"FABLE_TENURE_DISCOUNT_MAX={tenure_max} is large enough to erase a "
+        "whole signal on its own."
+    )
+    assert new_recipient >= 0.10, (
+        f"FABLE_W_NEW_RECIPIENT={new_recipient} is below the point where a "
+        "first-time payee meaningfully registers, and that is the core scenario."
+    )
 
 
 def test_session_token_fails_closed(monkeypatch):
