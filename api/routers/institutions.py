@@ -3,9 +3,10 @@
 The demo bank calls this to validate the institution slug in its URL
 (/demo/{institution}) and to render the tenant's name and customer roster.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+import sessions
 from db import cursor
 from tenancy import get_institution, institution_from_api_key, list_institutions
 from agents.copilot.demo_customers import customers_for_institution
@@ -61,14 +62,30 @@ def _mask(key: str) -> str:
 
 
 @router.get("/{institution_id}/credentials")
-def credentials(institution_id: str):
+def credentials(institution_id: str, request: Request):
     """The institution's own API key, for its settings screen.
 
-    Returns the live key so the console can offer copy-to-clipboard. In
-    production this belongs behind a real dashboard session (and most
-    providers show the secret once at creation, then only the mask) — the
-    demo has no server-side session to gate it on.
+    This used to return the live plaintext key with no authentication at all.
+    Chained with `GET /v1/institutions`, which lists every tenant id, that was
+    complete credential harvesting for the whole platform in two requests. The
+    old docstring acknowledged it needed a session and noted there wasn't one;
+    now there is, so it is gated.
+
+    A session only unlocks its *own* institution's key. The key is returned in
+    full because the console offers copy-to-clipboard and there is nowhere else
+    to retrieve it from; most providers show a secret once at creation and only
+    the mask thereafter, which is the better pattern and is noted as follow-up.
     """
+    try:
+        payload = sessions.verify(sessions.extract_token(request))
+    except sessions.SessionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+
+    if payload["inst"] != institution_id:
+        # Deliberately 404 rather than 403: confirming that a tenant exists is
+        # itself the reconnaissance step that made the original hole useful.
+        raise HTTPException(status_code=404, detail="Institution not found")
+
     inst = get_institution(institution_id)
     if not inst:
         raise HTTPException(status_code=404, detail="Institution not found")

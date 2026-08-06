@@ -1,10 +1,11 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from db import get_conn, cursor
-from utils import hash_password, verify_password
+from utils import hash_password, needs_rehash, verify_password
 import secrets
 import time
 import config
+import sessions
 from email.message import EmailMessage
 import smtplib
 
@@ -14,19 +15,47 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
+# Verified against a throwaway hash when the account does not exist, so a
+# missing email costs the same time as a wrong password. Without this, login
+# returned instantly for unknown addresses and only paid the hashing cost for
+# real ones, which enumerates accounts by stopwatch. Note the irony that
+# /forgot-password below already defends against enumeration explicitly.
+_DUMMY_HASH = hash_password(secrets.token_urlsafe(16))
+
+
 @router.post("/login")
 def login(req: LoginRequest):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT hashed_password, institution_id FROM admins WHERE email = ?", (req.email,))
     row = cur.fetchone()
+
     if not row:
+        verify_password(req.password, _DUMMY_HASH)  # equalise timing
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    if verify_password(req.password, row['hashed_password']):
-        return {"success": True, "institution_id": row['institution_id']}
-    else:
+
+    if not verify_password(req.password, row["hashed_password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Upgrade legacy single-round SHA-256 hashes now that we hold the plaintext
+    # and know it is correct. Nobody is locked out by the algorithm change; they
+    # are migrated on their next successful sign-in.
+    if needs_rehash(row["hashed_password"]):
+        with cursor() as c:
+            c.execute(
+                "UPDATE admins SET hashed_password = ? WHERE email = ?",
+                (hash_password(req.password), req.email),
+            )
+
+    session = sessions.issue(req.email, row["institution_id"])
+    return {
+        "success": True,
+        "institution_id": row["institution_id"],
+        # The console presents this on every API call. It replaces the previous
+        # arrangement, where login returned no credential at all and the client
+        # invented one by setting a cookie equal to "1".
+        **session,
+    }
 
 
 class ForgotPasswordRequest(BaseModel):
