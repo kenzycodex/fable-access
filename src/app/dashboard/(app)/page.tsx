@@ -263,9 +263,48 @@ function ActivityRow({ txn }: { txn: Transaction }) {
       </div>
       <div className="ml-auto flex flex-col items-end gap-1.5">
         <span className="text-[14px] font-bold tabular-nums text-gray-900 dark:text-white">{formatNaira(txn.amount)}</span>
-        <RiskBadge action={txn.action} />
+        <div className="flex items-center gap-1.5">
+          <RiskBadge action={txn.action} />
+          <OutcomeBadge txn={txn} />
+        </div>
       </div>
     </div>
+  );
+}
+
+/** What happened *after* the decision.
+ *
+ * The row showed only `action`, which is Shield's verdict and is deliberately
+ * immutable: a blocked transfer was blocked, and rewriting that would destroy
+ * the audit trail. But it meant a customer who verified their identity and
+ * released the money still read as "BLOCK" forever, so the console could not
+ * distinguish fraud that was stopped from a false positive the customer
+ * cleared. That difference is the whole argument for containment.
+ *
+ * Only rendered when the outcome adds something the verdict does not.
+ */
+function OutcomeBadge({ txn }: { txn: Transaction }) {
+  const outcome = txn.status;
+  if (!outcome) return null;
+
+  // A cleared PASS and a still-blocked BLOCK say nothing new.
+  if (outcome === "completed" && txn.action === "PASS") return null;
+  if (outcome === "blocked") return null;
+
+  const styles: Record<string, { label: string; className: string }> = {
+    released: { label: "released", className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" },
+    completed: { label: "verified & sent", className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" },
+    held: { label: "in containment", className: "bg-[#7C3AED]/10 text-[#7C3AED]" },
+    cancelled: { label: "cancelled", className: "bg-gray-500/10 text-gray-500 dark:text-white/40" },
+    flagged: { label: "awaiting review", className: "bg-amber-500/10 text-amber-600 dark:text-amber-400" },
+  };
+  const s = styles[outcome];
+  if (!s) return null;
+
+  return (
+    <span className={`rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${s.className}`}>
+      {s.label}
+    </span>
   );
 }
 
