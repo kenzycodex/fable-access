@@ -5,9 +5,10 @@ missing is the backend, a database, and the wiring between them. This is the
 full path from there to a working system.
 
 **Current state:** Vercel serves the marketing site, the demo bank and the
-console. Every call to the FastAPI service fails, so the app silently falls
-back to its local scoring engine. Visitors see a UI with no intelligence
-behind it.
+console. The FastAPI service runs in Docker on a DigitalOcean droplet behind
+Nginx. If the API is ever unreachable the frontend silently falls back to its
+local scoring engine, so a UI that looks healthy is not proof the backend is
+up; check `/health` and the startup log, not the screen.
 
 ---
 
@@ -29,7 +30,18 @@ stateless and short-lived. A dedicated VPS runs it as a real process.
 
 ## 2. Storage: read this before choosing Postgres
 
-`api/fable.db` works locally because the file persists. On a bare VPS (like DigitalOcean), the filesystem is inherently persistent, meaning SQLite works perfectly out of the box without special volume configuration.
+Locally the database is `api/fable.db`, because `FABLE_DB_PATH` is unset and
+that is the default. **In the deployed container it is not.** The compose file
+bind-mounts the host directory `api/data` to `/data` inside the container, and
+`.env` sets `FABLE_DB_PATH=/data/fable.db`. So on the server the real file is:
+
+```
+/var/www/fable/api/data/fable.db     # host path, this is what you back up
+/data/fable.db                       # the same file, seen from inside the container
+```
+
+The bind mount is what keeps the database alive across image rebuilds. Rebuild
+the image as often as you like; the data sits on the host and is untouched.
 
 **Postgres is not a configuration change.** The backend is written against
 SQLite, not against a generic SQL layer:
@@ -63,72 +75,109 @@ not a deploy-day change.
 
 ## 3. Deploy the backend (DigitalOcean / VPS)
 
-### Option A: Docker Compose (Recommended)
+**This is a Docker Compose deployment.** `api/Dockerfile` and
+`api/docker-compose.yml` are both in the repository, so there is nothing to
+author by hand. There is no virtualenv and no systemd unit on the server; if
+you are reaching for `systemctl`, you are on the wrong path.
 
-Docker keeps the Python dependencies cleanly isolated from your system software.
+### First-time setup
 
-1. **Clone the repository** to your server (e.g., `/var/www/fable`).
-2. **Create a `docker-compose.yml`** in the `api/` directory:
-
-```yaml
-services:
-  api:
-    build: .
-    restart: always
-    ports:
-      - "127.0.0.1:8010:8010"
-    volumes:
-      - ./data:/data
-    env_file:
-      - .env
-```
-
-3. **Configure the environment variables**:
+1. **Clone the repository** to the server, for example `/var/www/fable`.
+2. **Create the data directory and environment file:**
    ```bash
-   mkdir -p api/data
-   cp api/.env.example api/.env
-   # Edit .env and set FABLE_DB_PATH=/data/fable.db
+   cd /var/www/fable/api
+   mkdir -p data
+   cp .env.example .env
+   # Edit .env. FABLE_DB_PATH=/data/fable.db is required, and must match
+   # the bind mount in docker-compose.yml.
    ```
-4. **Start the container**:
+3. **Build and start:**
    ```bash
-   cd api
-   docker compose up -d
+   docker compose up -d --build
+   docker compose logs --tail=40 api
    ```
 
-### Option B: Systemd + Nginx (Raw Metal)
+`docker compose` reads `docker-compose.yml` from the **current directory**, so
+every command in this document assumes you are in `/var/www/fable/api`, not the
+repository root. Running it from the root fails with
+`no configuration file provided: not found`.
 
-If you don't want Docker, you can run it as a standard Linux service directly on the host.
-
-1. Setup the virtual environment:
-   ```bash
-   cd api
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
-2. Create a systemd service file `/etc/systemd/system/fable.service`:
-   ```ini
-   [Unit]
-   Description=Fable FastAPI Backend
-   After=network.target
-
-   [Service]
-   User=root
-   WorkingDirectory=/var/www/fable/api
-   Environment="PATH=/var/www/fable/api/.venv/bin"
-   EnvironmentFile=/var/www/fable/api/.env
-   ExecStart=/var/www/fable/api/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8010
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-3. Start it: `systemctl enable --now fable`.
+The compose project is named after that directory, which is why the running
+container is `api-api-1` and the image is `api-api`.
 
 ---
 
-## 4. Exposing it to the Internet (Nginx)
+## 4. Deploying an update
 
-Whichever option you choose, your API is now running locally on port `8010`. To expose it to Vercel securely, configure Nginx to reverse proxy to it with SSL. WebAuthn (Passkeys) strictly requires HTTPS.
+This is the step that catches people, so it gets its own section.
+
+**The application code is copied into the image at build time** (`COPY . .` in
+the Dockerfile). It is not bind-mounted. That means:
+
+> A `git pull` changes the files on disk and has **no effect** on the running
+> container. Neither does `docker compose restart`, which recreates the
+> container from the **existing** image. You must rebuild.
+
+```bash
+cd /var/www/fable/api
+
+# 1. Get the new code
+git pull origin main
+
+# 2. Back up the database first. Cheap, and the only thing that is not
+#    reproducible if a migration goes wrong.
+cp data/fable.db data/fable.db.bak-$(date +%Y%m%d-%H%M%S)
+
+# 3. Rebuild the image and recreate the container
+docker compose up -d --build
+
+# 4. Confirm it came up and that every router registered
+docker compose logs --tail=40 api | grep -i "routers loaded"
+```
+
+The log line to look for is `Fable API routers loaded: ...`. If `shield` is
+missing from that list, the scoring engine failed to import and the API is
+serving a 404 on `/v1/shield/analyze` while `/health` still returns 200. See
+section 9.
+
+**Verify the deploy actually took.** The cheapest proof is a request that the
+new code rejects and the old code accepts:
+
+```bash
+curl -s http://127.0.0.1:8010/v1/shield/analyze -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"user_id":"meridian_ada","transaction":{"amount":-5000,"recipient_account":"0123456789"}}'
+```
+
+A `422` with `"Input should be greater than 0"` means the new code is live. A
+risk score and a `PASS` means the container is still running the old image.
+
+### Rolling back
+
+Images are tagged `api-api:latest` on every build, so there is no previous tag
+to fall back to. Roll back with git and rebuild:
+
+```bash
+cd /var/www/fable
+git log --oneline -5
+git checkout <previous-good-sha>
+cd api && docker compose up -d --build
+```
+
+If a migration corrupted data, restore the backup **before** rebuilding:
+
+```bash
+cd /var/www/fable/api
+docker compose down
+cp data/fable.db.bak-<timestamp> data/fable.db
+docker compose up -d --build
+```
+
+---
+
+## 5. Exposing it to the Internet (Nginx)
+
+The container binds to `127.0.0.1:8010`, so the API is not reachable from outside the host on its own. To expose it to Vercel securely, configure Nginx to reverse proxy to it with SSL. WebAuthn (Passkeys) strictly requires HTTPS.
 
 ```nginx
 server {
@@ -147,7 +196,7 @@ Run `certbot --nginx -d api.yourdomain.com` to secure it.
 
 ---
 
-## 5. Point the frontend at it
+## 6. Point the frontend at it
 
 In Vercel → your project → **Settings → Environment Variables**:
 
@@ -164,10 +213,10 @@ time, so an existing deployment will keep using the old value.
 
 ---
 
-## 6. Move the local database up
+## 7. Move the local database up
 
-You asked about using the current local DB as the starting point. Worth being
-precise about what's in it: three institutions, their customers, ~90 days of
+If you want to use a local database as the starting point, be precise about
+what is in it: three institutions, their customers, ~90 days of
 seeded history, branding, and API keys.
 
 ### Option A — reseed on the server (cleanest)
@@ -190,6 +239,7 @@ Only worth it if you've made transfers you want to keep. Staying on SQLite, the 
 
 ```bash
 scp api/fable.db user@your_vps_ip:/var/www/fable/api/data/fable.db
+# Then rebuild so the container picks it up: cd api && docker compose up -d --build
 ```
 
 ⚠️ **Passkeys will not survive**, whichever option you pick. A credential is
@@ -199,7 +249,7 @@ step-up. This is WebAuthn working correctly, not a bug.
 
 ---
 
-## 7. Post-deploy checklist
+## 8. Post-deploy checklist
 
 ```bash
 API=https://api.yourdomain.com
@@ -224,7 +274,15 @@ In the browser:
 
 ---
 
-## 8. Things that will bite you
+## 9. Things that will bite you
+
+**A failed router import is nearly silent.** `main.py` loads routers
+defensively so one broken module cannot stop the process booting. The tradeoff
+is that if `routers/shield` fails to import, for any reason, you get a single
+`WARNING` line and an API that answers `/health` with 200 while
+`/v1/shield/analyze` returns 404. The whole scoring engine is gone and nothing
+obvious says so. Always grep the startup log for `routers loaded` after a
+deploy and confirm `shield` is in the list.
 
 **Paystack IP allowlist.** Your VPS egress IP is not your laptop's, and
 Paystack enforces the allowlist per endpoint — `/bank` can succeed while
@@ -253,7 +311,7 @@ curl -X POST $API/v1/demo/seed-institution \
 
 ---
 
-## 9. Rough costs
+## 10. Rough costs
 
 | Service | Tier | Cost |
 |---|---|---|
