@@ -46,7 +46,28 @@ def resolve_institution(request, claimed: str | None = None) -> str:
         return from_key
     if claimed and institution_exists(claimed):
         return claimed
-    return DEFAULT_INSTITUTION_ID
+    return _fallback_institution()
+
+
+def _fallback_institution() -> str:
+    """The tenant to attribute a write to when nothing identifies one.
+
+    This used to return DEFAULT_INSTITUTION_ID unconditionally, which is only
+    correct while that institution exists. After re-provisioning it does not,
+    so unattributed writes were tagged to a tenant with no institutions row —
+    orphaning them exactly the way the old 'demo_bank' default did.
+
+    Prefers the configured default when it is real, then falls back to the only
+    institution when there is exactly one. With several tenants and nothing
+    identifying the caller there is no safe guess, so the configured default
+    stands and the caller should be sending a key.
+    """
+    if institution_exists(DEFAULT_INSTITUTION_ID):
+        return DEFAULT_INSTITUTION_ID
+    with cursor() as cur:
+        cur.execute("SELECT institution_id FROM institutions ORDER BY created_at ASC LIMIT 2")
+        rows = cur.fetchall()
+    return rows[0]["institution_id"] if len(rows) == 1 else DEFAULT_INSTITUTION_ID
 
 
 def institution_exists(institution_id: str) -> bool:
