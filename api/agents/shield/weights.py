@@ -85,13 +85,24 @@ _DEFAULT_FLAG = float(os.getenv("FABLE_FLAG_THRESHOLD", "0.50"))
 _DEFAULT_THRESHOLD = {"block": _DEFAULT_BLOCK, "flag": _DEFAULT_FLAG}
 
 _CHANNEL_DEFAULTS = {
-    "ussd": (0.75, 0.45),
-    "internet": (0.75, 0.45),
+    # Rebalanced with the channel weights, for the same reason: USSD held the
+    # tightest cutoff on the strength of a claim the NIBSS data does not
+    # support, while mobile — consistently among the most exploited channels and
+    # growing fastest — held one of the loosest.
+    #
+    # USSD now gets *more* room than the default, not less. It carries little
+    # reported fraud, and it is the rail Nigeria's feature-phone population
+    # banks on, so a customer there is the least able to complete a step-up:
+    # no smartphone means no passkey, and often no registered email for a code.
+    # Concentrating friction on that cohort was an equity problem as much as an
+    # accuracy one.
+    "internet": (0.75, 0.45),   # highest fraud rate
     "pos": (0.78, 0.48),
     "atm": (0.78, 0.48),
-    "mobile_app": (0.80, 0.50),
+    "mobile_app": (0.78, 0.48),  # heavily exploited, fastest growing
     "qr": (0.80, 0.50),
-    "branch": (0.85, 0.55),
+    "ussd": (0.82, 0.52),        # low reported fraud, hardest cohort to step up
+    "branch": (0.85, 0.55),      # in person
 }
 
 

@@ -65,11 +65,11 @@ const NO_BASELINE_PREMIUM = 0.15;
  *  the same transfer could get a different verdict purely because the API was
  *  briefly unreachable. */
 const CHANNEL_THRESHOLDS: Record<Channel, { flag: number; block: number }> = {
-  app: { flag: 0.5, block: 0.8 },
-  ussd: { flag: 0.45, block: 0.75 },
   web: { flag: 0.45, block: 0.75 },
   pos: { flag: 0.48, block: 0.78 },
   atm: { flag: 0.48, block: 0.78 },
+  app: { flag: 0.48, block: 0.78 },
+  ussd: { flag: 0.52, block: 0.82 },
 };
 
 /** Word-boundary keyword match, mirroring the backend fix. Bare substring
@@ -82,11 +82,15 @@ function matchesWord(keyword: string, text: string): boolean {
 /** Channel risk weights, from NIBSS 2023-2025 fraud distribution. USSD is
  * highest (no device fingerprint); the in-app channel is lowest because
  * Copilot personalizes per user there. */
+/** Mirrors api/agents/shield/channel_risk.py. These were inverted relative to
+ *  NIBSS reporting: USSD carried the heaviest penalty despite not appearing
+ *  among the top exploited channels in any year, and mobile the lightest
+ *  despite being consistently among the most exploited and fastest growing. */
 export const CHANNEL_RISK_WEIGHTS: Record<Channel, number> = {
-  app: 0.05,
-  ussd: 0.25,
-  pos: 0.2,
-  web: 0.18,
+  web: 0.22,
+  pos: 0.18,
+  app: 0.12,
+  ussd: 0.12,
   atm: 0.12,
 };
 
