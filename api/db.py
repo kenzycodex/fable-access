@@ -5,13 +5,25 @@ Mirrors the Supabase/Postgres schema from the implementation doc
 swapped for a real Supabase client later without changing agent logic.
 """
 import json
+import logging
 import sqlite3
 import threading
 from contextlib import contextmanager
 
 from config import DB_PATH
 
+logger = logging.getLogger("fable.db")
+
 _local = threading.local()
+
+# Schema creation and migration are process-wide work, not per-connection work.
+# They used to run inside get_conn(), which is guarded by threading.local() —
+# so every new worker thread re-ran 20 CREATE TABLE statements, 6 PRAGMA
+# table_info reads and 3 backfill UPDATEs. Under uvicorn's threadpool that is
+# up to 40 executions spread across live traffic, not once at boot. It also
+# meant the ghost_containers backfill kept firing during normal operation.
+_init_lock = threading.Lock()
+_initialized = False
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS fable_users (
@@ -371,13 +383,85 @@ def slugify_institution(name: str) -> str:
     return "".join(c if c.isalnum() else "_" for c in name.strip().lower()).strip("_")
 
 
+# Indexes. The schema shipped with none, so every query below was a full table
+# scan: the per-customer baseline and the velocity count on *every* decision,
+# held_amount on every balance read, and every dashboard rollup. Separate from
+# SCHEMA because a unique index can fail on existing data and has to be handled
+# on its own — see _create_indexes.
+INDEXES = """
+CREATE INDEX IF NOT EXISTS ix_txn_user_created   ON transactions(user_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_txn_inst_created   ON transactions(institution_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_txn_user_conf      ON transactions(user_id, confirmed_legitimate, created_at);
+CREATE INDEX IF NOT EXISTS ix_txn_action         ON transactions(action_taken);
+CREATE INDEX IF NOT EXISTS ix_ghost_user_status  ON ghost_containers(user_id, status);
+CREATE INDEX IF NOT EXISTS ix_ghost_inst_status  ON ghost_containers(institution_id, status);
+CREATE INDEX IF NOT EXISTS ix_ledger_user        ON ledger_entries(user_id);
+CREATE INDEX IF NOT EXISTS ix_locations_user     ON user_locations(user_id);
+CREATE INDEX IF NOT EXISTS ix_devices_user       ON device_profiles(user_id);
+CREATE INDEX IF NOT EXISTS ix_failures_user_time ON stepup_failures(user_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_challenges_user    ON stepup_challenges(user_id);
+"""
+
+# Offline-replay idempotency rests entirely on client_reference, and the lookup
+# in routers/shield.py uses fetchone(), but nothing stopped duplicates: the
+# column arrived via ALTER TABLE, where SQLite cannot add a constraint. A
+# partial unique index does the job and tolerates the many NULLs (every
+# online transfer has none). ledger_entries.reference got this right from the
+# start with a plain UNIQUE.
+CLIENT_REF_INDEX = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_txn_client_ref "
+    "ON transactions(client_reference) WHERE client_reference IS NOT NULL"
+)
+
+
+def _create_indexes(conn) -> None:
+    conn.executescript(INDEXES)
+    try:
+        conn.execute(CLIENT_REF_INDEX)
+    except sqlite3.IntegrityError:
+        # Pre-existing duplicates from before the constraint existed. Log and
+        # continue rather than refusing to boot: the index is a guard against
+        # future double-booking, and blocking startup over historical rows
+        # would take the whole API down to fix a data problem.
+        logger.warning(
+            "Duplicate client_reference values already exist, so the unique "
+            "index was not created. De-duplicate transactions, keeping the "
+            "earliest row per reference, then restart to enforce it."
+        )
+    conn.commit()
+
+
+def _ensure_initialized(conn) -> None:
+    """Create schema, migrate and index exactly once per process."""
+    global _initialized
+    if _initialized:
+        return
+    with _init_lock:
+        if _initialized:
+            return
+        conn.executescript(SCHEMA)
+        conn.commit()
+        _migrate(conn)
+        _create_indexes(conn)
+        _initialized = True
+
+
 def get_conn():
     if not hasattr(_local, "conn"):
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        conn.executescript(SCHEMA)
-        conn.commit()
-        _migrate(conn)
+        # Order matters. busy_timeout is per connection and must be set FIRST,
+        # because switching journal_mode briefly needs an exclusive lock: with
+        # no timeout in effect, several threads opening connections at once
+        # made that PRAGMA fail outright with "database is locked" rather than
+        # waiting its turn.
+        conn.execute("PRAGMA busy_timeout=5000")
+        # WAL lets readers run while a writer holds the lock, which matters
+        # because the scoring path issues several reads per decision. It is a
+        # persistent property of the database file, so this is a no-op after
+        # the first connection ever made to it.
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_initialized(conn)
         _local.conn = conn
     return _local.conn
 

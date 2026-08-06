@@ -115,26 +115,52 @@ def assert_can_spend(user_id: str, amount: float, institution_id: str | None = N
 def _apply(user_id: str, institution_id: str | None, kind: str, delta: float,
            transaction_id: str | None, reference: str | None) -> dict:
     """Move money and record why. `reference` makes a retry a no-op rather than
-    a second movement."""
+    a second movement.
+
+    The balance change is a single relative UPDATE rather than read-then-write.
+    Python's sqlite3 opens a transaction on the first DML statement, not on a
+    SELECT, so `SELECT balance` sat outside the transaction and two concurrent
+    requests could both read the same figure and both write back their own
+    total, losing one movement entirely. `balance = balance + ?` is evaluated
+    by SQLite under the write lock, so concurrent movements compose instead of
+    overwriting each other.
+
+    A debit additionally refuses to overdraw *in the same statement* that
+    performs it. assert_can_spend() runs before scoring, hundreds of
+    milliseconds earlier, so on its own it is a check-then-act race: two
+    transfers could both pass it and both debit. The WHERE clause here is the
+    authoritative guard.
+    """
     ensure_account(user_id, institution_id)
 
     with cursor() as cur:
         if reference:
             cur.execute("SELECT balance_after FROM ledger_entries WHERE reference = ?", (reference,))
-            existing = cur.fetchone()
-            if existing:
+            if cur.fetchone():
                 # Already applied. Replaying a queued offline transfer, or a
                 # retried request, must not move money twice.
                 return get_balance(user_id, institution_id)
 
-        cur.execute("SELECT balance FROM accounts WHERE user_id = ?", (user_id,))
-        balance = float(cur.fetchone()["balance"] or 0)
-        new_balance = round(balance + delta, 2)
+        if delta < 0:
+            cur.execute(
+                "UPDATE accounts SET balance = balance + ?, updated_at = ? "
+                "WHERE user_id = ? AND balance >= ?",
+                (delta, _now(), user_id, abs(delta)),
+            )
+            if cur.rowcount == 0:
+                cur.execute("SELECT balance FROM accounts WHERE user_id = ?", (user_id,))
+                row = cur.fetchone()
+                available = float((row["balance"] if row else 0) or 0) - held_amount(user_id)
+                raise InsufficientFunds(round(available, 2), abs(delta))
+        else:
+            cur.execute(
+                "UPDATE accounts SET balance = balance + ?, updated_at = ? WHERE user_id = ?",
+                (delta, _now(), user_id),
+            )
 
-        cur.execute(
-            "UPDATE accounts SET balance = ?, updated_at = ? WHERE user_id = ?",
-            (new_balance, _now(), user_id),
-        )
+        cur.execute("SELECT balance FROM accounts WHERE user_id = ?", (user_id,))
+        new_balance = round(float(cur.fetchone()["balance"] or 0), 2)
+
         cur.execute(
             """INSERT INTO ledger_entries
                (user_id, institution_id, kind, amount, balance_after, transaction_id, reference)
