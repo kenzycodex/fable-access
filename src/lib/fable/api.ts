@@ -20,12 +20,13 @@ export const API_BASE = (process.env.NEXT_PUBLIC_FABLE_API_URL ?? "http://localh
  * demo bank (see tenant.ts). */
 export const DEMO_USER_ID = "demo_user_001";
 
-// The deployed API answers dashboard reads in 4-7 seconds, so the original
-// 8-second budget sat right on the edge and polls failed intermittently. That
-// surfaced as the console's figures flickering between the live numbers and
-// the local fallback. Callers that genuinely need to fail fast — the /health
-// probe — pass their own shorter timeout.
-async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs = 20_000): Promise<T> {
+// Dashboard reads used to take 4-7 seconds, which was treated as a network
+// budget problem and worked around by raising this timeout to 20s. It was not:
+// the database had no indexes, so every rollup was a full table scan. With the
+// indexes in place the same reads are fast, and the budget comes back down to
+// something that surfaces a real problem instead of hiding it. Callers that
+// need to fail faster still (the /health probe) pass their own value.
+async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs = 8_000): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {

@@ -63,6 +63,21 @@ for name in _ROUTERS:
 
 logger.info("Fable API routers loaded: %s", ", ".join(_loaded))
 
+# Resilient loading is right for optional routers and wrong for the scoring
+# engine. A failed `routers.shield` import used to produce one WARNING line and
+# an API that answered /health with 200 while /v1/shield/analyze returned 404 —
+# the entire product absent, with almost no signal. Anything in _REQUIRED is
+# load-bearing, so its absence is shouted rather than logged.
+_REQUIRED = {"shield", "ghost", "copilot"}
+_missing = _REQUIRED - set(_loaded)
+if _missing:
+    logger.error(
+        "CRITICAL: required router(s) failed to load: %s. The API is running "
+        "WITHOUT them; /health reports degraded. Check the import traceback "
+        "above this line.",
+        ", ".join(sorted(_missing)),
+    )
+
 
 # Default demo admin so the pre-filled dashboard login works out of the box.
 # Idempotent, and wrapped so it can never crash startup. Provisioning new
@@ -114,13 +129,29 @@ def ensure_default_admin() -> None:
 
 @app.get("/health", tags=["system"])
 def health():
+    """Liveness plus the two things that can be silently wrong.
+
+    A process that answers this endpoint is not necessarily a working fraud
+    engine: the scoring router can fail to import, and the scam-pattern library
+    can fail to load, both without stopping the app. Reporting "ok" in either
+    case is how a broken deploy looks healthy, so both are surfaced here.
+    """
+    try:
+        from agents.shield.patterns import library_health
+        patterns = library_health()
+    except Exception as exc:  # noqa: BLE001 — health must never itself fail
+        patterns = {"healthy": False, "errors": [f"{type(exc).__name__}: {exc}"]}
+
+    degraded = sorted(_REQUIRED - set(_loaded))
     return {
-        "status": "ok",
+        "status": "degraded" if (degraded or not patterns.get("healthy")) else "ok",
         "service": "fable-api",
         "version": "1.0.0",
         "environment": config.ENVIRONMENT,
         "auth_required": bool(config.API_KEYS),
         "routers": _loaded,
+        "missing_required_routers": degraded,
+        "pattern_library": patterns,
     }
 
 
