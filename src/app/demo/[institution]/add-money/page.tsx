@@ -112,6 +112,7 @@ export default function AddMoneyPage() {
                 value={amount ? Number(amount).toLocaleString("en-NG") : ""}
                 onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
                 placeholder="0"
+                aria-label="0"
                 className="w-full bg-transparent text-center text-[40px] font-bold tabular-nums text-gray-900 outline-none placeholder:text-gray-300 dark:text-white dark:placeholder:text-white/10"
               />
             </div>

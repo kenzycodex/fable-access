@@ -6,7 +6,7 @@ import type { NextRequest } from 'next/server'
  *
  * This used to be `cookies.has('fable_auth')`, and the cookie's value was the
  * literal string "1". Typing `document.cookie = "fable_auth=1"` in any browser
- * console therefore granted access to the whole dashboard.
+ * console therefore granted access to the whole dashboard. 
  *
  * The cookie now holds the signed session token the API issued, so there is
  * something real to inspect. What this checks is the token's *shape and

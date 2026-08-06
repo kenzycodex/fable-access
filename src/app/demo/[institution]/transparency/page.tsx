@@ -307,10 +307,10 @@ function PinRow({ status, userId, institutionId, onDone }: { status: SecuritySta
       {open && (
         <div className="flex flex-col gap-2">
           {isSet && (
-            <input value={current} onChange={(e) => setCurrent(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" placeholder="Current PIN" className={inputCls} />
+            <input value={current} onChange={(e) => setCurrent(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" placeholder="Current PIN" className={inputCls} aria-label="Current PIN" />
           )}
           <div className="flex gap-2">
-            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" placeholder="New 4 or 6-digit PIN" className={inputCls} />
+            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" placeholder="New 4 or 6-digit PIN" className={inputCls} aria-label="New 4 or 6-digit PIN" />
             <button type="button" onClick={save} disabled={busy || (pin.length !== 4 && pin.length !== 6)} className={btnCls}>
               {busy ? "…" : "Save"}
             </button>
@@ -361,10 +361,10 @@ function ContactRow({ status, userId, institutionId, onDone }: { status: Securit
     >
       {open && (
         <div className="flex flex-col gap-2">
-          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" inputMode="email" placeholder="Email for codes" className={inputCls} />
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" inputMode="tel" placeholder="Phone (e.g. 0803…)" className={inputCls} />
+          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" inputMode="email" placeholder="Email for codes" className={inputCls} aria-label="Email for codes" />
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" inputMode="tel" placeholder="Phone (e.g. 0803…)" className={inputCls} aria-label="Phone (e.g. 0803…)" />
           {needsPin && (
-            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" placeholder="Confirm with your transaction PIN" className={inputCls} />
+            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" placeholder="Confirm with your transaction PIN" className={inputCls} aria-label="Confirm with your transaction PIN" />
           )}
           <button type="button" onClick={save} disabled={busy || (!email && !phone) || (needsPin && pin.length < 4)} className={btnCls}>
             {busy ? "…" : "Save"}
@@ -418,7 +418,7 @@ function PasskeyRow({ status, userId, displayName, institutionId, supported, onD
             Confirm with your PIN to trust a new device.
           </p>
           <div className="flex gap-2">
-            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" placeholder="Transaction PIN" className={inputCls} />
+            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" placeholder="Transaction PIN" className={inputCls} aria-label="Transaction PIN" />
             <button type="button" onClick={add} disabled={busy || pin.length < 4} className={btnCls}>
               {busy ? "…" : "Continue"}
             </button>
@@ -461,7 +461,7 @@ function TwoFactorRow({ status, userId, onDone }: { status: SecurityStatus | nul
       {needsPin && open && (
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
-            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" placeholder="Confirm with your PIN" className={inputCls} />
+            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} type="password" inputMode="numeric" placeholder="Confirm with your PIN" className={inputCls} aria-label="Confirm with your PIN" />
             <button type="button" onClick={() => toggle()} disabled={busy || pin.length < 4} className={btnCls}>
               {busy ? "…" : on ? "Turn off" : "Turn on"}
             </button>

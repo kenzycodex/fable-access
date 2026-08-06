@@ -96,6 +96,7 @@ export default function HistoryPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name or narration"
+              aria-label="Search by name or narration"
               className="w-full rounded-xl bg-gray-50 dark:bg-[#1a1a1a] py-2.5 pl-9 pr-3 text-[13px] text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-white/25 focus:ring-1 focus:ring-[var(--brand-primary)]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
             />
           </div>

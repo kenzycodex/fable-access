@@ -28,7 +28,6 @@ import { scoreTransaction } from "./scoring";
 import { enqueue, startAutoSync } from "./syncQueue";
 import { DEFAULT_INSTITUTION } from "./constants";
 import { getTenant, subscribeTenant } from "./tenant";
-import { DEMO_USER, INSTITUTION } from "./seed";
 import type {
   GhostContainer,
   SessionState,

@@ -49,6 +49,7 @@ export default function TransactionsPage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search customer, recipient, narration"
+            aria-label="Search customer, recipient, narration"
             className="w-full bg-transparent text-[13px] text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-white/30"
           />
         </div>

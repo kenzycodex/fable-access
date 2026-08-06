@@ -47,6 +47,7 @@ export default function CopilotAgentPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search customer id…"
+              aria-label="Search customer id…"
               className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-8 pr-3 text-[12px] text-gray-900 outline-none focus:ring-1 focus:ring-[#7C3AED]/40 dark:border-white/[0.05] dark:bg-[#111] dark:text-white sm:w-56"
             />
           </div>

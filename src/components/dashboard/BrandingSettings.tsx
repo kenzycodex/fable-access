@@ -162,6 +162,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
             value={form.display_name}
             onChange={(e) => setForm({ ...form, display_name: e.target.value })}
             placeholder="Meridian MFB"
+            aria-label="Meridian MFB"
             className={inputClass}
           />
         </Field>
@@ -186,6 +187,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
               onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase() })}
               disabled={slugLocked}
               placeholder="zenith-bank"
+              aria-label="zenith-bank"
               className={`${inputClass} disabled:cursor-not-allowed disabled:opacity-50`}
             />
           </div>
@@ -216,6 +218,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
             value={form.tagline}
             onChange={(e) => setForm({ ...form, tagline: e.target.value })}
             placeholder="Banking that protects you"
+            aria-label="Banking that protects you"
             className={inputClass}
           />
         </Field>
@@ -225,6 +228,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
             value={form.support_email}
             onChange={(e) => setForm({ ...form, support_email: e.target.value })}
             placeholder="support@yourbank.ng"
+            aria-label="support@yourbank.ng"
             className={inputClass}
           />
         </Field>

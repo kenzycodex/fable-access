@@ -300,6 +300,7 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
               autoComplete="off"
               autoFocus
               placeholder="Enter your PIN"
+              aria-label="Enter your PIN"
               className={pinInputCls}
             />
             <button type="button" onClick={submitPin} disabled={busy || pinValue.length < 4} className={primaryBtnCls}>
@@ -319,6 +320,7 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
               autoComplete="off"
               autoFocus
               placeholder="Choose a 4 or 6-digit PIN"
+              aria-label="Choose a 4 or 6-digit PIN"
               className={pinInputCls}
             />
             <button type="button" onClick={createPin} disabled={busy || (newPin.length !== 4 && newPin.length !== 6)} className={primaryBtnCls}>
@@ -375,6 +377,7 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
                 autoComplete="one-time-code"
                 autoFocus
                 placeholder="6-digit code"
+                aria-label="6-digit code"
                 className={pinInputCls}
               />
               <button type="button" onClick={submitCode} disabled={busy || code.length < 6} className={primaryBtnCls}>

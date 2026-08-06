@@ -291,6 +291,7 @@ export default function TransferPage() {
                     onKeyDown={recordKey("account_number")}
                     onPaste={recordPaste("account_number")}
                     placeholder="Enter 10-digit account number"
+                    aria-label="Enter 10-digit account number"
                     className="w-full rounded-xl bg-gray-50 dark:bg-[#111] px-4 py-3 text-[14px] text-gray-900 dark:text-white tabular-nums outline-none placeholder:text-gray-400 dark:placeholder:text-white/15 focus:ring-1 focus:ring-[var(--brand-primary)]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
                   />
                 </div>
@@ -371,6 +372,7 @@ export default function TransferPage() {
                 onKeyDown={recordKey("amount")}
                 onPaste={recordPaste("amount")}
                 placeholder="0"
+                aria-label="0"
                 className="w-full bg-transparent text-center text-[40px] font-bold tabular-nums text-gray-900 dark:text-white outline-none placeholder:text-gray-300 dark:placeholder:text-white/10"
               />
             </div>
@@ -468,6 +470,7 @@ export default function TransferPage() {
                 onKeyDown={recordKey("narration")}
                 onPaste={recordPaste("narration")}
                 placeholder="What's this for?"
+                aria-label="What's this for?"
                 className="w-full rounded-xl bg-gray-50 dark:bg-[#111] px-4 py-3 text-[13px] text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-white/15 focus:ring-1 focus:ring-[var(--brand-primary)]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
               />
               <p className="mt-1.5 text-[11px] text-gray-500 dark:text-white/30">

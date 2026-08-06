@@ -97,6 +97,7 @@ function ResetPasswordForm() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-[14px] text-white outline-none transition-all focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] placeholder:text-gray-500 hover:bg-white/[0.04]"
                 placeholder="New Password"
+                aria-label="New Password"
                 required
               />
             </div>
@@ -108,6 +109,7 @@ function ResetPasswordForm() {
                 onChange={(e) => setConfirm(e.target.value)}
                 className="w-full rounded border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-[14px] text-white outline-none transition-all focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] placeholder:text-gray-500 hover:bg-white/[0.04]"
                 placeholder="Confirm New Password"
+                aria-label="Confirm New Password"
                 required
               />
             </div>
