@@ -50,11 +50,31 @@ def customer_overview(user_id: str, institution: Optional[str] = Query(None), li
     for r in rows:
         r["signals"] = loads(r.pop("shield_signals"), [])
 
+    # Raw numbers alongside the human-readable summary. The offline engine used
+    # a single hardcoded average for every customer, so a trader's routine
+    # transfer flagged while a student's scam passed — the exact inverse of what
+    # the product claims. It cannot score against a personal baseline it has
+    # never been given, so the client caches these and uses them when the API is
+    # unreachable.
+    from agents.copilot.baseline import get_user_baseline
+
+    b = get_user_baseline(user_id)
+    scoring_baseline = None
+    if b:
+        scoring_baseline = {
+            "avg_amount": b["avg_amount"],
+            "typical_hours": b["typical_hours"],
+            "known_recipients": sorted(b["known_recipients"]),
+            "transaction_count": b["transaction_count"],
+            "tenure_discount": b.get("tenure_discount", 0.0),
+        }
+
     return {
         "user_id": user_id,
         "balance": {**ledger.get_balance(user_id, institution), "limits": ledger.limits()},
         "transactions": rows,
         "baseline": get_transparency_data(user_id).get("what_we_know", {}),
+        "scoring_baseline": scoring_baseline,
     }
 
 RECURRING_RECIPIENTS = [

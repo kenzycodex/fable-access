@@ -9,10 +9,75 @@ import type { Channel, Recipient, ScoreResult, Signal, TransactionInput } from "
 /** The demo user's behavioral baseline (Copilot). Ada pays her mother at
  * month-end, small vendor payments on weekday mornings, monthly utilities.
  * Her typical transfer sits around ₦11,500. */
-export const BASELINE = {
-  avgAmount: 11_500,
-  typicalHours: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22],
+/** The customer's real baseline, cached from the API for use when it is not
+ *  reachable.
+ *
+ *  This used to be a single hardcoded constant applied to every customer, which
+ *  inverted the product's central claim offline: a trader whose normal is
+ *  ₦260,000 had every routine transfer read as ~22x "baseline" and flagged,
+ *  while a student's ₦30,000 scam sat under the 3x trigger and passed. The
+ *  engine cannot score against a personal baseline it has never been given.
+ *
+ *  Cached per customer, refreshed on every home-screen load, and used only
+ *  while the API is unreachable. With no cache the fallback declines to score
+ *  rather than guessing — see scoreTransaction.
+ */
+export interface CachedBaseline {
+  avgAmount: number;
+  typicalHours: number[];
+  knownRecipients: string[];
+  transactionCount: number;
+  tenureDiscount: number;
+}
+
+const BASELINE_KEY = "fable_baseline_cache";
+
+export function cacheBaseline(userId: string, b: CachedBaseline | null): void {
+  if (typeof window === "undefined" || !userId) return;
+  try {
+    const all = JSON.parse(localStorage.getItem(BASELINE_KEY) ?? "{}") as Record<string, CachedBaseline>;
+    if (b) all[userId] = b;
+    else delete all[userId];
+    localStorage.setItem(BASELINE_KEY, JSON.stringify(all));
+  } catch {
+    // Storage unavailable: offline scoring will decline rather than guess.
+  }
+}
+
+export function getCachedBaseline(userId: string | null | undefined): CachedBaseline | null {
+  if (typeof window === "undefined" || !userId) return null;
+  try {
+    const all = JSON.parse(localStorage.getItem(BASELINE_KEY) ?? "{}") as Record<string, CachedBaseline>;
+    return all[userId] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fallback for a customer with no cached baseline. Deliberately conservative:
+ *  with nothing to compare against, this is the cold-start case, and the
+ *  backend prices that at +0.15 rather than assuming the transfer is normal. */
+const NO_BASELINE_PREMIUM = 0.15;
+
+/** Per-channel decision cutoffs, mirroring api/agents/shield/weights.py.
+ *  USSD and web trip sooner because NIBSS ties the most loss to them; an
+ *  in-person branch transfer gets more room. Offline used a flat 0.8/0.5, so
+ *  the same transfer could get a different verdict purely because the API was
+ *  briefly unreachable. */
+const CHANNEL_THRESHOLDS: Record<Channel, { flag: number; block: number }> = {
+  app: { flag: 0.5, block: 0.8 },
+  ussd: { flag: 0.45, block: 0.75 },
+  web: { flag: 0.45, block: 0.75 },
+  pos: { flag: 0.48, block: 0.78 },
+  atm: { flag: 0.48, block: 0.78 },
 };
+
+/** Word-boundary keyword match, mirroring the backend fix. Bare substring
+ *  matching fired "mum" inside *premium*, *maximum* and *minimum*. */
+function matchesWord(keyword: string, text: string): boolean {
+  const escaped = keyword.split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+");
+  return new RegExp(`\\b${escaped}\\b`).test(text);
+}
 
 /** Channel risk weights, from NIBSS 2023-2025 fraud distribution. USSD is
  * highest (no device fingerprint); the in-app channel is lowest because
@@ -93,17 +158,32 @@ const round3 = (n: number) => Math.round(n * 1000) / 1000;
  * Score a transaction across the six Shield signal layers and return a verdict.
  * Pure and deterministic: same input always yields the same result.
  */
-export function scoreTransaction(input: TransactionInput): ScoreResult {
+export function scoreTransaction(input: TransactionInput, userId?: string | null): ScoreResult {
   const { amount, recipient, narration, channel } = input;
   const hour = input.hour ?? new Date().getHours();
+  const baseline = getCachedBaseline(userId);
 
   const signals: Signal[] = [];
   let score = 0;
 
-  // 1 — Amount anomaly (progressive multiplier vs. baseline).
-  if (amount > BASELINE.avgAmount * 3) {
-    const mult = Math.round(amount / BASELINE.avgAmount);
-    const weight = mult >= 10 ? 0.3 : mult >= 5 ? 0.22 : 0.15;
+  // 0 — No cached baseline is the cold-start case, priced the way the backend
+  //     prices it rather than silently treating the transfer as normal.
+  if (!baseline) {
+    signals.push({
+      code: "cold_start",
+      label: "No baseline available",
+      detail: "We can't compare this to your usual activity right now",
+      weight: NO_BASELINE_PREMIUM,
+    });
+    score += NO_BASELINE_PREMIUM;
+  }
+
+  // 1 — Amount anomaly, against this customer's own average.
+  //     Tiers match the backend's (3x/5x/10x/25x/50x) so an offline verdict is
+  //     not systematically softer or harsher than the online one.
+  if (baseline && amount > baseline.avgAmount * 3) {
+    const mult = Math.round(amount / Math.max(baseline.avgAmount, 1));
+    const weight = mult >= 50 ? 0.4 : mult >= 25 ? 0.34 : mult >= 10 ? 0.28 : mult >= 5 ? 0.2 : 0.15;
     signals.push({
       code: "amount_anomaly",
       label: "Amount anomaly",
@@ -113,9 +193,13 @@ export function scoreTransaction(input: TransactionInput): ScoreResult {
     score += weight;
   }
 
-  // 2 — New recipient (not in the trusted list).
-  if (!recipient.known) {
-    const weight = 0.2;
+  // 2 — New recipient. Prefers the cached list over the caller's own claim,
+  //     since the client should not be the authority on who it has paid.
+  const known = baseline
+    ? baseline.knownRecipients.includes(recipient.accountNumber)
+    : recipient.known;
+  if (!known) {
+    const weight = 0.14;
     signals.push({
       code: "new_recipient",
       label: "New recipient",
@@ -125,8 +209,8 @@ export function scoreTransaction(input: TransactionInput): ScoreResult {
     score += weight;
   }
 
-  // 3 — Time anomaly (outside typical active hours).
-  if (!BASELINE.typicalHours.includes(hour)) {
+  // 3 — Time anomaly, against this customer's own hours.
+  if (baseline && !baseline.typicalHours.includes(hour)) {
     const weight = 0.12;
     signals.push({
       code: "time_anomaly",
@@ -150,23 +234,44 @@ export function scoreTransaction(input: TransactionInput): ScoreResult {
   }
 
   // 5 — Nigerian scam-pattern match on the narration (first hit wins).
+  //     Weights are halved to match NARRATION_WEIGHT_SCALE on the backend.
+  //     Applying them raw made narration count nearly twice as much offline as
+  //     online, on the layer the backend deliberately trusts least.
   const narrationLower = narration.toLowerCase();
   for (const pattern of SCAM_PATTERNS) {
-    if (pattern.keywords.some((kw) => narrationLower.includes(kw))) {
+    if (pattern.keywords.some((kw) => matchesWord(kw, narrationLower))) {
+      const weight = round3(pattern.weight * 0.5);
       signals.push({
         code: "scam_pattern",
         label: pattern.label,
         detail: "Narration matches a known Nigerian scam script",
-        weight: pattern.weight,
+        weight,
       });
-      score += pattern.weight;
+      score += weight;
       break;
     }
   }
 
-  score = Math.min(round3(score), 1);
+  // 6 — Tenure discount, mirroring the backend so an established customer is
+  //     not treated as a stranger the moment the connection drops.
+  if (baseline && baseline.tenureDiscount > 0 && score > 0) {
+    const applied = Math.min(baseline.tenureDiscount, score);
+    signals.push({
+      code: "tenure",
+      label: "Established customer",
+      detail: `${baseline.transactionCount} clean transfers on record`,
+      weight: -applied,
+    });
+    score -= applied;
+  }
 
-  const action: ScoreResult["action"] = score >= 0.8 ? "BLOCK" : score >= 0.5 ? "FLAG" : "PASS";
+  score = Math.min(round3(Math.max(score, 0)), 1);
+
+  // Per-channel cutoffs, matching the backend. A flat 0.8/0.5 meant the same
+  // transfer got a different verdict depending only on whether the API happened
+  // to be reachable.
+  const { flag, block } = CHANNEL_THRESHOLDS[channel] ?? { flag: 0.5, block: 0.8 };
+  const action: ScoreResult["action"] = score >= block ? "BLOCK" : score >= flag ? "FLAG" : "PASS";
 
   return {
     riskScore: score,

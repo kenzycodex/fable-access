@@ -243,7 +243,10 @@ export async function submitTransfer(input: TransactionInput, sdk?: Partial<SdkT
     // otherwise never leave the browser: the institution's console wouldn't
     // see the transfer and Copilot wouldn't learn from it. Queue it so the
     // server receives it once the API is reachable again.
-    result = scoreTransaction(input);
+    // Scored against this customer's own cached baseline, not a shared
+    // constant. Without the user id the engine has nothing to look up and
+    // falls back to treating it as cold start.
+    result = scoreTransaction(input, getTenant().customerId);
     const tenant = getTenant();
     enqueue({
       reference: id,

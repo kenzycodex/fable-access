@@ -9,7 +9,7 @@
 import type { BehavioralProfile } from "./biometrics";
 import type { DeviceFingerprint } from "./fingerprint";
 import type { GeoLocation } from "./geolocation";
-import { CHANNEL_LABELS } from "./scoring";
+import { cacheBaseline, CHANNEL_LABELS } from "./scoring";
 import type { SessionContext } from "./session";
 import { activeInstitution, activeUserId, authHeaders } from "./tenant";
 import type { Channel, RiskAction, ScoreResult, Signal, Transaction, TransactionInput } from "./types";
@@ -971,7 +971,33 @@ export async function customerOverview(
     balance: AccountBalance;
     transactions: ApiTransactionRow[];
     baseline: CopilotBaseline;
+    scoring_baseline: {
+      avg_amount: number;
+      typical_hours: number[];
+      known_recipients: string[];
+      transaction_count: number;
+      tenure_discount: number;
+    } | null;
   }>(`/v1/demo/overview/${encodeURIComponent(userId)}?limit=${limit}${tenantParam(institution)}`);
+
+  // Cache the real baseline so the offline engine scores this customer against
+  // their own history rather than a single hardcoded average shared by
+  // everyone. Refreshed on every home-screen load, which is the last point the
+  // API was known to be reachable.
+  const sb = res.scoring_baseline;
+  cacheBaseline(
+    userId,
+    sb
+      ? {
+          avgAmount: sb.avg_amount,
+          typicalHours: sb.typical_hours,
+          knownRecipients: sb.known_recipients,
+          transactionCount: sb.transaction_count,
+          tenureDiscount: sb.tenure_discount,
+        }
+      : null,
+  );
+
   return {
     balance: res.balance,
     transactions: res.transactions.map(mapApiRow),
