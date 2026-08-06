@@ -36,12 +36,19 @@ export function DemoSidebar() {
       <div className="flex flex-col gap-8">
         <Link href={href()} className="flex items-center gap-3 px-2 mb-2">
           {branding.logo_url ? (
-            // eslint-disable-next-line @next/next/no-img-element -- data URI, no loader needed
-            <img
-              src={branding.logo_url}
-              alt={name}
-              className="size-8 shrink-0 rounded-xl object-contain"
-            />
+            /* A bank's logo is whatever aspect ratio they uploaded, so it sits
+               in a fixed square and is contained rather than cropped or
+               stretched: a wide wordmark letterboxes instead of having its
+               sides cut off. The light background matters because most logos
+               are dark PNGs with transparency, which vanish in dark mode. */
+            <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white p-1 ring-1 ring-black/5 dark:ring-white/10">
+              {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader needed */}
+              <img
+                src={branding.logo_url}
+                alt={name}
+                className="max-h-full max-w-full object-contain"
+              />
+            </span>
           ) : (
             <div
               className="relative flex size-8 items-center justify-center rounded-xl shadow-lg"

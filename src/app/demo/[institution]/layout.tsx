@@ -50,7 +50,11 @@ const DEFAULT_BRANDING: Branding = {
  * fall back to Fable's palette rather than blocking the page. */
 async function fetchBranding(id: string): Promise<Branding> {
   try {
-    const res = await fetch(`${API_BASE}/v1/branding/${encodeURIComponent(id)}`, { next: { revalidate: 120 } });
+    // Not cached. Branding is configuration an operator edits and then
+    // immediately reloads the demo to check, so a 120-second revalidate made a
+    // successful save look like a failed one for two minutes. It is one small
+    // row fetched alongside a page that is dynamic anyway.
+    const res = await fetch(`${API_BASE}/v1/branding/${encodeURIComponent(id)}`, { cache: "no-store" });
     if (!res.ok) return DEFAULT_BRANDING;
     return (await res.json()) as Branding;
   } catch {
@@ -68,7 +72,7 @@ async function fetchBranding(id: string): Promise<Branding> {
 async function resolveSegment(segment: string): Promise<string | null | "offline"> {
   try {
     const res = await fetch(`${API_BASE}/v1/branding/resolve/${encodeURIComponent(segment)}`, {
-      next: { revalidate: 120 },
+      cache: "no-store",
     });
     if (res.status === 404) return null;
     if (!res.ok) return "offline";
@@ -83,8 +87,10 @@ async function resolveSegment(segment: string): Promise<string | null | "offline
  * the demo still renders (offline) rather than 404-ing on a transient outage. */
 async function fetchInstitution(id: string): Promise<InstitutionDetail | null | "offline"> {
   try {
+    // Not cached: this carries the customer roster, so a re-provisioned tenant
+    // otherwise showed its previous customers for two minutes.
     const res = await fetch(`${API_BASE}/v1/institutions/${encodeURIComponent(id)}`, {
-      next: { revalidate: 120 },
+      cache: "no-store",
     });
     if (res.status === 404) return null;
     if (!res.ok) return "offline";
