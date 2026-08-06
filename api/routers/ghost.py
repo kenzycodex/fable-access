@@ -12,7 +12,7 @@ from agents.ghost.account import (
     StepUpRequired,
     ExpiredContainer,
 )
-from tenancy import resolve_institution
+from tenancy import disabled_agents, resolve_institution
 
 router = APIRouter(prefix="/v1/ghost", tags=["ghost"])
 
@@ -21,6 +21,17 @@ router = APIRouter(prefix="/v1/ghost", tags=["ghost"])
 def create(payload: GhostCreateRequest, request: Request, background: BackgroundTasks):
     transaction = payload.transaction.model_dump()
     institution_id = resolve_institution(request, payload.institution_id)
+
+    # An institution that has switched Ghost off gets no containment. Refusing
+    # here is the honest behaviour: silently containing anyway would make the
+    # toggle a lie in the other direction.
+    if "ghost" in disabled_agents(institution_id):
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "agent_disabled",
+                    "message": "Ghost containment is switched off for this institution."},
+        )
+
     container = create_ghost_container(
         payload.user_id, transaction, payload.risk_score, payload.explanation,
         institution_id, payload.signals,

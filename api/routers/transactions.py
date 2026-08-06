@@ -103,7 +103,11 @@ def approve(txid: str, payload: ApproveRequest, request: Request):
         return {"id": txid, "status": row["status"], "already": True}
 
     signals = loads(row.get("shield_signals"), []) if row.get("shield_signals") else []
-    required = assurance.required_level(row.get("risk_score") or 0.0, signals, action)
+    import security
+    always_ask = bool(security.status(payload.user_id).get("two_factor_enabled"))
+    required = assurance.required_level(
+        row.get("risk_score") or 0.0, signals, action, always_ask=always_ask
+    )
 
     if required != "none":
         proved = stepup_service.verify_token(payload.stepup_token, payload.user_id, "transfer", txid)

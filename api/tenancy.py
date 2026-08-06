@@ -132,3 +132,35 @@ def register_institution(institution_id: str, name: str, contact_email: str, typ
                                                          contact_email = excluded.contact_email""",
             (institution_id, name, type_, contact_email),
         )
+
+
+def disabled_agents(institution_id: str | None) -> set[str]:
+    """Add-on agents this institution has switched off.
+
+    The console has had Shield/Ghost/Watch toggles since it was built and
+    nothing ever read them, so turning an agent off changed nothing. Copilot is
+    never disableable: it is the baseline engine every other agent scores
+    against.
+    """
+    if not institution_id:
+        return set()
+    try:
+        with cursor() as cur:
+            cur.execute(
+                "SELECT agents_disabled FROM institutions WHERE institution_id = ?",
+                (institution_id,),
+            )
+            row = cur.fetchone()
+        raw = (row["agents_disabled"] if row else None) or ""
+        return {a.strip().lower() for a in raw.split(",") if a.strip() and a.strip().lower() != "copilot"}
+    except Exception:
+        return set()
+
+
+def set_disabled_agents(institution_id: str, disabled: set[str]) -> None:
+    keep = sorted(a.lower() for a in disabled if a.lower() != "copilot")
+    with cursor() as cur:
+        cur.execute(
+            "UPDATE institutions SET agents_disabled = ? WHERE institution_id = ?",
+            (",".join(keep), institution_id),
+        )

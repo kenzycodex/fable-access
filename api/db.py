@@ -349,6 +349,12 @@ MIGRATIONS = {
     "api_keys": {
         "institution_id": "TEXT",
     },
+    "institutions": {
+        # Which add-on agents this bank has enabled. The per-customer columns
+        # on fable_users were never read by anything, and the console's toggles
+        # are institution-wide, so the setting belongs here.
+        "agents_disabled": "TEXT",
+    },
     "audit_log": {
         # Scoping audit events by joining through transactions missed anything
         # whose user had containers but no transfers, which is exactly the

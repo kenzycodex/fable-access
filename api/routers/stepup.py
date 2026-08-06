@@ -28,10 +28,18 @@ class RequirementRequest(BaseModel):
 
 @router.post("/requirement")
 def requirement(payload: RequirementRequest):
+    import security
+
+    # The customer's own "always ask" preference. Stored and shown on the
+    # security screen since it was built, and read by nothing until now.
+    always_ask = bool(security.status(payload.user_id).get("two_factor_enabled"))
+
     if payload.purpose == "ghost_release":
         level = assurance.release_level(payload.risk_score, payload.signals)
     else:
-        level = assurance.required_level(payload.risk_score, payload.signals, payload.action)
+        level = assurance.required_level(
+            payload.risk_score, payload.signals, payload.action, always_ask=always_ask
+        )
 
     info = assurance.describe(level)
     return {

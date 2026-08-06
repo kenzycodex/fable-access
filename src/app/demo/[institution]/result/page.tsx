@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CheckCircle, ShieldWarning, Ghost, ShareNetwork } from "@phosphor-icons/react";
+import { toast } from "sonner";
 import { Card, Screen, ScreenHeader } from "@/components/demo/kit";
 import { PageSpinner } from "@/components/demo/Spinner";
 import { RiskScoreCounter } from "@/components/demo/RiskScoreCounter";
@@ -89,7 +90,34 @@ export default function ResultPage() {
 
 function PassResult({ amount, recipient, score }: { amount: number; recipient: string; score: number }) {
   const router = useRouter();
-  const { href } = useInstitution();
+  const { href, name } = useInstitution();
+
+  /** Share the receipt. This button had no onClick at all: it sat on the
+   *  transfer-success screen, the happiest path in the product, and did
+   *  nothing when pressed. Uses the Web Share sheet where the browser has one
+   *  (every mobile browser this demo targets), and falls back to the clipboard
+   *  on desktop. */
+  async function shareReceipt() {
+    const text =
+      `${name} transfer receipt
+` +
+      `${formatNaira(amount)} to ${recipient}
+` +
+      `${new Date().toLocaleString()}
+` +
+      `Checked by Fable · risk score ${formatRiskScore(score)}`;
+    try {
+      if (typeof navigator !== "undefined" && navigator.share) {
+        await navigator.share({ title: "Transfer receipt", text });
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      toast.success("Receipt copied to clipboard");
+    } catch {
+      // A cancelled share sheet lands here too, so stay quiet rather than
+      // reporting an error the customer caused deliberately.
+    }
+  }
 
   function done() {
     commitPass();
@@ -121,6 +149,7 @@ function PassResult({ amount, recipient, score }: { amount: number; recipient: s
         <div className="mt-4 flex w-full flex-col gap-2.5 animate-fade-in-up [animation-delay:0.4s]">
           <button
             type="button"
+            onClick={shareReceipt}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1a1a1a] py-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#222]"
           >
             <ShareNetwork size={16} />

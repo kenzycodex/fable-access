@@ -48,8 +48,16 @@ def _identity_signal_count(signals: list[str]) -> int:
     return sum(1 for s in signals if any(s.startswith(code) for code in IDENTITY_SIGNALS))
 
 
-def required_level(risk_score: float, signals: list[str] | None = None, action: str | None = None) -> str:
-    """The factor a transfer must carry before money can move."""
+def required_level(risk_score: float, signals: list[str] | None = None, action: str | None = None,
+                   always_ask: bool = False) -> str:
+    """The factor a transfer must carry before money can move.
+
+    `always_ask` is the customer's own "always ask for a code" preference. It
+    was stored, displayed on the security screen, and consulted by nothing, so
+    a control the customer believed they had enabled did nothing at all. It can
+    only ever *raise* the requirement: a customer asking for more friction gets
+    it, and one who has not asked is unaffected.
+    """
     signals = signals or []
     identity_hits = _identity_signal_count(signals)
 
@@ -61,6 +69,10 @@ def required_level(risk_score: float, signals: list[str] | None = None, action: 
         return "passkey_and_otp"
 
     if risk_score >= FLAG_THRESHOLD or action == "FLAG":
+        if always_ask:
+            # They asked to always be challenged, so never fall to bare "pin"
+            # on an identity-free flag.
+            return "passkey" if not identity_hits else "passkey_and_otp"
         # Same reasoning one tier down: an unfamiliar device on a flagged
         # transfer should not be waved through with a PIN the attacker has.
         if identity_hits >= IDENTITY_SIGNAL_ESCALATION:
@@ -69,7 +81,9 @@ def required_level(risk_score: float, signals: list[str] | None = None, action: 
             return "passkey"
         return "pin"
 
-    return "none"
+    # A cleared transfer normally passes with no friction at all. A customer who
+    # explicitly opted into always being asked gets a PIN prompt instead.
+    return "pin" if always_ask else "none"
 
 
 def release_level(risk_score: float, signals: list[str] | None = None) -> str:
