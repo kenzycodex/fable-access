@@ -3,22 +3,28 @@ from pydantic import BaseModel, Field
 
 
 class Transaction(BaseModel):
-    amount: float
-    currency: str = "NGN"
+    # Bounded on both sides. Unbounded, a zero or negative amount tripped no
+    # signal (nothing is "3x above baseline" when it is negative), scored 0.0,
+    # and passed the funds check because `-1000 > available` is false — so it
+    # reached debit() as a PASS. The upper bound is a sanity ceiling, well above
+    # any legitimate NIP transfer.
+    amount: float = Field(gt=0, le=1_000_000_000)
+    # Single-currency until conversion exists. Accepting free text meant a
+    # "USD" transfer of 100 was scored and debited as ₦100.
+    currency: Literal["NGN"] = "NGN"
     recipient_id: Optional[str] = None
     recipient_account: str
     recipient_bank_code: Optional[str] = None
     recipient_bank: Optional[str] = None
     # The resolved account holder, exactly as the bank returned it.
     recipient_name: Optional[str] = None
-    narration: str = ""
+    narration: str = Field(default="", max_length=500)
     channel: Literal["mobile_app", "ussd", "pos", "internet", "atm", "qr", "branch", "unknown"] = "mobile_app"
+    # NIP response codes come from the rail, never from the caller. This field
+    # is retained so existing clients don't break, but `analyze_transaction`
+    # ignores it — see the note there. A signal worth up to 0.95 cannot be
+    # supplied by the party being scored.
     nip_response_code: Optional[str] = None
-    # PCI fields accepted but always stripped before processing
-    card_number: Optional[str] = None
-    cvv: Optional[str] = None
-    pin: Optional[str] = None
-    track_data: Optional[str] = None
 
 
 class Device(BaseModel):

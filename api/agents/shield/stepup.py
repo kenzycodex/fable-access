@@ -40,6 +40,14 @@ RP_NAME = "Fable"
 EXPECTED_ORIGINS = config.WEBAUTHN_ORIGINS
 
 
+class OtpDeliveryFailed(RuntimeError):
+    """The code could not be delivered, so the factor was not issued.
+
+    Raised rather than degrading: a factor the customer never received must not
+    be treated as satisfied, and must not be handed back to the caller.
+    """
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -398,9 +406,25 @@ def send_otp(user_id: str, purpose: str, reference: str | None,
         "email": destination,
     }
     if not delivered:
-        # With no provider configured the code is returned so the flow stays
-        # testable. Never do this once real delivery is wired.
-        out["debug_code"] = code
+        # An undeliverable code is a FAILED factor, not a weaker one.
+        #
+        # This used to attach the plaintext code to the response whenever
+        # delivery failed — and with no SMS provider wired and SMTP usually
+        # unset, delivery fails by default. That handed the out-of-band factor
+        # to whoever held the session, which is precisely the attacker the
+        # out-of-band tier exists to stop: `assurance.py` defines it as "a code
+        # delivered to the registered address, so possession of the device is
+        # not possession of the channel". Returning it in the response collapses
+        # passkey_and_otp to passkey, and pin+otp to pin.
+        #
+        # It is now gated on an explicit opt-in that is never set in production,
+        # and never on delivery failure alone.
+        if config.ALLOW_DEBUG_OTP:
+            out["debug_code"] = code
+        else:
+            raise OtpDeliveryFailed(
+                "We couldn't send your code right now. Try another way to verify."
+            )
     return out
 
 

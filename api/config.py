@@ -46,6 +46,17 @@ CORS_ORIGINS = ["*"] if _raw_origins.strip() == "*" else [o.strip() for o in _ra
 # Optional Sentry error monitoring.
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 
+# Return the OTP in the API response when delivery fails. Development only.
+# This exists so the step-up flow stays testable with no SMS/SMTP provider
+# wired; it must never be enabled anywhere real, because the whole point of an
+# out-of-band code is that it does NOT travel back down the channel that asked
+# for it. Gated on an explicit opt-in AND a non-production environment, so a
+# stray env var alone cannot switch it on in prod.
+ALLOW_DEBUG_OTP = (
+    os.getenv("FABLE_ALLOW_DEBUG_OTP", "").strip().lower() in ("1", "true", "yes")
+    and ENVIRONMENT != "production"
+)
+
 # --- KYC / liveness provider ---
 # Unset here. With no provider the identity_check tier resolves to the
 # strongest combination actually available (passkey + PIN + emailed code)

@@ -165,6 +165,18 @@ def otp_send(payload: OtpSendRequest):
 
     contact = security.get_contact(payload.user_id)
 
+    try:
+        return _send_otp(payload, contact)
+    except stepup.OtpDeliveryFailed as exc:
+        # Undeliverable means the factor was not issued. 502 rather than 400:
+        # the caller did nothing wrong, our delivery channel did.
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "otp_undeliverable", "message": str(exc)},
+        )
+
+
+def _send_otp(payload: OtpSendRequest, contact: dict):
     if payload.channel == "sms":
         phone = contact.get("phone")
         if not phone:
