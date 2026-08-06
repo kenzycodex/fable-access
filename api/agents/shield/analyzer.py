@@ -51,15 +51,21 @@ def sanitize_transaction(transaction: dict) -> dict:
 def _recent_transfer_count(user_id: str, institution_id: str | None) -> int:
     """How many transfers this customer has made in the velocity window.
 
-    The cutoff is computed by SQLite, not Python: created_at is stored as
-    "2026-07-21 05:00:00" while a Python isoformat carries a 'T' and offset,
-    and the two compare wrong as strings. Any failure returns 0 — a missing
-    velocity signal must never take down a decision.
+    Both sides of the comparison are parsed by SQLite rather than compared as
+    strings. `created_at` is written from Python as an isoformat ("...T05:00:00")
+    while datetime('now', ...) yields "... 05:00:00" — and because 'T' (84) sorts
+    after ' ' (32), a raw string comparison matched *every row sharing the
+    cutoff's date*, turning a 10-minute window into a whole day (and, across
+    midnight, the previous day too). datetime() on both sides normalises the
+    formats so the window is the window.
+
+    Any failure returns 0 — a missing velocity signal must never take down a
+    decision.
     """
     try:
         from db import cursor
 
-        where = "user_id = ? AND created_at >= datetime('now', ?)"
+        where = "user_id = ? AND datetime(created_at) >= datetime('now', ?)"
         params: list = [user_id, f"-{VELOCITY_WINDOW_MINUTES} minutes"]
         if institution_id:
             where += " AND institution_id = ?"
@@ -69,6 +75,22 @@ def _recent_transfer_count(user_id: str, institution_id: str | None) -> int:
             return cur.fetchone()["n"]
     except Exception:
         return 0
+
+
+def _rail_nip_code(context: dict) -> str | None:
+    """The NIP response code, only when it genuinely came from the rail.
+
+    Shield scores *before* a transfer is submitted, so in the normal flow there
+    is no NIP response yet and this returns None. It exists for two real cases:
+    a retry after a prior attempt returned a code, and a server-side integration
+    that has already spoken to NIBSS. Both set `nip_source` to "rail"; a browser
+    cannot, because the field is populated by the integrating server, not the
+    SDK. Anything else is ignored rather than trusted.
+    """
+    if (context or {}).get("nip_source") != "rail":
+        return None
+    code = context.get("nip_response_code")
+    return str(code) if code else None
 
 
 def _client_local_hour(context: dict) -> int | None:
@@ -156,8 +178,15 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         signals.append(f"channel_risk: {channel} (+{channel_boost})")
         score += channel_boost
 
-    # Step 5: NIP response code
-    nip_code = transaction.get("nip_response_code")
+    # Step 5: NIP response code — rail-sourced only.
+    #
+    # This layer carries the heaviest weight in the pipeline (code 34 forces a
+    # BLOCK at 0.95), so it must never be settable by the party being scored.
+    # It used to read straight from the request body, which meant a caller could
+    # force a block by sending "34" or — far worse — disable the layer entirely
+    # by omitting the field, which is the default. A code is now only honoured
+    # when the integration marks it as observed on the rail.
+    nip_code = _rail_nip_code(context)
     if nip_code and nip_code in ("34", "63", "08", "57"):
         nip = get_nip_risk_signal(nip_code)
         signals.append(f"nip_{nip_code}: {nip['description']}")
