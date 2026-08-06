@@ -3,6 +3,7 @@
 Passkey enrolment and assertion, out-of-band codes, and the question the demo
 bank asks before it lets money move: "what does this decision require?".
 """
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -263,6 +264,41 @@ class IdentityCheckRequest(BaseModel):
     otp_token: Optional[str] = None
 
 
+def _predates(iso: str | None, cutoff: "datetime | None") -> bool:
+    """Was this factor in place before the container was created?
+
+    No cutoff means this is not a containment release, so recency does not
+    apply and every factor counts. A factor with no recorded timestamp is
+    treated as pre-existing: it predates the column being added, so refusing it
+    would lock out customers for a schema change rather than a security event.
+    """
+    if cutoff is None or not iso:
+        return True
+    try:
+        when = datetime.fromisoformat(str(iso))
+    except (TypeError, ValueError):
+        return True
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when < cutoff
+
+
+def _containment_created_at(purpose: str, reference: str | None) -> "datetime | None":
+    """When the Ghost container being released was created."""
+    if purpose != "ghost_release" or not reference:
+        return None
+    from agents.ghost.account import get_ghost_container
+
+    container = get_ghost_container(reference)
+    if not container or not container.get("created_at"):
+        return None
+    try:
+        created = datetime.fromisoformat(str(container["created_at"]))
+    except (TypeError, ValueError):
+        return None
+    return created.replace(tzinfo=timezone.utc) if created.tzinfo is None else created
+
+
 @router.post("/identity-check")
 def identity_check(payload: IdentityCheckRequest):
     """The strongest tier.
@@ -295,12 +331,30 @@ def identity_check(payload: IdentityCheckRequest):
     # the bar. So the requirement is min(2, factors they actually have).
     import security
 
+    # A factor enrolled *after* the money was contained does not count.
+    #
+    # Bootstrapping the first factor is allowed by design (there is nothing yet
+    # to prove), and the composed tier counts whatever the customer has. Those
+    # two rules combined were a complete bypass: an attacker holding the session
+    # of a customer with no PIN, no passkey and no registered contact could set
+    # a PIN inline on the release screen, which raised `available` from 0 to 1,
+    # which set `required` to 1, and then satisfy it with the PIN they had just
+    # chosen. Every factor the model demanded was one the attacker could create.
+    #
+    # The fix is recency, not difficulty: a credential that did not exist when
+    # the transfer was flagged proves nothing about who the customer is, so it
+    # is excluded from this decision. Cancelling remains free and unaffected, so
+    # a genuine customer with no factors is never stranded — the safe direction
+    # stays open, only the money-moving one is closed.
+    cutoff = _containment_created_at(payload.purpose, payload.reference)
     st = security.status(payload.user_id)
-    available = sum([
-        bool(stepup.has_passkey(payload.user_id)),
-        bool(st.get("pin_set")),
-        bool(st.get("email_set") or st.get("phone_set")),
-    ])
+
+    factors = {
+        "passkey": stepup.has_passkey(payload.user_id, before=cutoff),
+        "pin": bool(st.get("pin_set")) and _predates(st.get("pin_set_at"), cutoff),
+        "otp": bool(st.get("email_set") or st.get("phone_set")),
+    }
+    available = sum(1 for ok in factors.values() if ok)
     required = max(1, min(2, available))
 
     supplied = {
@@ -310,6 +364,9 @@ def identity_check(payload: IdentityCheckRequest):
     }
     verified = {
         name: bool(stepup.verify_token(token, payload.user_id, payload.purpose, payload.reference))
+        # A token for a factor that postdates the hold is not counted even if it
+        # verifies, so enrolling one mid-flow cannot help.
+        and factors.get(name, False)
         for name, token in supplied.items()
         if token
     }

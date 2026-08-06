@@ -77,11 +77,19 @@ def ensure_account(user_id: str, institution_id: str | None, opening_balance: fl
 
 
 def held_amount(user_id: str) -> float:
-    """Money inside active Ghost containers — reserved, not yet debited."""
+    """Money inside *active* Ghost containers — reserved, not yet debited.
+
+    Expired holds are excluded. This counted every HELD row regardless of its
+    cooling window, and nothing ever resolved an abandoned container, so a
+    customer who ignored a hold had that amount subtracted from their available
+    balance permanently. An expired container can no longer be released, so
+    continuing to reserve against it withholds money for no reason.
+    """
     with cursor() as cur:
         cur.execute(
             "SELECT COALESCE(SUM(amount), 0) AS held FROM ghost_containers "
-            "WHERE user_id = ? AND status = 'HELD'",
+            "WHERE user_id = ? AND status = 'HELD' "
+            "  AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))",
             (user_id,),
         )
         return float(cur.fetchone()["held"] or 0)

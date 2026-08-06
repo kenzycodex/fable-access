@@ -80,20 +80,80 @@ def get_ghost_container(ghost_id: str) -> dict | None:
     return row_to_dict(row)
 
 
+def sweep_expired() -> int:
+    """Auto-cancel holds whose cooling window has closed.
+
+    Cancel rather than release, because cancelling returns the money and
+    releasing moves it: if the customer never came back to confirm, the safe
+    reading of their silence is that they did not want the transfer. That is
+    also the direction the product's whole argument points — a scam victim who
+    walks away should end up with their money, not without it.
+
+    Runs at startup and can be called on a schedule. Idempotent: only rows
+    still in HELD are touched.
+    """
+    with cursor() as cur:
+        cur.execute(
+            "UPDATE ghost_containers SET status = 'CANCELLED', resolved_at = datetime('now') "
+            "WHERE status = 'HELD' AND expires_at IS NOT NULL "
+            "  AND datetime(expires_at) <= datetime('now')",
+        )
+        return cur.rowcount
+
+
+def has_expired(container: dict) -> bool:
+    """Whether the cooling window has closed.
+
+    `expires_at` was written on every container and then never read anywhere in
+    the API: no expiry check on release, no sweeper, nothing. The countdown was
+    a UI animation with no server-side existence, which meant a container could
+    be released days later and an abandoned one suppressed the customer's
+    available balance permanently.
+    """
+    raw = container.get("expires_at")
+    if not raw:
+        return False
+    try:
+        expires = datetime.fromisoformat(str(raw))
+    except (TypeError, ValueError):
+        return False
+    # Seeded rows are written naive; live ones carry an offset. Comparing the
+    # two raises, so normalise before comparing.
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return expires <= datetime.now(timezone.utc)
+
+
+def _resolve(ghost_id: str, status: str) -> bool:
+    """Move a container out of HELD, atomically.
+
+    The status was read and then updated in a separate statement, so a
+    concurrent cancel and release could both pass the `status != HELD` check.
+    Guarding on the current status inside the UPDATE means exactly one of them
+    wins, and the loser can be told what actually happened.
+    """
+    with cursor() as cur:
+        cur.execute(
+            "UPDATE ghost_containers SET status = ?, resolved_at = ? "
+            "WHERE ghost_id = ? AND status = 'HELD'",
+            (status, datetime.now(timezone.utc).isoformat(), ghost_id),
+        )
+        return cur.rowcount > 0
+
+
 def cancel_ghost(ghost_id: str, user_id: str) -> dict:
     container = get_ghost_container(ghost_id)
     if not container:
         raise ValueError("Ghost container not found")
     if container["user_id"] != user_id:
         raise PermissionError("Unauthorized")
-    if container["status"] != "HELD":
-        raise ValueError(f"Container already resolved: {container['status']}")
 
-    with cursor() as cur:
-        cur.execute(
-            "UPDATE ghost_containers SET status = 'CANCELLED', resolved_at = ? WHERE ghost_id = ?",
-            (datetime.now(timezone.utc).isoformat(), ghost_id),
-        )
+    # Deliberately still allowed after expiry. Cancelling returns money to the
+    # customer, so it is always the safe direction; refusing it would strand
+    # funds to enforce a deadline that exists to protect them.
+    if not _resolve(ghost_id, "CANCELLED"):
+        current = (get_ghost_container(ghost_id) or {}).get("status")
+        raise ValueError(f"Container already resolved: {current}")
 
     # Nothing to reverse: holding reserved the funds without debiting them,
     # so cancelling just drops the reservation and the balance is untouched.
@@ -102,6 +162,14 @@ def cancel_ghost(ghost_id: str, user_id: str) -> dict:
         "status": "CANCELLED",
         "message": "Transfer cancelled. Your money is safe.",
     }
+
+
+class ExpiredContainer(Exception):
+    """Release refused because the cooling window has closed.
+
+    Cancelling is still permitted, because returning money is always the safe
+    direction.
+    """
 
 
 class StepUpRequired(Exception):
@@ -123,6 +191,14 @@ def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) 
         raise PermissionError("Unauthorized")
     if container["status"] != "HELD":
         raise ValueError(f"Container already resolved: {container['status']}")
+
+    # The cooling window is a deadline, not decoration. It existed only as a
+    # timestamp nothing read, so a container could be released days after the
+    # window it was supposedly protected by had closed.
+    if has_expired(container):
+        raise ExpiredContainer(
+            "This hold has expired. Cancel it and start the transfer again."
+        )
 
     # The whole point of containment. Ghost holds money precisely because the
     # transfer looked wrong, so "release" is the most attacker-valuable button
@@ -146,6 +222,14 @@ def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) 
     if stepup_token:
         stepup_service.consume_token(stepup_token)
 
+    # Status first, and only if this call is the one that wins the race. Debiting
+    # before the transition meant two concurrent releases could both debit; the
+    # ledger's idempotency reference caught that, but relying on a downstream
+    # guard for a correctness property this function owns is the wrong shape.
+    if not _resolve(ghost_id, "RELEASED"):
+        current = (get_ghost_container(ghost_id) or {}).get("status")
+        raise ValueError(f"Container already resolved: {current}")
+
     # The reservation becomes a real debit. Until this moment the money was
     # held but never taken, which is what made cancelling able to return it.
     from accounts import debit
@@ -154,12 +238,6 @@ def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) 
         user_id, container["amount"], container.get("institution_id"),
         transaction_id=ghost_id, reference=f"ghost-release:{ghost_id}",
     )
-
-    with cursor() as cur:
-        cur.execute(
-            "UPDATE ghost_containers SET status = 'RELEASED', resolved_at = ? WHERE ghost_id = ?",
-            (datetime.now(timezone.utc).isoformat(), ghost_id),
-        )
 
     return {
         "ghost_id": ghost_id,

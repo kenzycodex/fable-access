@@ -36,17 +36,18 @@ export function DemoSidebar() {
       <div className="flex flex-col gap-8">
         <Link href={href()} className="flex items-center gap-3 px-2 mb-2">
           {branding.logo_url ? (
-            /* A bank's logo is whatever aspect ratio they uploaded, so it sits
-               in a fixed square and is contained rather than cropped or
-               stretched: a wide wordmark letterboxes instead of having its
-               sides cut off. The light background matters because most logos
-               are dark PNGs with transparency, which vanish in dark mode. */
-            <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white p-1 ring-1 ring-black/5 dark:ring-white/10">
+            /* Circular, like every avatar in this UI, and sized to actually be
+               legible. A bank's logo is whatever aspect ratio they uploaded, so
+               it is contained rather than cropped: a wide wordmark letterboxes
+               instead of losing its ends. The white plate is deliberate, since
+               most logos are dark artwork on transparency and would otherwise
+               disappear against the dark sidebar. */
+            <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white ring-1 ring-black/10 dark:ring-white/15">
               {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader needed */}
               <img
                 src={branding.logo_url}
                 alt={name}
-                className="max-h-full max-w-full object-contain"
+                className="size-full rounded-full object-contain p-0.5"
               />
             </span>
           ) : (

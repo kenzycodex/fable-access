@@ -108,6 +108,24 @@ DEFAULT_ADMIN_INSTITUTION = os.getenv("FABLE_DEMO_ADMIN_INSTITUTION", "meridian"
 
 
 @app.on_event("startup")
+def sweep_expired_containments() -> None:
+    """Resolve holds whose cooling window closed while the API was down.
+
+    Without this an abandoned container stayed HELD forever, and its amount was
+    subtracted from the customer's available balance with nothing able to
+    release it.
+    """
+    try:
+        from agents.ghost.account import sweep_expired
+
+        swept = sweep_expired()
+        if swept:
+            logger.info("Auto-cancelled %d expired Ghost container(s) at startup.", swept)
+    except Exception as exc:  # noqa: BLE001 — never block boot
+        logger.warning("Could not sweep expired containments: %s", exc)
+
+
+@app.on_event("startup")
 def ensure_default_admin() -> None:
     try:
         from db import cursor

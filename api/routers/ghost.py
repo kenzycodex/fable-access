@@ -9,6 +9,7 @@ from agents.ghost.account import (
     cancel_ghost,
     release_ghost,
     StepUpRequired,
+    ExpiredContainer,
 )
 from tenancy import resolve_institution
 
@@ -65,6 +66,13 @@ def cancel(ghost_id: str, payload: GhostActionRequest):
 def confirm(ghost_id: str, payload: GhostActionRequest):
     try:
         return release_ghost(ghost_id, payload.user_id, payload.stepup_token)
+    except ExpiredContainer as e:
+        # 410, not 409: the hold existed and is now gone by design. Cancelling
+        # is still available, so the client can offer the safe action.
+        raise HTTPException(
+            status_code=410,
+            detail={"error": "container_expired", "message": str(e), "can_cancel": True},
+        )
     except StepUpRequired as e:
         # 401 with the demanded level, so the client knows which factor to run
         # rather than just being told no.

@@ -209,9 +209,22 @@ def consume_token(token: str) -> None:
 # WebAuthn — registration
 # ---------------------------------------------------------------------------
 
-def has_passkey(user_id: str) -> bool:
+def has_passkey(user_id: str, before: datetime | None = None) -> bool:
+    """Whether the customer has a passkey.
+
+    `before` restricts the answer to credentials enrolled prior to that moment,
+    which is how a containment release ignores a passkey the caller enrolled
+    after the money was already held. Without a cutoff, every credential counts.
+    """
     with cursor() as cur:
-        cur.execute("SELECT 1 FROM user_credentials WHERE user_id = ? LIMIT 1", (user_id,))
+        if before is None:
+            cur.execute("SELECT 1 FROM user_credentials WHERE user_id = ? LIMIT 1", (user_id,))
+        else:
+            cur.execute(
+                "SELECT 1 FROM user_credentials WHERE user_id = ? "
+                "AND datetime(created_at) < datetime(?) LIMIT 1",
+                (user_id, before.isoformat()),
+            )
         return cur.fetchone() is not None
 
 
