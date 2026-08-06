@@ -20,7 +20,7 @@ router = APIRouter(prefix="/v1/agents", tags=["agents"])
 # The Shield pipeline, as configuration the dashboard can render. Weights are
 # the maximum boost each layer can contribute.
 SHIELD_PIPELINE = [
-    {"step": 1, "code": "amount_anomaly", "label": "Amount anomaly", "max_weight": 0.25,
+    {"step": 1, "code": "amount_anomaly", "label": "Amount anomaly", "max_weight": 0.40,
      "description": "Progressive boost when the amount is 3x/5x/10x the user's personal average."},
     {"step": 2, "code": "new_recipient", "label": "New recipient", "max_weight": 0.20,
      "description": "First transfer to this account in the user's 90-day history."},
@@ -32,7 +32,7 @@ SHIELD_PIPELINE = [
      "description": "NIBSS instant-payment risk codes; code 34 is an automatic block."},
     {"step": 6, "code": "scam_pattern", "label": "Scam pattern (narration)", "max_weight": 0.25,
      "description": "English + Pidgin scam-script matching. Deliberately de-prioritized (x0.5) — most users skip narration."},
-    {"step": 7, "code": "ml_anomaly", "label": "ML anomaly (Isolation Forest)", "max_weight": 0.15,
+    {"step": 7, "code": "ml_anomaly", "label": "ML anomaly (Isolation Forest)", "max_weight": 0.10,
      "description": "Unsupervised deviation from the user's own amount/hour history."},
     {"step": 8, "code": "device_anomaly", "label": "Device anomaly", "max_weight": 0.18,
      "description": "Unrecognized device fingerprint; weight scales with transfer size."},

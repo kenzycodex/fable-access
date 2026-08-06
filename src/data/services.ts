@@ -37,7 +37,7 @@ export const serviceTiers: ServiceTier[] = [
     bodyLead: "Shield",
     body: "adds real-time scam and deepfake defense on top of Copilot, priced per transaction scored.",
     items: [
-      "Six-signal real-time scoring",
+      "Fourteen-layer real-time scoring",
       "Plain-language decision explanations",
       "Sub-200ms response budget, every call",
     ],

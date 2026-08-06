@@ -77,6 +77,21 @@ def _recent_transfer_count(user_id: str, institution_id: str | None) -> int:
         return 0
 
 
+def _amount_boost_from_sigma(sigma: float) -> float:
+    """Amount-anomaly boost from standard deviations above the customer's mean.
+
+    Tiers chosen so the ceiling matches the previous flat scale (0.40) and a
+    genuinely extreme transfer still escalates hard, while ordinary variation
+    inside a customer's own spread costs little or nothing. Under 2 sigma is
+    normal behaviour for that person and scores zero, which is where most of
+    the everyday false-positive friction was coming from.
+    """
+    for threshold, boost in ((8, 0.40), (5, 0.32), (3.5, 0.24), (2.5, 0.16), (2, 0.10)):
+        if sigma >= threshold:
+            return boost
+    return 0.0
+
+
 def _rail_nip_code(context: dict) -> str | None:
     """The NIP response code, only when it genuinely came from the rail.
 
@@ -152,17 +167,61 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     # around ₦5k suddenly sending ₦250k is 45x out — a far stronger signal
     # than someone at 8x — and capping the boost at 10x let those extreme
     # cases score *lower* than milder ones that also tripped a time anomaly.
+    # Judged against how much this customer's transfers normally vary, not just
+    # a flat multiple of their mean.
+    #
+    # A raw multiple punished consistency and rewarded nothing: a trader whose
+    # transfers legitimately swing between ₦80k and ₦400k hit "5x above
+    # baseline" constantly, while someone who sends the same ₦5k every week and
+    # suddenly sends ₦20k barely registered. The second is the genuinely
+    # surprising one. Standard deviations above the mean captures that; a raw
+    # ratio cannot.
+    #
+    # The multiple is still what the customer is shown, because "9x larger than
+    # usual" is comprehensible and "3.2 standard deviations" is not.
     if baseline and amount > baseline["avg_amount"] * 3:
-        mult = round(amount / max(baseline["avg_amount"], 1))
-        boost, _tier = amount_anomaly_boost(mult)
-        signals.append(f"amount_anomaly: {mult}x above your baseline (+{boost})")
-        score += boost
+        avg = max(baseline["avg_amount"], 1)
+        mult = round(amount / avg)
+        stdev = baseline.get("stdev_amount") or (avg * 0.5)
+        sigma = (amount - avg) / max(stdev, avg * 0.15)
+        # The *lower* of the two readings, so a transfer has to look unusual on
+        # both measures before it costs much.
+        #
+        # Sigma alone over-reacts for a very consistent customer: someone who
+        # sends almost exactly ₦5,500 every week hits 12 sigma at ₦30,000, which
+        # is only 5x their normal and not a scam-shaped number. A raw multiple
+        # alone under-reacts for an erratic one, as Tunde's routine ₦300k showed.
+        # Taking the minimum gives the consistent customer the multiple's
+        # moderation and the erratic customer sigma's tolerance.
+        by_sigma = _amount_boost_from_sigma(sigma)
+        by_multiple, _tier = amount_anomaly_boost(mult)
+        boost = round(min(by_sigma, by_multiple), 3)
+        if boost > 0:
+            signals.append(
+                f"amount_anomaly: {mult}x above your baseline, "
+                f"{sigma:.1f} standard deviations out (+{boost})"
+            )
+            score += boost
 
-    # Step 2: New recipient
+    # Step 2: New recipient, scaled by what is actually at stake.
+    #
+    # A flat weight said a first ₦2,000 to a colleague was as suspicious as a
+    # first ₦2,000,000 to a stranger. People pay new people constantly and
+    # almost none of it is fraud; what makes a new payee interesting is the
+    # amount going to them. Small transfers now barely register, which is where
+    # most of the everyday friction was, and large ones score higher than the
+    # flat weight ever did.
     known_recipients = baseline["known_recipients"] if baseline else set()
     if transaction["recipient_account"] not in known_recipients:
-        signals.append("new_recipient: first transfer to this account")
-        score += WEIGHTS["new_recipient"]
+        base = WEIGHTS["new_recipient"]
+        if baseline:
+            ratio = amount / max(baseline["avg_amount"], 1)
+            scale = 0.35 if ratio < 1 else 0.7 if ratio < 3 else 1.0 if ratio < 10 else 1.4
+        else:
+            scale = 1.0
+        boost = round(base * scale, 3)
+        signals.append(f"new_recipient: first transfer to this account (+{boost})")
+        score += boost
 
     # Step 3: Time anomaly — device-local hour vs the user's typical hours
     typical_hours = baseline["typical_hours"] if baseline else list(range(8, 22))

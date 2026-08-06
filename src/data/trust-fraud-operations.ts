@@ -20,8 +20,8 @@ export const agentCards: IconCard[] = [
     body: "Learns a per-user behavioral baseline from day one: who they pay, when, how much, and which devices. A transfer that matches clears with zero added friction.",
   },
   {
-    title: "Shield — Six Signal Layers",
-    body: "Amount anomaly, new recipient, time-of-day, channel risk, narration keywords, and NIP response code. Scored and explained in plain language, inside a 200ms budget.",
+    title: "Shield — Fourteen Signal Layers",
+    body: "Amount, recipient, timing, channel, device, location, session and behavioural signals, scored against that customer's own baseline and explained in plain language, inside a 200ms budget.",
   },
   {
     title: "Ghost — Cooling Window",

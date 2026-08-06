@@ -28,7 +28,7 @@ export const overviewCards: IconCard[] = [
   {
     image: { src: "/images/why-fable/pioneering-new-solutions.webp", alt: "Network effects", width: 80, height: 80 },
     title: "Smarter With Every Institution That Joins",
-    body: "A fraud pattern flagged at one partner bank protects every other connected institution within minutes. The shared intelligence graph compounds over time.",
+    body: "Every confirmed outcome sharpens that customer's own baseline, so the system gets more precise the longer it runs. Cross-institution intelligence is on the roadmap, not shipped: today each bank's data stays strictly its own.",
   },
 ];
 
@@ -129,8 +129,8 @@ export const ecosystemIntro = {
 export const ecosystemBlocks = [
   {
     id: undefined,
-    title: "Every Connected Institution Makes the Network Smarter",
-    body: "A device fingerprint seen committing fraud at one bank gets flagged at a connected fintech in minutes, not weeks. Privacy-preserving: only hashed signals are shared, never raw personal data.",
+    title: "Built to Get Smarter as Institutions Join",
+    body: "Designed so a device fingerprint seen committing fraud at one bank could be flagged at a connected fintech in minutes. Not built yet: today we enforce strict tenant isolation, and only hashed signals would ever be shared.",
     image: { src: "/images/why-fable/laptop.webp", alt: "Reviewing shared fraud intelligence", width: 632, height: 483 },
     imageSide: "left" as const,
     cta: { label: "Talk to us", href: dashboardCta.href },

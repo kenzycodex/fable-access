@@ -1,6 +1,6 @@
 # Scoring
 
-Shield combines twelve additive signal layers. `FLAG` at ≥ 0.5, `BLOCK` at ≥ 0.8.
+Shield combines fourteen additive signal layers. `FLAG` at ≥ 0.5, `BLOCK` at ≥ 0.8.
 
 | # | Signal | Fires when | Max |
 |---|---|---|---|

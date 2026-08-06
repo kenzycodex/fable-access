@@ -278,8 +278,10 @@ curl -X POST http://localhost:8000/v1/demo/seed-institution \
 
 - **Watch is not built.** The dashboard marks it "coming soon" rather than
   faking it.
-- **GPS has no reverse geocoding.** Coordinates are real; the city label comes
-  from the IP lookup, since reverse geocoding needs a paid API.
+- **GPS reverse geocoding uses free providers.** Coordinates are real and the
+  place name comes from Nominatim, falling back to BigDataCloud and then to the
+  IP lookup. Customer coordinates therefore leave the origin, which is an NDPR
+  consideration that has not been formally assessed.
 - **Paystack's IP allowlist rotates.** Dynamic ISP addresses change, so
   `/api/paystack-status` exists to diagnose it in one call.
 - **Ghost is simulated containment.** It models the cooling window in SQLite;

@@ -298,7 +298,7 @@ def _deterministic(message: str, institution_id: str | None = None) -> str:
         )
     if topic == "ghost":
         return (
-            f"Ghost holds a risky transfer in a cooling window sized by risk (30/15/5 minutes). "
+            f"Ghost holds a risky transfer in a cooling window sized by risk (15/10/5 minutes). "
             f"So far it has protected ₦{s['fraud_prevented_ngn']:,.0f} — transfers customers cancelled once the "
             "pressure lifted. Cancel returns the money; confirm releases it."
         )

@@ -111,6 +111,13 @@ def get_user_baseline(user_id: str) -> dict | None:
     return {
         "user_id": user_id,
         "avg_amount": avg_amount,
+        "stdev_amount": stdev_amount,
+        # How spread out this customer's transfers are, as a fraction of their
+        # average. A trader whose transfers swing between ₦80k and ₦400k has a
+        # high ratio; someone who sends almost the same amount every week has a
+        # low one. Scoring on a raw multiple of the mean ignored this entirely,
+        # so the erratic-but-legitimate customer paid for their own variability.
+        "variability": round(stdev_amount / max(avg_amount, 1), 3),
         "max_typical_amount": avg_amount + (2 * stdev_amount),
         "typical_hours": typical_hours,
         "known_recipients": recipients,
