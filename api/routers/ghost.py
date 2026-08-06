@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+
+import notifications
 
 from models.schemas import GhostCreateRequest, GhostActionRequest
 from agents.ghost.account import (
@@ -14,13 +16,31 @@ router = APIRouter(prefix="/v1/ghost", tags=["ghost"])
 
 
 @router.post("/create")
-def create(payload: GhostCreateRequest, request: Request):
+def create(payload: GhostCreateRequest, request: Request, background: BackgroundTasks):
     transaction = payload.transaction.model_dump()
     institution_id = resolve_institution(request, payload.institution_id)
-    return create_ghost_container(
+    container = create_ghost_container(
         payload.user_id, transaction, payload.risk_score, payload.explanation,
         institution_id, payload.signals,
     )
+
+    # Tell the customer out-of-band, on a channel the session cannot read.
+    #
+    # Containment used to notify nobody, so the only notice appeared on the
+    # screen the transfer came from — the screen an attacker is holding in
+    # exactly the case this feature exists to survive. A cooling window only
+    # helps if the real customer learns about it in time to cancel.
+    #
+    # Backgrounded because the hold is already in place and the money is
+    # already safe: a slow SMTP server must not delay the response, and a
+    # failed send must not fail containment.
+    background.add_task(
+        notifications.notify_containment,
+        payload.user_id, institution_id, container["ghost_id"],
+        transaction.get("amount", 0), transaction.get("recipient_name"),
+        container["cooling_window_minutes"], payload.explanation,
+    )
+    return container
 
 
 @router.get("/{ghost_id}")

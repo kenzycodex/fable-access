@@ -255,6 +255,27 @@ CREATE TABLE IF NOT EXISTS stepup_tokens (
 
 -- Failed factor attempts, so Shield can treat "three failed biometrics before
 -- a large transfer" as the evidence it plainly is.
+-- What the customer was told, and whether it actually reached them.
+--
+-- Containment used to notify nobody: a transfer entered a cooling window and
+-- the only notice appeared on the screen the transfer came from, which is the
+-- screen an attacker is holding in the case containment exists to survive.
+-- `delivered` is recorded honestly, so an alert that only ever appeared in-app
+-- is distinguishable from one that reached the customer out-of-band.
+CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    institution_id TEXT,
+    kind TEXT NOT NULL,            -- containment | blocked | flagged | credit
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    reference TEXT,                -- ghost_id or transaction id
+    channel TEXT DEFAULT 'in_app', -- in_app | email | sms
+    delivered INTEGER DEFAULT 0,
+    read_at TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS stepup_failures (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -423,6 +444,7 @@ CREATE INDEX IF NOT EXISTS ix_locations_user     ON user_locations(user_id);
 CREATE INDEX IF NOT EXISTS ix_devices_user       ON device_profiles(user_id);
 CREATE INDEX IF NOT EXISTS ix_failures_user_time ON stepup_failures(user_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_challenges_user    ON stepup_challenges(user_id);
+CREATE INDEX IF NOT EXISTS ix_notifs_user_time   ON notifications(user_id, created_at);
 """
 
 # Offline-replay idempotency rests entirely on client_reference, and the lookup

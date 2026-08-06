@@ -8,17 +8,20 @@ import { BrainIcon, EyeIcon, GhostIcon, ShieldIcon } from "@/components/app-icon
 import { BrandingSettings } from "@/components/dashboard/BrandingSettings";
 import { Card, PageHeader } from "@/components/dashboard/primitives";
 import { institutionCredentials, type InstitutionCredentials } from "@/lib/fable/api";
-import { INSTITUTION } from "@/lib/fable/seed";
+import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 import { login, resetDemo, useFableStore } from "@/lib/fable/store";
 
 const AGENTS = [
   { name: "Copilot", role: "Behavioral baseline. Always on.", icon: BrainIcon, locked: true },
   { name: "Shield", role: "Real-time scam & deepfake defense.", icon: ShieldIcon, locked: false },
   { name: "Ghost", role: "Cooling-window containment.", icon: GhostIcon, locked: false },
-  { name: "Watch", role: "Passive between-session monitoring.", icon: EyeIcon, locked: false },
+  // Not built. Rendering it as a live, toggleable agent claimed a capability
+  // the system does not have; the docs already mark it "coming soon".
+  { name: "Watch", role: "Passive between-session monitoring.", icon: EyeIcon, locked: false, comingSoon: true },
 ];
 
 export default function SettingsPage() {
+  const { institution } = useSignedInInstitution();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const [agents, setAgents] = useState({ Shield: true, Ghost: true, Watch: true });
@@ -43,7 +46,7 @@ export default function SettingsPage() {
   }, [institutionId]);
 
   // Change password state
-  const [cpEmail, setCpEmail] = useState(INSTITUTION.contactEmail);
+  const [cpEmail, setCpEmail] = useState("");
   const [cpOld, setCpOld] = useState("");
   const [cpNew, setCpNew] = useState("");
   const [cpConfirm, setCpConfirm] = useState("");
@@ -101,9 +104,9 @@ export default function SettingsPage() {
       <Card>
         <h2 className="mb-4 text-[16px] font-bold text-gray-900 dark:text-white">Institution profile</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Institution name" value={INSTITUTION.name} />
-          <Field label="Type" value={INSTITUTION.type} />
-          <Field label="Contact email" value={INSTITUTION.contactEmail} />
+          <Field label="Institution name" value={institution?.name ?? "—"} />
+          <Field label="Type" value={institution?.type ?? "—"} />
+          <Field label="Contact email" value={institution?.contact_email ?? "—"} />
           <Field label="Environment" value="Demo / sandbox" />
         </div>
       </Card>
@@ -157,13 +160,25 @@ export default function SettingsPage() {
                   <Icon className="size-5" />
                 </span>
                 <div className="flex flex-col">
-                  <span className="text-[14px] font-bold text-gray-900 dark:text-white">{a.name}</span>
+                  <span className="flex items-center gap-2 text-[14px] font-bold text-gray-900 dark:text-white">
+                    {a.name}
+                    {a.comingSoon && (
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:bg-white/[0.06] dark:text-white/40">
+                        Coming soon
+                      </span>
+                    )}
+                  </span>
                   <span className="text-[12px] text-gray-500 dark:text-white/50">{a.role}</span>
                 </div>
+                {/* An unbuilt agent gets no toggle. Rendering one implied it
+                    could be turned on, and that it was doing something when it
+                    appeared on. */}
                 <LightToggle
-                  checked={on}
-                  disabled={a.locked}
-                  onChange={(next) => !a.locked && setAgents((s) => ({ ...s, [a.name]: next }))}
+                  checked={a.comingSoon ? false : on}
+                  disabled={a.locked || Boolean(a.comingSoon)}
+                  onChange={(next) =>
+                    !a.locked && !a.comingSoon && setAgents((s) => ({ ...s, [a.name]: next }))
+                  }
                 />
               </div>
             );

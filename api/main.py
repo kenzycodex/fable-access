@@ -45,7 +45,7 @@ app.add_middleware(
 # Register routers resiliently: a missing or broken router module logs a
 # warning and is skipped, so one bad module never takes down the whole API.
 # `_optional` names are allowed to be absent without a warning.
-_ROUTERS = ["shield", "ghost", "copilot", "demo", "dashboard", "assistant", "admin", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "watch"]
+_ROUTERS = ["shield", "ghost", "copilot", "demo", "dashboard", "assistant", "admin", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "notifications", "watch"]
 _OPTIONAL = {"watch"}
 _loaded: list[str] = []
 
@@ -141,8 +141,10 @@ def ensure_default_admin() -> None:
                 "SELECT 1 FROM api_keys WHERE institution_id = ?", (DEFAULT_ADMIN_INSTITUTION,)
             )
             if not cur.fetchone():
-                import secrets
-
+                # `secrets` is imported at module scope. A second import here
+                # made the name function-local, so the earlier use of
+                # secrets.token_urlsafe() above raised UnboundLocalError and
+                # the whole seeding step failed with a confusing message.
                 cur.execute(
                     """INSERT INTO api_keys (key, institution_name, admin_email, institution_id)
                        VALUES (?, ?, ?, ?)""",
