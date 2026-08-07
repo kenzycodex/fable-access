@@ -8,7 +8,7 @@ import {
   ShieldCheck,
   Lightning,
 } from "@phosphor-icons/react";
-import { Card, PageHeader, RiskBadge, StatCard } from "@/components/dashboard/primitives";
+import { Card, FeaturePanel, PageHeader, RiskBadge, StatCard } from "@/components/dashboard/primitives";
 import { formatNaira, formatNairaCompact, formatRelativeTime } from "@/lib/fable/format";
 import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 import { useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
@@ -33,6 +33,10 @@ export default function OverviewPage() {
   const feed = useDashboardFeed();
   const s = feed.stats;
   const recent = feed.transactions.slice(0, 8);
+
+  // Trend shape for the KPI tiles, from the same feed the numbers come from.
+  const trendAll = dailySeries(feed.transactions, () => true);
+  const trendBlocked = dailySeries(feed.transactions, (t) => t.action === "BLOCK");
 
   // Money protected comes from the server's canonical figure, the same one
   // Copilot quotes. Computing it separately on the client produced a different
@@ -95,13 +99,19 @@ export default function OverviewPage() {
 
       {/* KPI row */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 mt-0">
-        <StatCard label="Transactions" value={feed.ready ? String(s.total) : "—"} sub="Scored by Fable" />
+        <StatCard
+          label="Transactions"
+          value={feed.ready ? String(s.total) : "—"}
+          sub="Scored by Fable"
+          trend={feed.ready ? trendAll ?? undefined : undefined}
+        />
         <StatCard
           label="Threats blocked"
           value={feed.ready ? String(s.blockCount) : "—"}
           sub={feed.ready ? `${s.flagCount} flagged for review` : "Loading"}
           icon={<ShieldCheck size={20} weight="fill" />}
           accent="text-red-400"
+          trend={feed.ready ? trendBlocked ?? undefined : undefined}
         />
         <StatCard
           label="Amount protected"
@@ -126,10 +136,13 @@ export default function OverviewPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 mt-4">
         {/* Recent activity */}
-        <Card className="lg:col-span-2">
-          <div className="mb-4 flex items-center justify-between border-b border-gray-100 dark:border-white/[0.04] pb-4">
-            <h2 className="text-[16px] font-bold text-gray-900 dark:text-white">Live Activity Stream</h2>
-            <Link href="/dashboard/transactions" className="text-[12px] font-bold text-[#7C3AED] hover:text-[#7C3AED]/80 transition-colors">
+        {/* The one inverted surface on the page. It marks the region the view is
+            actually about; a second dark panel here and neither would read as
+            primary. */}
+        <FeaturePanel className="lg:col-span-2">
+          <div className="mb-4 flex items-center justify-between border-b border-white/[0.07] pb-4">
+            <h2 className="text-[16px] font-bold text-white">Live Activity Stream</h2>
+            <Link href="/dashboard/transactions" className="text-[12px] font-bold text-[#A78BFA] hover:text-white transition-colors">
               View all
             </Link>
           </div>
@@ -140,7 +153,7 @@ export default function OverviewPage() {
               recent.map((t) => <ActivityRow key={t.id} txn={t} />)
             )}
           </div>
-        </Card>
+        </FeaturePanel>
 
         {/* Right column: risk split + agents */}
         <div className="flex flex-col gap-6">
@@ -241,6 +254,29 @@ function EngineChip({ source }: { source: "api" | "local" }) {
   );
 }
 
+/** Daily counts over the last 12 days, oldest first, from the real feed.
+ *
+ * Derived rather than stored, and deliberately not padded or smoothed: a bank
+ * with three days of history gets three days of shape and nine days of zero,
+ * which is the truth. Returns null when there is nothing to draw, so the tile
+ * renders without a sparkline rather than with an invented one. */
+function dailySeries(txns: Transaction[], predicate: (t: Transaction) => boolean): number[] | null {
+  if (txns.length === 0) return null;
+  const DAY = 86_400_000;
+  const today = Math.floor(Date.now() / DAY);
+  const buckets = new Array(12).fill(0);
+  let seen = 0;
+  for (const t of txns) {
+    if (!predicate(t)) continue;
+    const age = today - Math.floor(t.timestamp / DAY);
+    if (age >= 0 && age < 12) {
+      buckets[11 - age] += 1;
+      seen += 1;
+    }
+  }
+  return seen > 1 ? buckets : null;
+}
+
 function ActivityRow({ txn }: { txn: Transaction }) {
   // A simple hash function to assign a color based on the first letter
   const colors = ["bg-emerald-500/10 text-emerald-500", "bg-blue-500/10 text-blue-500", "bg-purple-500/10 text-purple-500", "bg-rose-500/10 text-rose-500", "bg-amber-500/10 text-amber-500"];
@@ -248,21 +284,21 @@ function ActivityRow({ txn }: { txn: Transaction }) {
   const colorClass = colors[initial.charCodeAt(0) % colors.length];
 
   return (
-    <div className="flex items-center gap-4 border-b border-gray-100 dark:border-white/[0.04] py-3.5 last:border-0 hover:bg-gray-50 dark:hover:bg-white/[0.02] px-2 -mx-2 rounded-xl transition-colors cursor-pointer">
-      <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl font-bold border border-gray-200/50 dark:border-white/[0.02] ${colorClass}`}>
+    <div className="flex items-center gap-4 border-b border-white/[0.06] py-3.5 last:border-0 hover:bg-white/[0.04] px-2 -mx-2 rounded-xl transition-colors cursor-pointer">
+      <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl font-bold border border-white/[0.06] ${colorClass}`}>
         {initial}
       </div>
       <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="truncate text-[14px] font-bold text-gray-900 dark:text-white">
+        <span className="truncate text-[14px] font-bold text-white">
           {txn.customerName} → {txn.recipientName}
         </span>
-        <span className="flex items-center gap-2 text-[12px] text-gray-500 dark:text-white/40 font-medium">
+        <span className="flex items-center gap-2 text-[12px] text-white/45 font-medium">
           {formatRelativeTime(txn.timestamp)} · {txn.recipientBank}
           {txn.live && <span className="rounded-md bg-[#7C3AED]/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-[#7C3AED]">Live</span>}
         </span>
       </div>
       <div className="ml-auto flex flex-col items-end gap-1.5">
-        <span className="text-[14px] font-bold tabular-nums text-gray-900 dark:text-white">{formatNaira(txn.amount)}</span>
+        <span className="text-[14px] font-bold tabular-nums text-white">{formatNaira(txn.amount)}</span>
         <div className="flex items-center gap-1.5">
           <RiskBadge action={txn.action} />
           <OutcomeBadge txn={txn} />

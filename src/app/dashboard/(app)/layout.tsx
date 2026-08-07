@@ -30,7 +30,7 @@ export default function DashboardAppLayout({ children }: Readonly<{ children: Re
   // splash so we never flash authed content.
   if (store === null || !store.session.loggedIn) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center bg-gray-50 dark:bg-black text-[13px] text-gray-500 dark:text-white/50">
+      <div className="flex min-h-dvh flex-col items-center justify-center bg-[#F6F5FF] dark:bg-black text-[13px] text-gray-500 dark:text-white/50">
         <div className="flex flex-col items-center gap-4">
           <svg className="size-8 animate-spin text-[#7C3AED]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"></circle>
@@ -43,7 +43,7 @@ export default function DashboardAppLayout({ children }: Readonly<{ children: Re
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-gray-50 text-gray-900 dark:bg-black dark:text-white lg:flex-row font-sans overflow-hidden transition-colors duration-300">
+    <div className="flex h-dvh flex-col bg-[#F6F5FF] text-gray-900 dark:bg-black dark:text-white lg:flex-row font-sans overflow-hidden transition-colors duration-300">
       <Sidebar />
       <main className="flex-1 overflow-x-hidden overflow-y-auto">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-5 py-6 lg:px-8 lg:py-8">{children}</div>
