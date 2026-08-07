@@ -39,6 +39,17 @@ export interface DashboardFeed {
   source: "api" | "local";
   stats: FeedSummary;
   transactions: Transaction[];
+  /** The API could not be reached and nothing has loaded this session.
+   *
+   * Distinguishing this from "loaded, and there is genuinely nothing" matters:
+   * without it a dead API and a brand-new tenant render identically, so an
+   * operator staring at an empty console cannot tell whether their bank has no
+   * activity or the console simply is not talking to anything.
+   *
+   * Only true when there is no previous good response to fall back on. A
+   * transient failure mid-poll is not an outage, which is the whole reason
+   * keepPreviousData is on. */
+  unreachable: boolean;
 }
 
 /** The institution the console is signed in as. Every read is scoped to it so
@@ -51,7 +62,7 @@ function useTenant(): string | null {
 export function useDashboardFeed(pollMs = CADENCE.live): DashboardFeed {
   const store = useFableStore();
   const institution = store?.session.institutionId ?? null;
-  const { data, isLoading } = useSWR<Transaction[]>(
+  const { data, isLoading, error } = useSWR<Transaction[]>(
     ["fable:dashboard-transactions", institution],
     () => dashboardTransactions(300, institution),
     livePolling(pollMs),
@@ -70,7 +81,13 @@ export function useDashboardFeed(pollMs = CADENCE.live): DashboardFeed {
     const transactions = data
       .map((t) => (liveIds.has(t.id) ? { ...t, live: true } : t))
       .sort((a, b) => b.timestamp - a.timestamp);
-    return { ready: true, source: "api", transactions, stats: summarize(transactions) };
+    return {
+      ready: true,
+      source: "api",
+      transactions,
+      stats: summarize(transactions),
+      unreachable: false,
+    };
   }
 
   // No successful response yet. Only the operator's own live transfers are
@@ -94,6 +111,7 @@ export function useDashboardFeed(pollMs = CADENCE.live): DashboardFeed {
     source: "local",
     transactions: liveOnly,
     stats: summarize(liveOnly),
+    unreachable: Boolean(error) && !isLoading,
   };
 }
 

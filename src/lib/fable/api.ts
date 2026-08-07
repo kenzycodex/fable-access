@@ -55,6 +55,16 @@ function tenantParam(institution?: string | null, first = false): string {
   return `${first ? "" : "&"}institution=${encodeURIComponent(institution)}`;
 }
 
+// Two consecutive failures before the app is considered offline.
+//
+// One failed probe used to flip it, and the probe has its own 2.5s timeout, so
+// a single slow response under load pinned the app to the local engine for a
+// full 10 seconds. Everything scored in that window got a client-generated id
+// and no server row, which then failed with a bare 404 when the customer tried
+// to verify a flagged transfer. A blip is not an outage.
+let consecutiveFailures = 0;
+const FAILURES_BEFORE_OFFLINE = 2;
+
 let availabilityCache = { at: 0, ok: false };
 
 /** Cached /health probe (10s TTL). */
@@ -62,10 +72,16 @@ export async function apiAvailable(): Promise<boolean> {
   if (typeof window === "undefined") return false;
   if (Date.now() - availabilityCache.at < 10_000) return availabilityCache.ok;
   try {
-    await fetchJson<{ status: string }>("/health", undefined, 2_500);
+    await fetchJson<{ status: string }>("/health", undefined, 4_000);
+    consecutiveFailures = 0;
     availabilityCache = { at: Date.now(), ok: true };
   } catch {
-    availabilityCache = { at: Date.now(), ok: false };
+    consecutiveFailures += 1;
+    // Stay online until the failures are consistent. The cache window is also
+    // shortened on the first failure so a recovering API is picked up in two
+    // seconds rather than ten.
+    const offline = consecutiveFailures >= FAILURES_BEFORE_OFFLINE;
+    availabilityCache = { at: offline ? Date.now() : Date.now() - 8_000, ok: !offline };
   }
   return availabilityCache.ok;
 }

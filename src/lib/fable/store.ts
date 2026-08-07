@@ -362,7 +362,40 @@ export async function approvePending(stepupToken?: string | null): Promise<Trans
 
   // Deliberately not swallowed: a step-up refusal must reach the UI so it can
   // run the factor rather than silently marking the transfer sent.
-  await approveTransfer(txn.id, userId, stepupToken);
+  // A transfer scored offline has no row on the server, so approving it by id
+  // returns 404 — which surfaced to the customer as "Could not send this
+  // transfer (404)" on a flag they were trying to verify.
+  //
+  // Sync it first. The server rescores with all fourteen layers and returns the
+  // id it actually stored, which is the id the approval has to reference. This
+  // also means the server's verdict wins: if it decides the transfer is worse
+  // than the local engine thought, the customer is told rather than the
+  // decision being silently discarded.
+  let id = txn.id;
+  if (!txn.remote) {
+    const api = await shieldAnalyze(
+      {
+        amount: txn.amount,
+        recipient: { name: txn.recipientName, bank: txn.recipientBank,
+                     bankCode: "",
+                     accountNumber: txn.recipientAccount, known: false },
+        narration: txn.narration,
+        channel: txn.channel,
+      },
+      undefined,
+      { clientReference: txn.id, userId, institutionId: tenant.institutionId },
+    );
+    id = api.transactionId;
+    if (api.action === "BLOCK") {
+      // The server is stricter than the local engine was. Route to containment
+      // rather than completing a transfer the engine would have blocked.
+      mutate((s) => ({ ...s, pending: s.pending ? { ...s.pending, ...api, id, remote: true } : null }));
+      throw new Error("This transfer needs containment rather than verification.");
+    }
+    mutate((s) => ({ ...s, pending: s.pending ? { ...s.pending, id, remote: true } : null }));
+  }
+
+  await approveTransfer(id, userId, stepupToken);
   return resolvePending("completed");
 }
 
