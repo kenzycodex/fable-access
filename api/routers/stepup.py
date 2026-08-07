@@ -254,7 +254,7 @@ def pin_verify(payload: PinVerifyRequest):
     # Either way the token records what was actually proved, which is a PIN.
     # (This was a ternary whose branches were identical.)
     token = stepup.issue_token(payload.user_id, "pin", payload.purpose, payload.reference)
-    return {"verified": True, "level": level, **token}
+    return {"verified": True, "level": "pin", **token}
 
 
 # ---------------------------------------------------------------------------

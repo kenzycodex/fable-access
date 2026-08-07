@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query, Request
 
 from config import BLOCK_THRESHOLD, FLAG_THRESHOLD, GHOST_COOLING_HIGH, GHOST_COOLING_MED, GHOST_COOLING_LOW
 from db import cursor, row_to_dict, loads
-from tenancy import tenant_for_read
+from tenancy import tenant_for_console
 from intelligence.context import tenant_clause
 from agents.copilot.baseline import get_user_baseline, format_hours
 
@@ -49,7 +49,7 @@ SHIELD_PIPELINE = [
 
 @router.get("/overview")
 def overview(request: Request, institution: str | None = Query(None)):
-    institution = tenant_for_read(request, institution)
+    institution = tenant_for_console(request)
     where, params = tenant_clause(institution)
     and_where, and_params = tenant_clause(institution, prefix="AND")
 
@@ -141,7 +141,7 @@ def overview(request: Request, institution: str | None = Query(None)):
 
 @router.get("/copilot/customers")
 def copilot_customers(request: Request, limit: int = Query(50, ge=1, le=200), institution: str | None = Query(None)):
-    institution = tenant_for_read(request, institution)
+    institution = tenant_for_console(request)
     """Per-customer view of what Copilot has actually learned."""
     where, params = tenant_clause(institution)
     with cursor() as cur:
@@ -188,7 +188,7 @@ def copilot_customers(request: Request, limit: int = Query(50, ge=1, le=200), in
 
 @router.get("/shield/decisions")
 def shield_decisions(request: Request, limit: int = Query(25, ge=1, le=200), institution: str | None = Query(None)):
-    institution = tenant_for_read(request, institution)
+    institution = tenant_for_console(request)
     """Recent Shield decisions with full signal breakdowns + the pipeline config."""
     where, params = tenant_clause(institution)
     and_where, and_params = tenant_clause(institution, prefix="AND")
@@ -235,7 +235,7 @@ def shield_decisions(request: Request, limit: int = Query(25, ge=1, le=200), ins
 
 @router.get("/ghost/containers")
 def ghost_containers(request: Request, limit: int = Query(50, ge=1, le=200), institution: str | None = Query(None)):
-    institution = tenant_for_read(request, institution)
+    institution = tenant_for_console(request)
     """Container history + resolution stats + cooling-window config."""
     where, params = tenant_clause(institution)
     with cursor() as cur:

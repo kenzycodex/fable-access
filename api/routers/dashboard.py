@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Query, Request
 
 from db import cursor, row_to_dict, loads
-from tenancy import tenant_for_read
+from tenancy import tenant_for_console
 from intelligence.context import (
     channel_breakdown,
     institution_summary,
@@ -43,7 +43,7 @@ def _percentiles(sorted_values: list[float]) -> dict | None:
 
 @router.get("/stats")
 def stats(request: Request, institution: str | None = Query(None)):
-    institution = tenant_for_read(request, institution)
+    institution = tenant_for_console(request)
     where, params = tenant_clause(institution)
     ghost_where, ghost_params = tenant_clause(institution)
 
@@ -160,7 +160,7 @@ def transactions(
     institution: str | None = Query(None),
     user: str | None = Query(None),
 ):
-    institution = tenant_for_read(request, institution)
+    institution = tenant_for_console(request)
     where = "WHERE 1=1"
     params: list = []
     if action:
@@ -203,7 +203,7 @@ def transactions(
 
 @router.get("/alerts")
 def alerts(request: Request, limit: int = Query(50, ge=1, le=200), institution: str | None = Query(None)):
-    institution = tenant_for_read(request, institution)
+    institution = tenant_for_console(request)
     """Watch Alerts feed: every flagged/blocked transfer, newest first, with a
     plain-language reason and severity, plus rollup counts."""
     where, params = tenant_clause(institution, prefix="AND")
@@ -245,7 +245,7 @@ def alerts(request: Request, limit: int = Query(50, ge=1, le=200), institution: 
 
 @router.get("/intelligence")
 def intelligence(request: Request, institution: str | None = Query(None)):
-    institution = tenant_for_read(request, institution)
+    institution = tenant_for_console(request)
     """Intelligence screen: scam-pattern library usage, channel risk, and
     which Shield signals fire most often."""
     return {
@@ -258,7 +258,7 @@ def intelligence(request: Request, institution: str | None = Query(None)):
 
 @router.get("/compliance")
 def compliance(request: Request, institution: str | None = Query(None)):
-    institution = tenant_for_read(request, institution)
+    institution = tenant_for_console(request)
     """Compliance screen: audit-trail counts, a CSAT-style satisfaction proxy
     (safe users see near-zero friction), and a recent incident log from blocks."""
     s = institution_summary(institution)

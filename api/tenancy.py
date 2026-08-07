@@ -105,6 +105,41 @@ def tenant_for_read(request, claimed: str | None = None) -> str:
     return _fallback_institution()
 
 
+def tenant_for_console(request) -> str:
+    """The institution a *console* read is allowed to see. Credential required.
+
+    `tenant_for_read` tolerates an unauthenticated caller: it accepts a claimed
+    slug, and failing that falls back to the only institution on the box. That
+    is defensible for the demo bank, whose slug is in its own public URL and
+    whose data is a sandbox.
+
+    It is not defensible for the institution console. Those endpoints return the
+    bank's customer ids, recipient account numbers, narrations and device
+    fingerprints, and the fallback meant that on a single-tenant deployment —
+    which is every deployment right now — an unauthenticated GET returned all of
+    it. Closing S0-4 on the console while leaving that path open would have been
+    closing it on paper only.
+
+    No session and no API key is a 401, with no fallback.
+    """
+    from fastapi import HTTPException
+    import sessions
+
+    try:
+        return sessions.verify(sessions.extract_token(request))["inst"]
+    except sessions.SessionError:
+        pass
+
+    from_key = institution_from_api_key(extract_api_key(request))
+    if from_key:
+        return from_key
+
+    raise HTTPException(
+        status_code=401,
+        detail="Sign in to the console, or present your institution's API key.",
+    )
+
+
 def institution_exists(institution_id: str) -> bool:
     with cursor() as cur:
         cur.execute("SELECT 1 FROM institutions WHERE institution_id = ?", (institution_id,))
