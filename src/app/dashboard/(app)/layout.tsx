@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { AskFable } from "@/components/dashboard/AskFable";
 import { Sidebar } from "@/components/dashboard/Sidebar";
@@ -12,12 +11,20 @@ import { useFableStore } from "@/lib/fable/store";
  * to /dashboard/login. Desktop-first; the sidebar becomes a top strip on mobile.
  */
 export default function DashboardAppLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const router = useRouter();
   const store = useFableStore();
 
+  // Backstop for arriving here without a session (expired token, direct URL,
+  // a tab left open overnight). logout() navigates by itself, so this normally
+  // does not fire on the sign-out path.
+  //
+  // Hard navigation for the same reason logout() uses one: the router cache can
+  // still hold the authed RSC payload for this tree, and a client-side replace
+  // out of a layout that is mid-render is exactly where that stalls.
   useEffect(() => {
-    if (store !== null && !store.session.loggedIn) router.replace("/dashboard/login");
-  }, [store, router]);
+    if (store !== null && !store.session.loggedIn && typeof window !== "undefined") {
+      window.location.replace("/dashboard/login");
+    }
+  }, [store]);
 
   // While hydrating, or when not logged in (about to redirect), show a minimal
   // splash so we never flash authed content.

@@ -532,6 +532,19 @@ export function logout(): void {
     ...s,
     session: { loggedIn: false, institutionId: null, token: null, expiresAt: null },
   }));
+
+  // Hard navigation, not router.replace().
+  //
+  // Signing out used to clear the session and leave the console layout to
+  // notice and client-side navigate. Next keeps an RSC payload for the authed
+  // /dashboard tree in its router cache, so that navigation could stall behind
+  // a request for a route the layout was simultaneously trying to leave — and
+  // the user sat on "Starting console..." until they hard-refreshed.
+  //
+  // A full document load is also the honest semantics for logout: it drops
+  // every cached RSC payload and all in-memory state, rather than trusting a
+  // client-side transition to have cleared everything that mattered.
+  if (canUseDom()) window.location.replace("/dashboard/login");
 }
 
 /** The live session token, or null when there is none or it has expired. */
