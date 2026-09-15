@@ -341,16 +341,3 @@ We welcome contributions to Fable! If you're interested in improving the African
 <br />
 
 ---
-
-<div align="center">
-  <h3>🏆 Built for HackX 6.0 × Union Bank</h3>
-  <p>Fable was designed, architected, and built from scratch during an intense 7-day sprint for the ECX HackX 6.0 Hackathon.</p>
-  <p><b>Team Fable:</b></p>
-  <p>
-    <b>Kenzy</b> (Lead Engineer) •   
-    <b>Natty / Conqueror909</b> (Backend Engineer) •   
-    <b>Blessing / Katalysttt</b> (Frontend Engineer & Product)  
-  </p>
-  <br />
-  <p><i>Trust by receipts, not promises.</i></p>
-</div>
