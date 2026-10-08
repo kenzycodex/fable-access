@@ -3,144 +3,187 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
-import { SignOut, CaretUp, GearSix } from "@phosphor-icons/react";
-import { DASHBOARD_NAV, DASHBOARD_FOOTER_NAV } from "@/components/dashboard/nav";
-import { useSignedInInstitution } from "@/lib/fable/useInstitution";
+import { useEffect, useRef, useState } from "react";
+import { CaretUp, GearSix, SignOut, X } from "@phosphor-icons/react";
+import { Avatar } from "@/components/app-kit";
+import { DASHBOARD_FOOTER_NAV, DASHBOARD_NAV_GROUPS } from "@/components/dashboard/nav";
 import { logout } from "@/lib/fable/store";
+import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 
-export function Sidebar() {
-  const { institution } = useSignedInInstitution();
+/**
+ * The console's left rail: grouped navigation, the links out to the demo bank and
+ * the docs, and the signed-in institution at the foot with its menu above it.
+ * On a phone it is a drawer, opened from the top bar.
+ */
+export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-
-  function signOut() {
-    logout();
-  }
 
   return (
-    <aside className="flex shrink-0 flex-col gap-6 border-gray-200 bg-white text-gray-900 dark:border-white/[0.04] dark:bg-black dark:text-white lg:sticky lg:top-0 lg:h-dvh lg:w-64 lg:border-r z-50 transition-colors duration-300">
-      {/* Brand */}
-      <div className="flex items-center justify-between px-6 pt-5 lg:pt-8">
-        <Link href="/" className="flex items-center gap-3">
-          <Image
-            src="/images/brand/fable-logo-white.png"
-            alt="Fable"
-            width={1671}
-            height={547}
-            className="h-7 w-auto hidden dark:block"
-          />
-          <Image
-            src="/images/brand/fable-logo.png"
-            alt="Fable"
-            width={1671}
-            height={547}
-            className="h-7 w-auto block dark:hidden"
-          />
-        </Link>
-        <span className="rounded-full bg-gray-100 border border-gray-200 px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-gray-500 dark:bg-white/[0.04] dark:border-white/[0.05] dark:text-white/50">
-          Console
-        </span>
-      </div>
+    <>
+      {open && (
+        <button
+          type="button"
+          aria-label="Close menu"
+          onClick={onClose}
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
+        />
+      )}
 
-      {/* Nav */}
-      <nav className="flex gap-1 overflow-x-auto px-4 pb-2 lg:flex-1 lg:flex-col lg:overflow-y-auto lg:pb-0 mt-4 custom-scrollbar">
-        {DASHBOARD_NAV.map((item) => {
-          const active = item.match(pathname);
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex shrink-0 items-center gap-3 rounded-xl px-4 py-3 text-[13px] font-semibold transition-all ${
-                active 
-                  ? "bg-[#7C3AED]/10 text-[#7C3AED] border border-[#7C3AED]/20 shadow-[inset_0_0_20px_rgba(124,58,237,0.05)]" 
-                  : "text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:text-white/40 dark:hover:bg-white/[0.02] dark:hover:text-white/80 border border-transparent"
-              }`}
-            >
-              <Icon size={18} weight={active ? "fill" : "regular"} />
-              <span className="whitespace-nowrap">{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* Footer Nav (Sandbox, API Docs) */}
-      <nav className="hidden lg:flex shrink-0 flex-col gap-0.5 px-4 mt-auto mb-2">
-        <div className="h-px w-full bg-gray-100 dark:bg-white/[0.04] mb-1.5" />
-        {DASHBOARD_FOOTER_NAV.map((item) => {
-          const Icon = item.icon;
-          if (item.external) {
-            return (
-              <a
-                key={item.href}
-                href={item.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex shrink-0 items-center gap-3 rounded-lg px-3 py-2 text-[12px] font-semibold text-gray-500 transition-all hover:bg-gray-100 hover:text-gray-900 dark:text-white/40 dark:hover:bg-white/[0.04] dark:hover:text-white/80"
-              >
-                <Icon size={16} weight="regular" />
-                <span className="whitespace-nowrap">{item.label}</span>
-              </a>
-            );
-          }
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="flex shrink-0 items-center gap-3 rounded-lg px-3 py-2 text-[12px] font-semibold text-gray-500 transition-all hover:bg-gray-100 hover:text-gray-900 dark:text-white/40 dark:hover:bg-white/[0.04] dark:hover:text-white/80"
-            >
-              <Icon size={16} weight="regular" />
-              <span className="whitespace-nowrap">{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* Institution Profile Dropdown */}
-      <div className="hidden shrink-0 px-4 pb-4 lg:block">
-        <div className="relative w-full">
-          {/* Dropdown Menu */}
-          {isProfileOpen && (
-            <div className="absolute bottom-[calc(100%+8px)] left-0 w-full rounded-lg border border-gray-200 bg-white p-1 shadow-lg dark:border-white/10 dark:bg-[#1a1a24] animate-card-entrance origin-bottom z-50">
-              <div className="px-2.5 py-1.5 text-[10px] font-bold text-gray-400 dark:text-white/30 uppercase tracking-wider">Account</div>
-              <Link 
-                href="/dashboard/settings" 
-                onClick={() => setIsProfileOpen(false)} 
-                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13px] font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-white/80 dark:hover:bg-white/[0.04]"
-              >
-                <GearSix size={16} />
-                Settings
-              </Link>
-              <div className="my-1 h-px w-full bg-gray-100 dark:bg-white/[0.04]" />
-              <button 
-                onClick={signOut} 
-                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
-              >
-                <SignOut size={16} />
-                Log out
-              </button>
-            </div>
-          )}
-
-          {/* Profile Button */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-[272px] flex-col border-r border-d-border bg-d-surface transition-transform duration-200 lg:z-40 lg:translate-x-0 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="flex items-center justify-between px-6 pb-2 pt-6">
+          <Link href="/" className="flex items-center" aria-label="Fable home">
+            <Image
+              src="/images/brand/fable-logo-white.png"
+              alt="Fable"
+              width={1671}
+              height={547}
+              className="hidden h-7 w-auto dark:block"
+            />
+            <Image
+              src="/images/brand/fable-logo.png"
+              alt="Fable"
+              width={1671}
+              height={547}
+              className="block h-7 w-auto dark:hidden"
+            />
+          </Link>
+          <span className="rounded-full bg-brand/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-brand">
+            Console
+          </span>
           <button
             type="button"
-            onClick={() => setIsProfileOpen(!isProfileOpen)}
-            className="flex w-full items-center justify-between gap-3 rounded-xl px-2 py-2 transition-all bg-[#7C3AED] text-white dark:bg-[#a78bfa] dark:text-gray-900 hover:bg-gray-900 hover:text-white dark:hover:bg-white dark:hover:text-black group"
+            onClick={onClose}
+            aria-label="Close menu"
+            className="flex size-9 items-center justify-center rounded-xl text-d-muted hover:bg-d-surface-2 lg:hidden"
           >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-white/20 text-[11px] font-bold text-white dark:bg-black/10 dark:text-gray-900 shadow-sm transition-colors group-hover:bg-white/20 dark:group-hover:bg-black/10">
-                {(institution?.name ?? "…").charAt(0)}
-              </div>
-              <div className="flex flex-col items-start min-w-0 transition-colors">
-                <span className="text-[12px] font-bold truncate max-w-[120px]">{institution?.name ?? "Loading…"}</span>
-              </div>
-            </div>
-            <CaretUp size={14} weight="bold" className={`transition-transform ${isProfileOpen ? "rotate-180" : ""}`} />
+            <X size={18} />
           </button>
         </div>
-      </div>
-    </aside>
+
+        {/* Scrolls on a short window; the account row below never does. */}
+        <nav className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pb-4 pt-6">
+          {DASHBOARD_NAV_GROUPS.map((group) => (
+            <div key={group.label}>
+              <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-d-faint">{group.label}</p>
+              <div className="flex flex-col gap-1">
+                {group.items.map((item) => {
+                  const active = item.match(pathname);
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      aria-current={active ? "page" : undefined}
+                      onClick={onClose}
+                      className={`flex h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-medium transition-colors ${
+                        active ? "bg-brand text-white shadow-sm" : "text-d-muted hover:bg-d-surface-2 hover:text-d-text"
+                      }`}
+                    >
+                      <Icon size={19} weight={active ? "fill" : "regular"} />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
+          <div className="mt-auto flex flex-col gap-1 border-t border-d-border pt-4">
+            {DASHBOARD_FOOTER_NAV.map((item) => {
+              const Icon = item.icon;
+              return (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex h-10 items-center gap-3 rounded-xl px-3 text-[13px] font-medium text-d-muted transition-colors hover:bg-d-surface-2 hover:text-d-text"
+                >
+                  <Icon size={17} />
+                  {item.label}
+                </a>
+              );
+            })}
+          </div>
+        </nav>
+
+        <div className="shrink-0 border-t border-d-border p-3">
+          <AccountMenu />
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function AccountMenu() {
+  const { institution } = useSignedInInstitution();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const name = institution?.name ?? "Loading...";
+
+  return (
+    <div ref={ref} className="relative">
+      {open && (
+        <div
+          role="menu"
+          className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-2xl border border-d-border bg-d-surface shadow-[0_18px_40px_-12px_rgba(0,0,0,0.25)]"
+        >
+          <Link
+            href="/dashboard/settings"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex h-11 items-center gap-3 px-4 text-[14px] font-medium text-d-text transition-colors hover:bg-d-surface-2"
+          >
+            <GearSix size={18} className="text-d-muted" />
+            Settings
+          </Link>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => logout()}
+            className="flex h-11 w-full items-center gap-3 border-t border-d-border px-4 text-left text-[14px] font-medium text-red-600 transition-colors hover:bg-red-500/[0.06] dark:text-red-400"
+          >
+            <SignOut size={18} />
+            Sign out
+          </button>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition-colors hover:bg-d-surface-2 ${open ? "bg-d-surface-2" : ""}`}
+      >
+        <Avatar name={name} size="sm" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-semibold leading-tight text-d-text">{name}</span>
+          <span className="block truncate text-[11px] leading-tight text-d-muted">Console admin</span>
+        </span>
+        <CaretUp size={14} className={`shrink-0 text-d-faint transition-transform ${open ? "" : "rotate-180"}`} />
+      </button>
+    </div>
   );
 }

@@ -1,17 +1,19 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AskFable } from "@/components/dashboard/AskFable";
 import { Sidebar } from "@/components/dashboard/Sidebar";
+import { TopBar } from "@/components/dashboard/TopBar";
 import { useFableStore } from "@/lib/fable/store";
 
 /**
- * Authenticated dashboard shell: dark left sidebar + light content canvas.
- * Guards every screen, if the seeded institution isn't signed in, it bounces
- * to /dashboard/login. Desktop-first; the sidebar becomes a top strip on mobile.
+ * The authenticated console shell: a left rail, a top bar and the page.
+ *
+ * It guards every screen. Without a signed-in session it goes to the login page.
  */
 export default function DashboardAppLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const store = useFableStore();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Backstop for arriving here without a session (expired token, direct URL,
   // a tab left open overnight). logout() navigates by itself, so this normally
@@ -30,9 +32,9 @@ export default function DashboardAppLayout({ children }: Readonly<{ children: Re
   // splash so we never flash authed content.
   if (store === null || !store.session.loggedIn) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center bg-[#F6F5FF] dark:bg-black text-[13px] text-gray-500 dark:text-white/50">
+      <div className="console-shell flex min-h-dvh flex-col items-center justify-center bg-d-bg text-[13px] text-d-muted">
         <div className="flex flex-col items-center gap-4">
-          <svg className="size-8 animate-spin text-[#7C3AED]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <svg className="size-8 animate-spin text-brand" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"></circle>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
@@ -43,11 +45,14 @@ export default function DashboardAppLayout({ children }: Readonly<{ children: Re
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-[#F6F5FF] text-gray-900 dark:bg-black dark:text-white lg:flex-row font-sans overflow-hidden transition-colors duration-300">
-      <Sidebar />
-      <main className="flex-1 overflow-x-hidden overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-5 py-6 lg:px-8 lg:py-8">{children}</div>
-      </main>
+    <div className="console-shell min-h-dvh bg-d-bg text-d-text transition-colors duration-300">
+      <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <div className="lg:pl-[272px]">
+        <TopBar onMenu={() => setMenuOpen(true)} />
+        <main className="mx-auto flex w-full max-w-[1360px] flex-col gap-6 px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pb-12 lg:pt-8">
+          {children}
+        </main>
+      </div>
       <AskFable />
     </div>
   );
