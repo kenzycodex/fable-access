@@ -140,7 +140,15 @@ def ensure_default_admin() -> None:
         from utils import hash_password
 
         with cursor() as cur:
-            cur.execute("SELECT 1 FROM admins WHERE email = ?", (DEFAULT_ADMIN_EMAIL,))
+            # Seed only a brand-new deployment: one where the default institution
+            # has no console admin at all. This used to check for the configured
+            # email alone, so after an admin's email was changed the next restart
+            # quietly recreated the old address with the .env password, and both
+            # addresses could sign in to the same bank.
+            cur.execute(
+                "SELECT 1 FROM admins WHERE email = ? OR institution_id = ? LIMIT 1",
+                (DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_INSTITUTION),
+            )
             if not cur.fetchone():
                 password = DEFAULT_ADMIN_PASSWORD or secrets.token_urlsafe(12)
                 cur.execute(
