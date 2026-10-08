@@ -1,11 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ArrowLeft, Brain, MagnifyingGlass } from "@phosphor-icons/react";
 import {
   Avatar,
   Badge,
-  Button,
   ButtonLink,
   Card,
   CardHeader,
@@ -14,8 +14,8 @@ import {
   StatCard,
   inputClass,
 } from "@/components/dashboard/primitives";
-import { apiChannelLabel, resetCustomerPin, type CopilotCustomer } from "@/lib/fable/api";
-import { formatNaira } from "@/lib/fable/format";
+import { CustomerSecurity } from "@/components/dashboard/CustomerSecurity";
+import { apiChannelLabel } from "@/lib/fable/api";
 import { useFableStore } from "@/lib/fable/store";
 import { useCustomerNames } from "@/lib/fable/useInstitution";
 import { useAgentsOverview, useCopilotCustomers } from "@/lib/fable/useBackend";
@@ -83,7 +83,12 @@ export default function CopilotAgentPage() {
                   <div className="flex items-center gap-3">
                     <Avatar name={nameFor(c.user_id)} />
                     <div>
-                      <p className="text-[14px] font-semibold text-d-text">{nameFor(c.user_id)}</p>
+                      <Link
+                        href={`/dashboard/customers/${encodeURIComponent(c.user_id)}`}
+                        className="text-[14px] font-semibold text-d-text hover:text-brand hover:underline"
+                      >
+                        {nameFor(c.user_id)}
+                      </Link>
                       <p className="font-mono text-[11px] text-d-faint">{c.user_id}</p>
                       <p className="text-[12px] text-d-muted">
                         {c.transactions_analyzed.toLocaleString("en-NG")} transactions analyzed · {c.live_transactions} live
@@ -119,7 +124,9 @@ export default function CopilotAgentPage() {
                   </div>
                 )}
 
-                <VerificationRow customer={c} institutionId={institutionId} onChanged={() => void mutate()} />
+                <div className="mt-4 border-t border-d-border pt-4">
+                  <CustomerSecurity customer={c} institutionId={institutionId} onChanged={() => void mutate()} />
+                </div>
 
                 <p className="mt-3 text-[12px] text-d-faint">
                   Last activity {formatWhen(c.last_activity)} · baseline refreshed {c.last_updated ? formatWhen(c.last_updated) : "-"}
@@ -153,77 +160,4 @@ function formatWhen(iso: string): string {
   const hours = Math.round(mins / 60);
   if (hours < 48) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
-}
-
-/** Verification status for one customer, and the institution's PIN reset.
- *
- * Resetting clears the PIN rather than choosing one, so the bank never learns or
- * picks a customer's PIN: the customer sets a new one at their next
- * verification. It is a two-step control because it changes a security factor. */
-function VerificationRow({
-  customer,
-  institutionId,
-  onChanged,
-}: {
-  customer: CopilotCustomer;
-  institutionId: string | null;
-  onChanged: () => void;
-}) {
-  const v = customer.verification;
-  const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  if (!v) return null;
-
-  async function reset() {
-    if (!institutionId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await resetCustomerPin(institutionId, customer.user_id);
-      setConfirming(false);
-      onChanged();
-    } catch {
-      setError("Could not reset the PIN. Sign in again and retry.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-d-border pt-4">
-      <Badge tone={v.pin_set && !v.pin_locked ? "success" : "neutral"}>
-        {!v.pin_set ? "No PIN" : v.pin_locked ? "PIN locked" : "PIN set"}
-      </Badge>
-      <Badge tone={v.passkeys > 0 ? "success" : "neutral"}>
-        {v.passkeys > 0 ? `${v.passkeys} device${v.passkeys === 1 ? "" : "s"}` : "No passkey"}
-      </Badge>
-      <Badge tone={v.contact_set ? "success" : "neutral"}>{v.contact_set ? "Codes reach them" : "No code contact"}</Badge>
-      {customer.balance != null && (
-        <span className="text-[12px] font-semibold tabular-nums text-d-muted">Balance {formatNaira(customer.balance)}</span>
-      )}
-
-      {v.pin_set && (
-        <span className="ml-auto flex items-center gap-2">
-          {confirming ? (
-            <>
-              <span className="text-[12px] text-d-muted">Clear this customer&apos;s PIN?</span>
-              <Button variant="danger" size="sm" loading={busy} onClick={reset}>
-                Yes, reset
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
-                Cancel
-              </Button>
-            </>
-          ) : (
-            <Button variant="secondary" size="sm" onClick={() => setConfirming(true)}>
-              Reset PIN
-            </Button>
-          )}
-        </span>
-      )}
-      {error && <p className="w-full text-[12px] text-red-500">{error}</p>}
-    </div>
-  );
 }
