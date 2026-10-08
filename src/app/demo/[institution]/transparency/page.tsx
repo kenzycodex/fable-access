@@ -26,6 +26,8 @@ import {
   inputClass,
 } from "@/components/demo/kit";
 import {
+  newPinLengthOf,
+  pinLengthOf,
   securityStatus,
   setPin as apiSetPin,
   setContact as apiSetContact,
@@ -338,8 +340,8 @@ function PinRow({
   const { busy, error, ok, run } = useAction();
 
   const isSet = !!status?.pin_set;
-  const newLength = status?.pin_policy.length ?? 4;
-  const currentLength = status?.pin_length ?? newLength;
+  const newLength = newPinLengthOf(status);
+  const currentLength = pinLengthOf(status);
 
   const ready =
     pin.length === newLength && confirm === pin && (!isSet || current.length === currentLength);
@@ -410,7 +412,7 @@ function ContactRow({
   const { busy, error, ok, run } = useAction();
   const hasContact = !!status?.email_set || !!status?.phone_set;
   const needsPin = !!status?.pin_set;
-  const pinLength = status?.pin_length ?? 4;
+  const pinLength = pinLengthOf(status);
 
   function save() {
     void run(async () => {
@@ -470,7 +472,7 @@ function PasskeyRow({
   const { busy, error, ok, run } = useAction();
   const count = status?.passkey_count ?? 0;
   const needsPin = !!status?.pin_set;
-  const pinLength = status?.pin_length ?? 4;
+  const pinLength = pinLengthOf(status);
 
   function add(enteredPin?: string) {
     void run(async () => {
@@ -523,7 +525,7 @@ function TwoFactorRow({ status, userId, onDone }: { status: SecurityStatus | nul
   const { busy, error, run } = useAction();
   const on = !!status?.two_factor_enabled;
   const needsPin = !!status?.pin_set;
-  const pinLength = status?.pin_length ?? 4;
+  const pinLength = pinLengthOf(status);
 
   function toggle(enteredPin?: string) {
     void run(async () => {

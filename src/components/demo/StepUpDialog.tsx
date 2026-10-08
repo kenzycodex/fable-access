@@ -14,7 +14,13 @@ import {
   composeIdentityCheck,
   type StepUpRequirement,
 } from "@/lib/fable/webauthn";
-import { securityStatus, setPin as apiSetPin, type SecurityStatus } from "@/lib/fable/api";
+import {
+  newPinLengthOf,
+  pinLengthOf,
+  securityStatus,
+  setPin as apiSetPin,
+  type SecurityStatus,
+} from "@/lib/fable/api";
 
 type Factor = "passkey" | "pin" | "otp";
 
@@ -302,7 +308,7 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
         (status?.pin_set ? (
           <div className="flex flex-col items-center gap-4">
             <PinInput
-              length={status.pin_length}
+              length={pinLengthOf(status)}
               value={pinValue}
               onChange={(v) => {
                 setPinInvalid(false);
@@ -323,13 +329,13 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
           <div className="flex flex-col items-center gap-4">
             <p className="text-center text-[13px] leading-relaxed text-d-muted">
               {pinStage === "new"
-                ? `Choose a ${status?.pin_policy.length ?? 4}-digit transaction PIN. You will use it again next time.`
+                ? `Choose a ${newPinLengthOf(status)}-digit transaction PIN. You will use it again next time.`
                 : "Enter it once more to confirm."}
             </p>
             {pinStage === "new" ? (
               <PinInput
                 key="new"
-                length={status?.pin_policy.length ?? 4}
+                length={newPinLengthOf(status)}
                 value={newPin}
                 onChange={(v) => {
                   setPinInvalid(false);
@@ -344,7 +350,7 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
               <>
                 <PinInput
                   key="confirm"
-                  length={status?.pin_policy.length ?? 4}
+                  length={newPinLengthOf(status)}
                   value={confirmPin}
                   onChange={(v) => {
                     setPinInvalid(false);

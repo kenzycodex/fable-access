@@ -1160,10 +1160,11 @@ export async function topUp(
 
 export interface SecurityStatus {
   pin_set: boolean;
-  /** Digits in this customer's PIN (or the configured length if none is set yet). */
-  pin_length: number;
-  /** The operator's PIN rules, from the server's environment. */
-  pin_policy: { length: number; block_weak: boolean };
+  /** Digits in this customer's PIN (or the configured length if none is set yet).
+   * Absent from a backend that predates configurable PINs. */
+  pin_length?: number;
+  /** The operator's PIN rules, from the server's environment. Same caveat. */
+  pin_policy?: { length: number; block_weak: boolean };
   pin_locked: boolean;
   pin_locked_until: string | null;
   failed_attempts: number;
@@ -1174,6 +1175,18 @@ export interface SecurityStatus {
   contact_phone: string | null;
   email_set: boolean;
   phone_set: boolean;
+}
+
+/** Digits to expect when a customer enters their existing PIN. Falls back to 4
+ * for a backend that does not report it, so the boxes never break on a version
+ * mismatch between the frontend and the API. */
+export function pinLengthOf(status: SecurityStatus | null | undefined): number {
+  return status?.pin_length ?? status?.pin_policy?.length ?? 4;
+}
+
+/** Digits a newly chosen PIN must have, under the operator's current rules. */
+export function newPinLengthOf(status: SecurityStatus | null | undefined): number {
+  return status?.pin_policy?.length ?? 4;
 }
 
 export function securityStatus(userId: string): Promise<SecurityStatus> {
