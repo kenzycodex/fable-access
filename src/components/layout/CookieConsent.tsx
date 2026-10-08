@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 
 const STORAGE_KEY = "fable-cookie-consent";
 
@@ -47,7 +48,8 @@ export function CookieConsent() {
         }`}
       >
         <p className="max-w-[640px] text-s text-white/85">
-          Fable uses cookies to keep the site secure and understand how it&rsquo;s used. We never sell your data.{" "}
+          Fable uses cookies to keep the site secure and understand how it&rsquo;s used. We never sell your data. See our{" "}
+          <Link href="/privacy#cookies" className="underline decoration-secondary underline-offset-2 hover:text-secondary">Privacy Notice</Link>.{" "}
           <button
             type="button"
             onClick={() => setShowPreferences(true)}

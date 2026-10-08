@@ -3,4 +3,8 @@ export const footerDescription =
 
 export const footerCopyrightSuffix = "Fable. All rights reserved.";
 
-export const footerBottomLink = { label: "Privacy & Terms", href: "/privacy" };
+export const footerBottomLinks = [
+  { label: "Privacy", href: "/privacy" },
+  { label: "Terms", href: "/terms" },
+  { label: "Docs", href: "/docs" },
+];

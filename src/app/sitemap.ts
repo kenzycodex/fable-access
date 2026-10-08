@@ -3,7 +3,7 @@ import type { MetadataRoute } from "next";
 const BASE = "https://fable.ng";
 
 // The pages built in this project.
-const routes = ["", "/why-fable", "/platform", "/pricing"];
+const routes = ["", "/why-fable", "/platform", "/pricing", "/docs", "/privacy", "/terms"];
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const lastModified = new Date();

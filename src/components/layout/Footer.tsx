@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { footerBottomLink, footerCopyrightSuffix, footerDescription } from "@/data/footer";
+import { footerBottomLinks, footerCopyrightSuffix, footerDescription } from "@/data/footer";
 import { dashboardCta } from "@/data/nav";
 
 export function Footer() {
@@ -34,9 +34,13 @@ export function Footer() {
           <p className="text-[11px] text-white/80 sm:text-xs">
             &copy; {new Date().getFullYear()} {footerCopyrightSuffix}
           </p>
-          <Link href={footerBottomLink.href} className="shrink-0 text-[11px] text-white/80 hover:text-secondary sm:text-xs">
-            {footerBottomLink.label}
-          </Link>
+          <nav aria-label="Legal" className="flex shrink-0 items-center gap-4">
+            {footerBottomLinks.map((link) => (
+              <Link key={link.href} href={link.href} className="text-[11px] text-white/80 hover:text-secondary sm:text-xs">
+                {link.label}
+              </Link>
+            ))}
+          </nav>
         </div>
       </div>
     </footer>
