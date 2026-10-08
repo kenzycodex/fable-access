@@ -1,9 +1,19 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ArrowLeft, Brain, MagnifyingGlass } from "@phosphor-icons/react";
-import { Card, PageHeader, StatCard } from "@/components/dashboard/primitives";
+import {
+  Avatar,
+  Badge,
+  Button,
+  ButtonLink,
+  Card,
+  CardHeader,
+  EmptyState,
+  PageHeader,
+  StatCard,
+  inputClass,
+} from "@/components/dashboard/primitives";
 import { apiChannelLabel, resetCustomerPin, type CopilotCustomer } from "@/lib/fable/api";
 import { formatNaira } from "@/lib/fable/format";
 import { useFableStore } from "@/lib/fable/store";
@@ -29,75 +39,71 @@ export default function CopilotAgentPage() {
     <>
       <PageHeader
         title="Fable Copilot"
-        description="The behavioral baseline engine. Everything below is what Copilot has genuinely learned from transaction history — per customer, from the live database."
+        description="The behavioral baseline engine. Everything below is what Copilot has learned from transaction history, per customer, from the live database."
         actions={
-          <Link href="/dashboard/agents" className="flex items-center gap-1.5 text-[12px] font-semibold text-gray-500 hover:text-gray-900 dark:text-white/40 dark:hover:text-white">
-            <ArrowLeft size={14} weight="bold" /> All agents
-          </Link>
+          <ButtonLink href="/dashboard/agents" variant="secondary" icon={<ArrowLeft size={14} weight="bold" />}>
+            All agents
+          </ButtonLink>
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Customers learned" value={String(overview?.copilot.customers_learned ?? "—")} icon={<Brain size={16} weight="fill" />} />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Customers learned" value={String(overview?.copilot.customers_learned ?? "-")} icon={<Brain size={17} weight="fill" />} />
         <StatCard label="Data points" value={(overview?.copilot.data_points ?? 0).toLocaleString("en-NG")} sub={`${overview?.copilot.live_data_points ?? 0} live`} />
-        <StatCard label="Devices tracked" value={String(overview?.copilot.devices_tracked ?? "—")} accent="text-emerald-400" />
-        <StatCard label="Locations tracked" value={String(overview?.copilot.locations_tracked ?? "—")} accent="text-amber-400" />
+        <StatCard label="Devices tracked" value={String(overview?.copilot.devices_tracked ?? "-")} tone="success" />
+        <StatCard label="Locations tracked" value={String(overview?.copilot.locations_tracked ?? "-")} tone="warning" />
       </div>
 
       <Card>
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-[16px] font-bold text-gray-900 dark:text-white">Per-customer baselines</h2>
-          <div className="relative">
-            <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-white/25" />
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <CardHeader title="Per-customer baselines" subtitle="What each customer normally does" />
+          <div className="relative sm:w-64">
+            <MagnifyingGlass size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-d-faint" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search customer name or id…"
+              placeholder="Search name or id"
               aria-label="Search customer name or id"
-              className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-8 pr-3 text-[12px] text-gray-900 outline-none focus:ring-1 focus:ring-[#7C3AED]/40 dark:border-white/[0.05] dark:bg-[#111] dark:text-white sm:w-56"
+              className={`${inputClass} !h-10 pl-10 text-[13px]`}
             />
           </div>
         </div>
 
         {customers.length === 0 ? (
-          <p className="py-8 text-center text-[13px] text-gray-400 dark:text-white/30">
-            {data ? "No customers match." : "Waiting for the Fable API…"}
-          </p>
+          <EmptyState
+            icon={<Brain size={22} />}
+            title={data ? "No customers match" : "Waiting for the Fable API"}
+            body={data ? "Try a different name or id." : "Baselines appear once the API responds."}
+          />
         ) : (
           <div className="flex flex-col gap-3">
             {customers.map((c) => (
-              <div key={c.user_id} className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-white/[0.04] dark:bg-[#0d0d0d]">
+              <div key={c.user_id} className="rounded-2xl bg-d-surface-2 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex size-8 items-center justify-center rounded-lg bg-[#7C3AED]/10 text-[12px] font-bold text-[#7C3AED]">
-                      {nameFor(c.user_id).slice(0, 2).toUpperCase()}
-                    </span>
+                  <div className="flex items-center gap-3">
+                    <Avatar name={nameFor(c.user_id)} />
                     <div>
-                      <p className="text-[13px] font-semibold text-gray-900 dark:text-white">{nameFor(c.user_id)}</p>
-                      <p className="font-mono text-[10px] text-gray-400 dark:text-white/30">{c.user_id}</p>
-                      <p className="text-[11px] text-gray-500 dark:text-white/35">
+                      <p className="text-[14px] font-semibold text-d-text">{nameFor(c.user_id)}</p>
+                      <p className="font-mono text-[11px] text-d-faint">{c.user_id}</p>
+                      <p className="text-[12px] text-d-muted">
                         {c.transactions_analyzed.toLocaleString("en-NG")} transactions analyzed · {c.live_transactions} live
                       </p>
                     </div>
                   </div>
                   {c.has_baseline ? (
-                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
-                      Baseline built
-                    </span>
+                    <Badge tone="success">Baseline built</Badge>
                   ) : (
-                    <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-600 dark:bg-amber-500/10 dark:text-amber-400">
-                      Learning ({c.transactions_analyzed}/3 min)
-                    </span>
+                    <Badge tone="warning">Learning ({c.transactions_analyzed}/3 min)</Badge>
                   )}
                 </div>
 
                 {c.has_baseline && (
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-[12px] sm:grid-cols-3 lg:grid-cols-4">
-                    <BaselineFact label="Typical range" value={c.typical_range ?? "—"} />
-                    <BaselineFact label="Active hours" value={c.active_hours ?? "—"} />
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                    <BaselineFact label="Typical range" value={c.typical_range ?? "-"} />
+                    <BaselineFact label="Active hours" value={c.active_hours ?? "-"} />
                     <BaselineFact label="Trusted recipients" value={String(c.trusted_recipients ?? 0)} />
                     <BaselineFact label="Known devices" value={String(c.known_devices ?? 0)} />
-                    <BaselineFact label="Preferred channel" value={c.preferred_channel ? apiChannelLabel(c.preferred_channel) : "—"} />
+                    <BaselineFact label="Preferred channel" value={c.preferred_channel ? apiChannelLabel(c.preferred_channel) : "-"} />
                     <BaselineFact
                       label="Known cities"
                       value={c.known_cities && c.known_cities.length > 0 ? c.known_cities.join(", ") : "None yet"}
@@ -113,14 +119,10 @@ export default function CopilotAgentPage() {
                   </div>
                 )}
 
-                <VerificationRow
-                  customer={c}
-                  institutionId={institutionId}
-                  onChanged={() => void mutate()}
-                />
+                <VerificationRow customer={c} institutionId={institutionId} onChanged={() => void mutate()} />
 
-                <p className="mt-3 text-[11px] text-gray-400 dark:text-white/25">
-                  Last activity {formatWhen(c.last_activity)} · baseline refreshed {c.last_updated ? formatWhen(c.last_updated) : "—"}
+                <p className="mt-3 text-[12px] text-d-faint">
+                  Last activity {formatWhen(c.last_activity)} · baseline refreshed {c.last_updated ? formatWhen(c.last_updated) : "-"}
                 </p>
               </div>
             ))}
@@ -133,9 +135,9 @@ export default function CopilotAgentPage() {
 
 function BaselineFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-white px-3 py-2 dark:bg-[#161616] border border-gray-200 dark:border-white/[0.04]">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-white/25">{label}</p>
-      <p className="truncate font-medium text-gray-800 dark:text-white/80">{value}</p>
+    <div className="rounded-xl bg-d-surface px-3 py-2.5">
+      <p className="text-[11px] font-medium text-d-muted">{label}</p>
+      <p className="truncate text-[13px] font-semibold text-d-text">{value}</p>
     </div>
   );
 }
@@ -151,20 +153,6 @@ function formatWhen(iso: string): string {
   const hours = Math.round(mins / 60);
   if (hours < 48) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
-}
-
-function Chip({ ok, children }: { ok: boolean; children: React.ReactNode }) {
-  return (
-    <span
-      className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
-        ok
-          ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400"
-          : "bg-gray-100 text-gray-500 dark:bg-white/[0.06] dark:text-white/40"
-      }`}
-    >
-      {children}
-    </span>
-  );
 }
 
 /** Verification status for one customer, and the institution's PIN reset.
@@ -204,49 +192,38 @@ function VerificationRow({
   }
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-200 pt-3 dark:border-white/[0.05]">
-      <Chip ok={v.pin_set && !v.pin_locked}>{!v.pin_set ? "No PIN" : v.pin_locked ? "PIN locked" : "PIN set"}</Chip>
-      <Chip ok={v.passkeys > 0}>{v.passkeys > 0 ? `${v.passkeys} device${v.passkeys === 1 ? "" : "s"}` : "No passkey"}</Chip>
-      <Chip ok={v.contact_set}>{v.contact_set ? "Codes reach them" : "No code contact"}</Chip>
+    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-d-border pt-4">
+      <Badge tone={v.pin_set && !v.pin_locked ? "success" : "neutral"}>
+        {!v.pin_set ? "No PIN" : v.pin_locked ? "PIN locked" : "PIN set"}
+      </Badge>
+      <Badge tone={v.passkeys > 0 ? "success" : "neutral"}>
+        {v.passkeys > 0 ? `${v.passkeys} device${v.passkeys === 1 ? "" : "s"}` : "No passkey"}
+      </Badge>
+      <Badge tone={v.contact_set ? "success" : "neutral"}>{v.contact_set ? "Codes reach them" : "No code contact"}</Badge>
       {customer.balance != null && (
-        <span className="text-[12px] font-semibold tabular-nums text-gray-600 dark:text-white/60">
-          Balance {formatNaira(customer.balance)}
-        </span>
+        <span className="text-[12px] font-semibold tabular-nums text-d-muted">Balance {formatNaira(customer.balance)}</span>
       )}
 
       {v.pin_set && (
         <span className="ml-auto flex items-center gap-2">
           {confirming ? (
             <>
-              <span className="text-[11px] text-gray-500 dark:text-white/40">Clear this customer&apos;s PIN?</span>
-              <button
-                type="button"
-                onClick={reset}
-                disabled={busy}
-                className="rounded-lg bg-red-500 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-red-600 disabled:opacity-50"
-              >
-                {busy ? "Clearing…" : "Yes, reset"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirming(false)}
-                className="text-[11px] font-semibold text-gray-500 hover:text-gray-800 dark:text-white/40 dark:hover:text-white"
-              >
+              <span className="text-[12px] text-d-muted">Clear this customer&apos;s PIN?</span>
+              <Button variant="danger" size="sm" loading={busy} onClick={reset}>
+                Yes, reset
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
                 Cancel
-              </button>
+              </Button>
             </>
           ) : (
-            <button
-              type="button"
-              onClick={() => setConfirming(true)}
-              className="rounded-lg border border-gray-200 px-3 py-1.5 text-[11px] font-bold text-gray-600 transition-colors hover:bg-gray-100 dark:border-white/[0.08] dark:text-white/55 dark:hover:bg-white/[0.05]"
-            >
+            <Button variant="secondary" size="sm" onClick={() => setConfirming(true)}>
               Reset PIN
-            </button>
+            </Button>
           )}
         </span>
       )}
-      {error && <p className="w-full text-[11px] text-red-500">{error}</p>}
+      {error && <p className="w-full text-[12px] text-red-500">{error}</p>}
     </div>
   );
 }
