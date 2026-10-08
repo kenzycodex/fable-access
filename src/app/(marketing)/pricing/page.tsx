@@ -34,16 +34,19 @@ export default function PricingPage() {
         </div>
         <Container className="relative z-[1]">
           <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Pricing" }]} className="mb-[var(--spacing-l)] text-white" />
-          <div className="w-full lg:w-[62%]">
+          <div className="flex flex-col items-start gap-[var(--spacing-m)] lg:w-[75%]">
             <h1>
-              Simple Pricing for <span className="font-marker text-accent">Serious</span> Money Movement
+              Simple Pricing for
+              <br className="hidden lg:block" />
+              <span className="font-marker text-accent">Serious</span> Money Movement
             </h1>
-            <p className="mt-[var(--spacing-m)] max-w-[650px] text-l text-white/85">
-              Fable is pre-launch, so there&rsquo;s no public price list yet, just an entry point and two add-ons
-              priced against the volume they protect.
+            <p className="text-l text-white/85">
+              Fable is pre-launch, so there&rsquo;s no public price list yet,
+              <br className="hidden lg:block" />
+              just an entry point and two add-ons priced against the volume they protect.
             </p>
-            <div className="mt-[var(--spacing-l)]">
-              <Button href={demoCta.href} tone="secondary">
+            <div className="flex w-full flex-wrap items-center gap-[var(--content-gap)]">
+              <Button href={demoCta.href} tone="secondary" className="!px-12">
                 {demoCta.label}
               </Button>
             </div>
