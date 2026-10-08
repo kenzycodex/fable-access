@@ -29,7 +29,7 @@ HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 DEFAULTS = {
     "primary_color": "#7C3AED",
-    "accent_color": "#00D4FF",
+    "accent_color": "#0B0D12",
 }
 
 

@@ -45,7 +45,7 @@ export function BankCard({
             {branding.logo_url ? (
               <span
                 className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full"
-                style={{ backgroundColor: "var(--brand-accent, #00d4ff)" }}
+                style={{ backgroundColor: "var(--brand-primary, #7c3aed)" }}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader needed */}
                 <img src={branding.logo_url} alt="" className="size-full object-contain" />

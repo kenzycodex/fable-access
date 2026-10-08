@@ -24,7 +24,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
     display_name: "",
     slug: "",
     primary_color: "#7C3AED",
-    accent_color: "#00D4FF",
+    accent_color: "#0B0D12",
     tagline: "",
     support_email: "",
   });

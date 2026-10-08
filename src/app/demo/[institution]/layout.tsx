@@ -37,11 +37,64 @@ export interface Branding {
   tagline: string | null;
 }
 
+/** The dark-mode background when a bank has not chosen an accent colour. */
+const DEFAULT_ACCENT = "#0B0D12";
+
+/**
+ * The demo's dark-mode background, taken from the bank's accent colour.
+ *
+ * Used as the accent comes, except that its lightness is capped. A bright accent
+ * (a cyan, a yellow, a white) would make a background nobody can read light text
+ * on, so it is darkened to the same hue and kept deep. A dark accent, such as
+ * #262626, is used exactly as chosen. Anything that is not a six-digit hex falls
+ * back to the deep default.
+ */
+function darkBackgroundFor(accent: string | null | undefined): string {
+  const MAX_LIGHTNESS = 0.16;
+  const match = /^#?([0-9a-f]{6})$/i.exec((accent ?? "").trim());
+  if (!match) return DEFAULT_ACCENT;
+
+  const n = parseInt(match[1], 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let l = (max + min) / 2;
+  const d = max - min;
+  let h = 0;
+  let s = 0;
+  if (d !== 0) {
+    s = d / (1 - Math.abs(2 * l - 1));
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+
+  l = Math.min(l, MAX_LIGHTNESS);
+  s = Math.min(s, 0.7);
+
+  // HSL back to hex.
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  const [r1, g1, b1] =
+    h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  const hex = (v: number) =>
+    Math.round((v + m) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${hex(r1)}${hex(g1)}${hex(b1)}`;
+}
+
 const DEFAULT_BRANDING: Branding = {
   display_name: null,
   logo_url: null,
   primary_color: "#7C3AED",
-  accent_color: "#00D4FF",
+  accent_color: DEFAULT_ACCENT,
   slug: "",
   tagline: null,
 };
@@ -149,6 +202,8 @@ export default async function DemoInstitutionLayout({
           {
             "--brand-primary": branding.primary_color,
             "--brand-accent": branding.accent_color,
+            // Read by the dark theme in globals.css as the page background.
+            "--d-bg-dark": darkBackgroundFor(branding.accent_color),
           } as React.CSSProperties
         }
         className="demo-shell min-h-dvh bg-d-bg text-d-text transition-colors duration-300"
