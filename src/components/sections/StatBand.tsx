@@ -91,7 +91,7 @@ function AnimatedStatValue({ raw }: { raw: string }) {
 
 /* ── StatGrid — Fable-style bold stats with count-up ──────────── */
 
-export function StatGrid({ stats, tone = "dark" }: { stats: Stat[]; tone?: "dark" | "light" }) {
+export function StatGrid({ stats }: { stats: Stat[] }) {
 
   return (
     <div className="mx-auto grid w-full grid-cols-2 gap-[12px] sm:gap-[16px] lg:grid-cols-4 lg:gap-[24px] lg:max-w-[1200px]">

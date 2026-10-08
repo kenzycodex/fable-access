@@ -107,7 +107,7 @@ export function AskFable() {
                 </div>
                 <h3 className="mb-1 text-[16px] font-bold text-gray-900 dark:text-white">Welcome to Fable Copilot</h3>
                 <p className="text-[13px] text-gray-500 dark:text-white/50 max-w-[240px]">
-                  I'm your AI analyst. Ask me about your fraud activity, scam patterns, or a specific decision.
+                  I&apos;m your AI analyst. Ask me about your fraud activity, scam patterns, or a specific decision.
                 </p>
               </div>
             )}

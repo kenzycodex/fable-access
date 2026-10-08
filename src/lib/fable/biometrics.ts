@@ -74,7 +74,10 @@ export class BehavioralTracker {
     window.removeEventListener("scroll", this.onScroll);
   }
 
-  /** Call from a tracked field's onKeyDown. */
+  /** Call from a tracked field's onKeyDown. The field name is accepted so this
+   * mirrors `recordPaste(field)` at every call site, even though keystroke
+   * cadence is tracked across fields rather than per field. */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   recordKey(_field: string): void {
     const now = Date.now();
     if (this.firstInputAt === null) this.firstInputAt = now;

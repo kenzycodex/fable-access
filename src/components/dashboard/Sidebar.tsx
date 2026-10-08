@@ -1,7 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { SignOut, CaretUp, GearSix } from "@phosphor-icons/react";
 import { DASHBOARD_NAV, DASHBOARD_FOOTER_NAV } from "@/components/dashboard/nav";
@@ -11,7 +12,6 @@ import { logout } from "@/lib/fable/store";
 export function Sidebar() {
   const { institution } = useSignedInInstitution();
   const pathname = usePathname();
-  const router = useRouter();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   function signOut() {
@@ -23,14 +23,18 @@ export function Sidebar() {
       {/* Brand */}
       <div className="flex items-center justify-between px-6 pt-5 lg:pt-8">
         <Link href="/" className="flex items-center gap-3">
-          <img
+          <Image
             src="/images/brand/fable-logo-white.png"
             alt="Fable"
+            width={1671}
+            height={547}
             className="h-7 w-auto hidden dark:block"
           />
-          <img
+          <Image
             src="/images/brand/fable-logo.png"
             alt="Fable"
+            width={1671}
+            height={547}
             className="h-7 w-auto block dark:hidden"
           />
         </Link>

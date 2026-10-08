@@ -24,7 +24,7 @@ export default function ForgotPasswordPage() {
       });
       // We always show success to prevent email enumeration
       setSuccess(true);
-    } catch (err) {
+    } catch {
       toast.error("Failed to connect to Fable API.");
     } finally {
       setSubmitting(false);
@@ -58,13 +58,13 @@ export default function ForgotPasswordPage() {
 
             <div className="w-full text-center mb-8">
               <h1 className="text-xl font-bold text-white mb-2">Reset your password</h1>
-              <p className="text-sm text-gray-400">Enter your email and we'll send you a link to get back into your account.</p>
+              <p className="text-sm text-gray-400">Enter your email and we&apos;ll send you a link to get back into your account.</p>
             </div>
 
             {success ? (
               <div className="w-full rounded border border-[#00f5a0]/30 bg-[#00f5a0]/10 p-4 text-center">
                 <p className="text-[14px] text-white">
-                  If an account exists for <span className="font-bold text-[#00f5a0]">{email}</span>, we've sent instructions to reset your password.
+                  If an account exists for <span className="font-bold text-[#00f5a0]">{email}</span>, we&apos;ve sent instructions to reset your password.
                 </p>
                 <div className="mt-6">
                   <Link href="/dashboard/login" className="text-[#00f5a0] text-sm hover:underline font-bold">

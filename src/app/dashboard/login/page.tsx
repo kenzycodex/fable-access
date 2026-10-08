@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Eye, EyeSlash } from "@phosphor-icons/react";
-import { ShieldCheckIcon } from "@/components/app-icons";
 import { API_BASE } from "@/lib/fable/api";
 import { login, useFableStore } from "@/lib/fable/store";
 import { toast } from "sonner";
@@ -28,12 +27,6 @@ import { toast } from "sonner";
 const DEMO_EMAIL = process.env.NEXT_PUBLIC_DEMO_EMAIL ?? "";
 const DEMO_PASSWORD = process.env.NEXT_PUBLIC_DEMO_PASSWORD ?? "";
 
-const HIGHLIGHTS = [
-  "Every transfer scored in under 200ms",
-  "Copilot, Shield, Ghost & Watch in one console",
-  "Full audit trail behind every decision",
-];
-
 export default function DashboardLoginPage() {
   const router = useRouter();
   const store = useFableStore();
@@ -44,7 +37,6 @@ export default function DashboardLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [remember, setRemember] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -78,7 +70,7 @@ export default function DashboardLoginPage() {
       // they reload, which is most visible on mobile. A hard navigation skips
       // the cache and sends the cookie we just set.
       window.location.assign("/dashboard");
-    } catch (err) {
+    } catch {
       toast.error("Failed to connect to Fable API.");
       setSubmitting(false);
     }
@@ -187,7 +179,7 @@ export default function DashboardLoginPage() {
               )}
 
               <div className="mt-4 text-center text-[13px] text-gray-400 font-normal">
-                Don't have an account? <button type="button" className="text-[#7C3AED] hover:underline hover:text-[#8b5cf6] transition-colors">Contact Sales</button>.
+                Don&apos;t have an account? <button type="button" className="text-[#7C3AED] hover:underline hover:text-[#8b5cf6] transition-colors">Contact Sales</button>.
               </div>
 
               <div className="mt-6 flex items-center justify-center gap-2 text-[12px] text-[#7C3AED]">

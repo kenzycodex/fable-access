@@ -76,8 +76,8 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(data.detail || "Failed to change password");
       setCpMsg({ type: "success", text: "Password changed successfully." });
       setCpOld(""); setCpNew(""); setCpConfirm("");
-    } catch (err: any) {
-      setCpMsg({ type: "error", text: err.message });
+    } catch (err) {
+      setCpMsg({ type: "error", text: err instanceof Error ? err.message : "Failed to change password" });
     } finally {
       setCpSubmitting(false);
     }

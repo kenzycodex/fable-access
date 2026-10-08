@@ -53,7 +53,7 @@ function ResetPasswordForm() {
       setTimeout(() => {
         router.push("/dashboard/login");
       }, 3000);
-    } catch (err) {
+    } catch {
       setError("Failed to connect to Fable API.");
       setSubmitting(false);
     }
