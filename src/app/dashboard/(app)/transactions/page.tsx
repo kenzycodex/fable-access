@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
-import { CaretDown, MagnifyingGlass, Receipt } from "@phosphor-icons/react";
+import { CaretDown, DownloadSimple, MagnifyingGlass, Receipt } from "@phosphor-icons/react";
 import {
   Avatar,
   Badge,
@@ -19,9 +20,12 @@ import {
 import { formatNaira, formatRelativeTime, formatRiskScore } from "@/lib/fable/format";
 import { CHANNEL_LABELS } from "@/lib/fable/scoring";
 import type { RiskAction, Transaction } from "@/lib/fable/types";
+import { daysAgo, downloadCsv } from "@/lib/fable/console";
 import { useDashboardFeed } from "@/lib/fable/useBackend";
+import { useTransactionRange } from "@/lib/fable/useConsole";
 
 type Filter = RiskAction | "ALL";
+type Range = "latest" | "7" | "30" | "90";
 
 const PAGE = 40;
 
@@ -40,12 +44,40 @@ function ScoreMeter({ score }: { score: number }) {
 
 export default function TransactionsPage() {
   const feed = useDashboardFeed();
+  const [range, setRange] = useState<Range>("latest");
+  const [from] = useState(() => ({ "7": daysAgo(7), "30": daysAgo(30), "90": daysAgo(90) }));
+  const ranged = useTransactionRange({ from: range === "latest" ? undefined : from[range], limit: 200 });
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("ALL");
   const [shown, setShown] = useState(PAGE);
   const [openId, setOpenId] = useState<string | null>(null);
 
-  const all = useMemo(() => [...feed.transactions].sort((a, b) => b.timestamp - a.timestamp), [feed.transactions]);
+  // "Latest" is the live feed; a range is read from the server for that period.
+  const rangedTxns = ranged.data?.transactions;
+  const all = useMemo(
+    () => [...(range === "latest" ? feed.transactions : (rangedTxns ?? []))].sort((a, b) => b.timestamp - a.timestamp),
+    [range, feed.transactions, rangedTxns],
+  );
+  const ready = range === "latest" ? feed.ready : Boolean(ranged.data);
+  const totalInRange = range === "latest" ? null : (ranged.data?.total ?? null);
+
+  async function exportCsv() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      await downloadCsv("transactions", {
+        from: range === "latest" ? daysAgo(30) : from[range],
+        to: daysAgo(0),
+        action: filter === "ALL" ? undefined : filter,
+      });
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : "Export failed.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -75,8 +107,14 @@ export default function TransactionsPage() {
     <>
       <PageHeader
         title="Transactions"
-        description="Every transfer Fable scored across your customers. Open a row to see why it was decided that way."
+        description="Every transfer Fable scored. Open a row to see why."
+        actions={
+          <Button variant="secondary" icon={<DownloadSimple size={16} />} loading={exporting} onClick={exportCsv}>
+            Export CSV
+          </Button>
+        }
       />
+      {exportError && <p className="-mt-3 text-[13px] text-red-500">{exportError}</p>}
 
       <Card padded={false}>
         <div className="flex flex-wrap items-center gap-3 border-b border-d-border p-4">
@@ -93,6 +131,19 @@ export default function TransactionsPage() {
               className={`${inputClass} !h-10 pl-10 text-[13px]`}
             />
           </div>
+          <Segmented<Range>
+            value={range}
+            onChange={(v) => {
+              setRange(v);
+              setShown(PAGE);
+            }}
+            options={[
+              { value: "latest", label: "Latest" },
+              { value: "7", label: "7d" },
+              { value: "30", label: "30d" },
+              { value: "90", label: "90d" },
+            ]}
+          />
           <Segmented<Filter>
             value={filter}
             onChange={(f) => {
@@ -108,7 +159,7 @@ export default function TransactionsPage() {
           />
         </div>
 
-        {!feed.ready ? (
+        {!ready ? (
           <div className="space-y-3 p-5">
             {[0, 1, 2, 3, 4, 5].map((i) => (
               <Skeleton key={i} className="h-12 w-full" />
@@ -147,6 +198,7 @@ export default function TransactionsPage() {
             <div className="flex items-center justify-between border-t border-d-border px-5 py-3 text-[12px] text-d-muted">
               <span>
                 Showing {visible.length} of {rows.length}
+                {totalInRange != null && totalInRange > all.length && ` (the latest ${all.length} of ${totalInRange.toLocaleString("en-NG")} in this period; export for all)`}
               </span>
               {visible.length < rows.length && (
                 <Button variant="secondary" size="sm" onClick={() => setShown((n) => n + PAGE)}>
@@ -207,6 +259,18 @@ function Row({ txn: t, open, onToggle }: { txn: Transaction; open: boolean; onTo
                     Narration: <span className="font-medium text-d-text">&ldquo;{t.narration}&rdquo;</span>
                   </p>
                 )}
+                <div className="mt-4 flex flex-wrap gap-3 text-[13px] font-semibold">
+                  {t.userId && (
+                    <Link href={`/dashboard/customers/${encodeURIComponent(t.userId)}`} className="text-brand hover:underline">
+                      Customer profile
+                    </Link>
+                  )}
+                  {t.review && (
+                    <Link href={`/dashboard/review?case=${encodeURIComponent(t.id)}`} className="text-brand hover:underline">
+                      Open the case
+                    </Link>
+                  )}
+                </div>
               </div>
               <div>
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-d-faint">Signals</p>
