@@ -96,10 +96,11 @@ export default function DemoHomePage() {
       />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        {/* Card + account */}
-        <Card className="lg:col-span-7" padded>
+        {/* Card + account. On a phone it follows the balance and recent activity,
+            which are what people open the app for; on desktop it leads. */}
+        <Card className="order-3 lg:order-1 lg:col-span-7" padded>
           <CardHeader title="Debit card account" action={<Badge tone="success">Active</Badge>} />
-          <div className="grid items-center gap-5 sm:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+          <div className="grid items-center gap-5 md:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
             {card && customer ? (
               <BankCard holder={customer.name} number={card.number} expiry={card.expiry} />
             ) : (
@@ -127,7 +128,7 @@ export default function DemoHomePage() {
         </Card>
 
         {/* Balance */}
-        <Card className="lg:col-span-5">
+        <Card className="order-1 lg:order-2 lg:col-span-5">
           <div className="flex items-center justify-between">
             <Eyebrow>Total balance</Eyebrow>
             <button
@@ -163,7 +164,7 @@ export default function DemoHomePage() {
         </Card>
 
         {/* Recent transactions */}
-        <Card className="lg:col-span-7">
+        <Card className="order-2 lg:order-3 lg:col-span-7">
           <CardHeader
             title="Recent transactions"
             action={
@@ -202,7 +203,7 @@ export default function DemoHomePage() {
         </Card>
 
         {/* Spend gauge */}
-        <Card className="lg:col-span-5">
+        <Card className="order-4 lg:order-4 lg:col-span-5">
           <CardHeader title="Spending this month" subtitle="Money out, as a share of money in" />
           <div className="pt-2">
             <Gauge value={spendPct} tone={spendTone} label={`${spendPct}%`} sublabel={spendLevel} />
@@ -224,7 +225,7 @@ export default function DemoHomePage() {
         </Card>
 
         {/* Where it goes */}
-        <Card className="lg:col-span-7">
+        <Card className="order-5 lg:order-5 lg:col-span-7">
           <CardHeader title="Where your money goes" subtitle="Last 30 days" />
           {summary.categories.length === 0 ? (
             <p className="py-6 text-center text-[13px] text-d-muted">No spending in the last 30 days.</p>
@@ -246,7 +247,7 @@ export default function DemoHomePage() {
         </Card>
 
         {/* What Fable has learned */}
-        <Card className="lg:col-span-5">
+        <Card className="order-6 lg:order-6 lg:col-span-5">
           <CardHeader
             title="How you usually bank"
             subtitle="What Shield compares each transfer against"
