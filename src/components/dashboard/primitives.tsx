@@ -49,6 +49,13 @@ export function PageHeader({
   );
 }
 
+const TONE_BUBBLE = {
+  brand: "bg-brand/12 text-brand",
+  success: "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400",
+  warning: "bg-amber-500/14 text-amber-600 dark:text-amber-400",
+  danger: "bg-red-500/12 text-red-600 dark:text-red-400",
+} as const;
+
 const TREND_COLOR = {
   brand: "#7c3aed",
   success: "#10b981",
@@ -95,9 +102,9 @@ export function StatCard({
     <div className="demo-card flex flex-col gap-3 rounded-[20px] border border-d-border bg-d-surface p-5 text-d-text">
       <div className="flex items-center justify-between gap-3">
         <span className="text-[13px] font-semibold text-d-muted">{label}</span>
-        {icon && (
-          <span className="flex size-9 items-center justify-center rounded-full border border-d-border text-d-muted">{icon}</span>
-        )}
+        <span className={`flex size-9 items-center justify-center rounded-xl ${TONE_BUBBLE[tone]}`}>
+          {icon ?? <span className="size-2.5 rounded-full bg-current" />}
+        </span>
       </div>
 
       <div className="flex items-end justify-between gap-3">
