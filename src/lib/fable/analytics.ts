@@ -198,3 +198,80 @@ export function summarizeCustomer(txns: Transaction[], openingBalance: number): 
     categories,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Time-based rollups for the console
+// ---------------------------------------------------------------------------
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export interface DayOutcomes {
+  label: string;
+  pass: number;
+  flag: number;
+  block: number;
+}
+
+/**
+ * Decisions per day split by outcome, oldest first, for the last `days` days.
+ *
+ * Derived from the same feed as every other number, and not smoothed or padded:
+ * a quiet day is a short bar, and a day with nothing is no bar at all.
+ */
+export function dailyOutcomes(txns: Transaction[], days = 14): DayOutcomes[] {
+  const today = Math.floor(Date.now() / DAY_MS);
+  const buckets: DayOutcomes[] = Array.from({ length: days }, (_, i) => {
+    const day = new Date((today - (days - 1 - i)) * DAY_MS);
+    return {
+      label: day.toLocaleDateString("en-NG", { day: "numeric", month: "short" }),
+      pass: 0,
+      flag: 0,
+      block: 0,
+    };
+  });
+  for (const t of txns) {
+    const age = today - Math.floor(t.timestamp / DAY_MS);
+    if (age < 0 || age >= days) continue;
+    const b = buckets[days - 1 - age];
+    if (t.action === "BLOCK") b.block += 1;
+    else if (t.action === "FLAG") b.flag += 1;
+    else b.pass += 1;
+  }
+  return buckets;
+}
+
+/** A metric over the last `days` days and the `days` before them. */
+export function periodPair(
+  txns: Transaction[],
+  metric: (rows: Transaction[]) => number,
+  days = 7,
+): { current: number; previous: number } {
+  const now = Date.now();
+  const current = txns.filter((t) => now - t.timestamp >= 0 && now - t.timestamp < days * DAY_MS);
+  const previous = txns.filter((t) => now - t.timestamp >= days * DAY_MS && now - t.timestamp < 2 * days * DAY_MS);
+  return { current: metric(current), previous: metric(previous) };
+}
+
+export interface ChangeLabel {
+  text: string;
+  direction: "up" | "down";
+  tone: "good" | "bad" | "neutral";
+}
+
+/**
+ * How a figure moved, worded for a tile. Direction is what the number did; tone
+ * is whether that is good news, which depends on the metric: more blocked
+ * transfers is bad, more money protected is good. Null when there was nothing
+ * before to compare against, because a percentage of zero says nothing.
+ */
+export function changeLabel(current: number, previous: number, higherIsBetter: boolean): ChangeLabel | null {
+  if (previous <= 0) return null;
+  const pct = Math.round(((current - previous) / previous) * 100);
+  if (pct === 0) return { text: "No change", direction: "up", tone: "neutral" };
+  const up = pct > 0;
+  return {
+    text: `${Math.abs(pct)}%`,
+    direction: up ? "up" : "down",
+    tone: up === higherIsBetter ? "good" : "bad",
+  };
+}
