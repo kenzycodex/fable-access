@@ -139,7 +139,7 @@ export const ecosystemBlocks = [
     id: "moat",
     title: "Localization Foreign Fraud Tools Don't Have",
     body: "Nigerian scam scripts, Pidgin urgency patterns, NIP response codes, USSD and POS channel risk. A fraud model built for American e-commerce doesn't recognize any of it. Fable was built for this market from the first line of code.",
-    image: { src: "/images/why-fable/business-operations.webp", alt: "Reviewing localized fraud pattern data", width: 1068, height: 876 },
+    image: { src: "/images/why-fable/shield-hero.png", alt: "A customer sending ₦85,000 on her phone, with Shield, Copilot and Ghost labelled around her and the transfer marked protected", width: 1254, height: 1124 },
     imageSide: "right" as const,
     cta: { label: "Get in touch", href: dashboardCta.href },
   },
