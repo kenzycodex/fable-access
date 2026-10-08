@@ -292,6 +292,55 @@ CREATE TABLE IF NOT EXISTS stepup_failures (
     reason TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 );
+
+-- Analyst notes on a reviewed transaction. The review state itself lives on the
+-- transaction row; notes are a thread, so they get their own table.
+CREATE TABLE IF NOT EXISTS case_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    transaction_id TEXT NOT NULL,
+    institution_id TEXT NOT NULL,
+    author TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- An institution's own risk policy. NULL means "use Fable's defaults", so a bank
+-- that never opens the settings page scores exactly as before.
+CREATE TABLE IF NOT EXISTS institution_settings (
+    institution_id TEXT PRIMARY KEY,
+    flag_threshold REAL,
+    block_threshold REAL,
+    hold_high_minutes INTEGER,
+    hold_medium_minutes INTEGER,
+    hold_low_minutes INTEGER,
+    updated_by TEXT,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Where an institution wants decisions pushed. The secret signs every delivery
+-- so the receiver can prove the call came from Fable.
+CREATE TABLE IF NOT EXISTS webhooks (
+    id TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    secret TEXT NOT NULL,
+    events TEXT NOT NULL,
+    active INTEGER DEFAULT 1,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    webhook_id TEXT NOT NULL,
+    institution_id TEXT NOT NULL,
+    event TEXT NOT NULL,
+    status_code INTEGER,
+    ok INTEGER DEFAULT 0,
+    error TEXT,
+    attempt INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+);
 """
 
 # The tenant every pre-multi-tenant row belongs to. Existing databases were
@@ -347,6 +396,13 @@ MIGRATIONS = {
         # console re-derived status naively from the action and every override
         # was invisible after a refresh.
         "status": "TEXT",
+        # Analyst review. action_taken is what Shield decided; these record what
+        # a person at the bank concluded about it, and who.
+        "review_state": "TEXT",
+        "review_outcome": "TEXT",
+        "assignee": "TEXT",
+        "reviewed_by": "TEXT",
+        "reviewed_at": "TEXT",
     },
     "ghost_containers": {
         "institution_id": "TEXT",
@@ -363,6 +419,16 @@ MIGRATIONS = {
         # on fable_users were never read by anything, and the console's toggles
         # are institution-wide, so the setting belongs here.
         "agents_disabled": "TEXT",
+        # sandbox: anyone may score against it by name (the public demo bank).
+        # live: every write must carry this institution's API key.
+        "mode": "TEXT DEFAULT 'sandbox'",
+    },
+    "admins": {
+        # owner: everything. analyst: review work and reads. viewer: reads.
+        # Existing admins were the only person at their bank, so they own it.
+        "role": "TEXT DEFAULT 'owner'",
+        "name": "TEXT",
+        "active": "INTEGER DEFAULT 1",
     },
     "audit_log": {
         # Scoping audit events by joining through transactions missed anything
@@ -439,6 +505,11 @@ def _migrate(conn):
         )
 
     conn.execute(
+        """UPDATE transactions SET review_state = 'open'
+           WHERE review_state IS NULL AND action_taken IN ('FLAG', 'BLOCK')"""
+    )
+
+    conn.execute(
         """INSERT OR IGNORE INTO institutions (institution_id, name, type, contact_email)
            VALUES (?, 'Meridian MFB', 'Microfinance Bank', 'risk@meridian.ng')""",
         (DEFAULT_INSTITUTION_ID,),
@@ -469,6 +540,10 @@ CREATE INDEX IF NOT EXISTS ix_devices_user       ON device_profiles(user_id);
 CREATE INDEX IF NOT EXISTS ix_failures_user_time ON stepup_failures(user_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_challenges_user    ON stepup_challenges(user_id);
 CREATE INDEX IF NOT EXISTS ix_notifs_user_time   ON notifications(user_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_txn_inst_review    ON transactions(institution_id, review_state);
+CREATE INDEX IF NOT EXISTS ix_notes_txn          ON case_notes(transaction_id);
+CREATE INDEX IF NOT EXISTS ix_hooks_inst         ON webhooks(institution_id);
+CREATE INDEX IF NOT EXISTS ix_deliveries_hook    ON webhook_deliveries(webhook_id, created_at);
 """
 
 # Offline-replay idempotency rests entirely on client_reference, and the lookup
