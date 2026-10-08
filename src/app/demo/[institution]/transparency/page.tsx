@@ -12,7 +12,7 @@ import {
 } from "@phosphor-icons/react";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { PageHeader } from "@/components/demo/PageHeader";
-import { PinReset } from "@/components/demo/PinReset";
+import { PinInput } from "@/components/demo/PinInput";
 import {
   Badge,
   Button,
@@ -43,6 +43,12 @@ const CHANNEL_NAMES: Record<string, string> = {
   atm: "ATM",
 };
 
+const HOW_WE_VERIFY = [
+  { title: "Your PIN", body: "For a transfer that looks slightly unusual." },
+  { title: "Your fingerprint or face", body: "When more looks off, such as a new device or place." },
+  { title: "A code plus your device", body: "For a risky transfer, and to release money that was held." },
+];
+
 export default function SecurityPage() {
   const { customer, institutionId, name: bankName } = useInstitution();
   const { data: baseline } = useCopilotBaseline(customer?.user_id);
@@ -52,6 +58,7 @@ export default function SecurityPage() {
       <PageHeader title="Security" subtitle="How we verify it's you, and what we learn" back />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+        {/* Left: the things you can change, then what we do with your data. */}
         <div className="flex flex-col gap-5 lg:col-span-7">
           <VerificationSetup
             userId={customer?.user_id ?? null}
@@ -59,8 +66,25 @@ export default function SecurityPage() {
             institutionId={institutionId}
             bankName={bankName}
           />
+
+          <Card>
+            <CardHeader title="Your data" />
+            <ul className="flex flex-col gap-3 text-[13px] leading-relaxed text-d-muted">
+              <Fact>
+                To tell your transfers from a scammer&apos;s, Fable uses your transfer details, your device, your
+                approximate location, and how you type and pace a transfer.
+              </Fact>
+              <Fact>Your PIN is stored only as a salted hash, so nobody can read it back.</Fact>
+              <Fact>Your passkey&apos;s private key stays on your device. We hold only the public key.</Fact>
+              <Fact>Your data is never sold.</Fact>
+            </ul>
+            <Link href="/privacy" className="mt-4 inline-block text-[12px] font-semibold text-brand hover:underline">
+              Read the privacy notice
+            </Link>
+          </Card>
         </div>
 
+        {/* Right: what the system knows, and how it decides to ask you. */}
         <div className="flex flex-col gap-5 lg:col-span-5">
           <Card>
             <CardHeader title="What Fable has learned" subtitle="Each transfer is compared against this" />
@@ -84,19 +108,23 @@ export default function SecurityPage() {
           </Card>
 
           <Card>
-            <CardHeader title="Your data" />
-            <ul className="flex flex-col gap-3 text-[13px] leading-relaxed text-d-muted">
-              <Fact>
-                To tell your transfers from a scammer&apos;s, Fable uses your transfer details, your device, your
-                approximate location, and how you type and pace a transfer.
-              </Fact>
-              <Fact>Your PIN is stored only as a salted hash, so nobody can read it back.</Fact>
-              <Fact>Your passkey&apos;s private key stays on your device. We hold only the public key.</Fact>
-              <Fact>Your data is never sold.</Fact>
-            </ul>
-            <Link href="/privacy" className="mt-4 inline-block text-[12px] font-semibold text-brand hover:underline">
-              Read the privacy notice
-            </Link>
+            <CardHeader title="How we verify you" subtitle="The more unusual a transfer, the more we ask" />
+            <ol className="flex flex-col gap-4">
+              {HOW_WE_VERIFY.map((step, i) => (
+                <li key={step.title} className="flex items-start gap-3">
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-brand/12 text-[12px] font-bold text-brand">
+                    {i + 1}
+                  </span>
+                  <div>
+                    <p className="text-[14px] font-semibold text-d-text">{step.title}</p>
+                    <p className="text-[12px] leading-relaxed text-d-muted">{step.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            <p className="mt-4 text-[12px] leading-relaxed text-d-faint">
+              A transfer that matches how you normally bank goes through with no extra step at all.
+            </p>
           </Card>
         </div>
       </div>
@@ -202,7 +230,7 @@ function RowShell({
         </div>
         <div className="shrink-0">{state}</div>
       </div>
-      {children && <div className="mt-4 sm:pl-[50px]">{children}</div>}
+      {children && <div className="mt-4">{children}</div>}
     </div>
   );
 }
@@ -256,7 +284,39 @@ function Feedback({ error, ok }: { error: string | null; ok: string | null }) {
   return null;
 }
 
-const digits = (value: string) => value.replace(/\D/g, "").slice(0, 6);
+/** A labelled PIN field, centred, for the confirm-with-your-PIN steps. */
+function PinField({
+  label,
+  length,
+  value,
+  onChange,
+  onComplete,
+  autoFocus = false,
+  disabled = false,
+}: {
+  label: string;
+  length: number;
+  value: string;
+  onChange: (v: string) => void;
+  onComplete?: (v: string) => void;
+  autoFocus?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <p className="text-[12px] font-semibold text-d-muted">{label}</p>
+      <PinInput
+        length={length}
+        value={value}
+        onChange={onChange}
+        onComplete={onComplete}
+        label={label}
+        autoFocus={autoFocus}
+        disabled={disabled}
+      />
+    </div>
+  );
+}
 
 function PinRow({
   status,
@@ -272,17 +332,23 @@ function PinRow({
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [forgot, setForgot] = useState(false);
-  const [pin, setPin] = useState("");
   const [current, setCurrent] = useState("");
+  const [pin, setPin] = useState("");
+  const [confirm, setConfirm] = useState("");
   const { busy, error, ok, run } = useAction();
+
   const isSet = !!status?.pin_set;
+  const newLength = status?.pin_policy.length ?? 4;
+  const currentLength = status?.pin_length ?? newLength;
+
+  const ready =
+    pin.length === newLength && confirm === pin && (!isSet || current.length === currentLength);
 
   function close() {
     setOpen(false);
-    setForgot(false);
-    setPin("");
     setCurrent("");
+    setPin("");
+    setConfirm("");
   }
 
   function save() {
@@ -305,55 +371,19 @@ function PinRow({
         </div>
       }
     >
-      {open && forgot && (
-        <PinReset
-          userId={userId}
-          institutionId={institutionId}
-          status={status}
-          bankName={bankName}
-          onDone={() => {
-            close();
-            onDone();
-          }}
-          onCancel={() => setForgot(false)}
-        />
-      )}
-
-      {open && !forgot && (
-        <div className="flex flex-col gap-3">
-          {isSet && (
-            <input
-              value={current}
-              onChange={(e) => setCurrent(digits(e.target.value))}
-              type="password"
-              inputMode="numeric"
-              placeholder="Current PIN"
-              className={inputClass}
-              aria-label="Current PIN"
-            />
+      {open && (
+        <div className="flex flex-col gap-5 rounded-2xl bg-d-surface-2/60 p-4">
+          {isSet && <PinField label="Current PIN" length={currentLength} value={current} onChange={setCurrent} autoFocus />}
+          <PinField label={isSet ? "New PIN" : "Choose a PIN"} length={newLength} value={pin} onChange={setPin} autoFocus={!isSet} />
+          <PinField label="Confirm PIN" length={newLength} value={confirm} onChange={setConfirm} />
+          {confirm.length === newLength && confirm !== pin && (
+            <p className="text-center text-[12px] text-red-500">The PINs don&apos;t match.</p>
           )}
-          <div className="flex gap-2">
-            <input
-              value={pin}
-              onChange={(e) => setPin(digits(e.target.value))}
-              type="password"
-              inputMode="numeric"
-              placeholder="New PIN (4 or 6 digits)"
-              className={inputClass}
-              aria-label="New PIN, 4 or 6 digits"
-            />
-            <Button loading={busy} disabled={(pin.length !== 4 && pin.length !== 6) || (isSet && current.length < 4)} onClick={save}>
-              Save
-            </Button>
-          </div>
+          <Button full loading={busy} disabled={!ready} onClick={save}>
+            Save PIN
+          </Button>
           {isSet && (
-            <button
-              type="button"
-              onClick={() => setForgot(true)}
-              className="self-start text-[12px] font-semibold text-brand hover:underline"
-            >
-              Forgot your PIN?
-            </button>
+            <p className="text-center text-[12px] text-d-faint">Forgot your PIN? Ask {bankName} to reset it.</p>
           )}
           <Feedback error={error} ok={ok} />
         </div>
@@ -380,6 +410,7 @@ function ContactRow({
   const { busy, error, ok, run } = useAction();
   const hasContact = !!status?.email_set || !!status?.phone_set;
   const needsPin = !!status?.pin_set;
+  const pinLength = status?.pin_length ?? 4;
 
   function save() {
     void run(async () => {
@@ -405,21 +436,11 @@ function ContactRow({
       }
     >
       {open && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4 rounded-2xl bg-d-surface-2/60 p-4">
           <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" inputMode="email" placeholder="Email for codes" className={inputClass} aria-label="Email for codes" />
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" inputMode="tel" placeholder="Phone (optional, e.g. 0803…)" className={inputClass} aria-label="Phone number" />
-          {needsPin && (
-            <input
-              value={pin}
-              onChange={(e) => setPin(digits(e.target.value))}
-              type="password"
-              inputMode="numeric"
-              placeholder="Confirm with your transaction PIN"
-              className={inputClass}
-              aria-label="Confirm with your transaction PIN"
-            />
-          )}
-          <Button loading={busy} disabled={(!email && !phone) || (needsPin && pin.length < 4)} onClick={save}>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" inputMode="tel" placeholder="Phone (optional, e.g. 0803...)" className={inputClass} aria-label="Phone number" />
+          {needsPin && <PinField label="Confirm with your PIN" length={pinLength} value={pin} onChange={setPin} />}
+          <Button loading={busy} disabled={(!email && !phone) || (needsPin && pin.length < pinLength)} onClick={save}>
             Save
           </Button>
           <Feedback error={error} ok={ok} />
@@ -449,10 +470,11 @@ function PasskeyRow({
   const { busy, error, ok, run } = useAction();
   const count = status?.passkey_count ?? 0;
   const needsPin = !!status?.pin_set;
+  const pinLength = status?.pin_length ?? 4;
 
-  function add() {
+  function add(enteredPin?: string) {
     void run(async () => {
-      await registerPasskey(userId, displayName, institutionId, needsPin ? pin : null);
+      await registerPasskey(userId, displayName, institutionId, needsPin ? (enteredPin ?? pin) : null);
       setPin("");
       setOpen(false);
       onDone();
@@ -469,7 +491,7 @@ function PasskeyRow({
           <div className="flex items-center gap-3">
             <StatePill ok={count > 0} okText={`${count} added`} offText="None" />
             <LinkButton onClick={() => (needsPin ? setOpen((o) => !o) : add())} disabled={busy}>
-              {busy ? "…" : open ? "Close" : "Add device"}
+              {busy ? "..." : open ? "Close" : "Add device"}
             </LinkButton>
           </div>
         ) : (
@@ -478,22 +500,16 @@ function PasskeyRow({
       }
     >
       {needsPin && open && (
-        <div className="flex flex-col gap-3">
-          <p className="text-[12px] leading-relaxed text-d-muted">Confirm with your PIN to trust a new device.</p>
-          <div className="flex gap-2">
-            <input
-              value={pin}
-              onChange={(e) => setPin(digits(e.target.value))}
-              type="password"
-              inputMode="numeric"
-              placeholder="Transaction PIN"
-              className={inputClass}
-              aria-label="Transaction PIN"
-            />
-            <Button loading={busy} disabled={pin.length < 4} onClick={add}>
-              Continue
-            </Button>
-          </div>
+        <div className="flex flex-col gap-4 rounded-2xl bg-d-surface-2/60 p-4">
+          <PinField
+            label="Confirm with your PIN to trust a new device"
+            length={pinLength}
+            value={pin}
+            onChange={setPin}
+            onComplete={(v) => add(v)}
+            autoFocus
+            disabled={busy}
+          />
         </div>
       )}
       <Feedback error={error} ok={ok} />
@@ -507,10 +523,11 @@ function TwoFactorRow({ status, userId, onDone }: { status: SecurityStatus | nul
   const { busy, error, run } = useAction();
   const on = !!status?.two_factor_enabled;
   const needsPin = !!status?.pin_set;
+  const pinLength = status?.pin_length ?? 4;
 
-  function toggle() {
+  function toggle(enteredPin?: string) {
     void run(async () => {
-      await apiSetTwoFactor(userId, !on, needsPin ? pin : null);
+      await apiSetTwoFactor(userId, !on, needsPin ? (enteredPin ?? pin) : null);
       setPin("");
       setOpen(false);
       onDone();
@@ -525,19 +542,16 @@ function TwoFactorRow({ status, userId, onDone }: { status: SecurityStatus | nul
       state={<Toggle on={on} label="Always ask for a code" onChange={() => (needsPin ? setOpen((o) => !o) : toggle())} />}
     >
       {needsPin && open && (
-        <div className="flex gap-2">
-          <input
+        <div className="flex flex-col gap-4 rounded-2xl bg-d-surface-2/60 p-4">
+          <PinField
+            label={on ? "Confirm with your PIN to turn off" : "Confirm with your PIN to turn on"}
+            length={pinLength}
             value={pin}
-            onChange={(e) => setPin(digits(e.target.value))}
-            type="password"
-            inputMode="numeric"
-            placeholder="Confirm with your PIN"
-            className={inputClass}
-            aria-label="Confirm with your PIN"
+            onChange={setPin}
+            onComplete={(v) => toggle(v)}
+            autoFocus
+            disabled={busy}
           />
-          <Button loading={busy} disabled={pin.length < 4} onClick={toggle}>
-            {on ? "Turn off" : "Turn on"}
-          </Button>
         </div>
       )}
       <Feedback error={error} ok={null} />

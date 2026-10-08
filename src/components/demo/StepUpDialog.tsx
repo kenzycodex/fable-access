@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { Fingerprint, EnvelopeSimple, DeviceMobile, CheckCircle } from "@phosphor-icons/react";
 import { DemoSheet } from "@/components/demo/DemoSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
-import { PinReset } from "@/components/demo/PinReset";
-import { Button, Notice, SuccessTick, inputClass } from "@/components/demo/kit";
+import { PinInput } from "@/components/demo/PinInput";
+import { Button, Notice, SuccessTick } from "@/components/demo/kit";
 import {
   authenticatePasskey,
   sendOtp,
@@ -28,8 +28,6 @@ interface DialogProps {
   purpose: "transfer" | "ghost_release";
   reference: string | null;
 }
-
-const pinInput = `${inputClass} text-center text-[18px] font-bold tracking-[0.3em] tabular-nums`;
 
 /**
  * Collects the factors a decision demands and hands back one proof.
@@ -61,14 +59,17 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"factors" | "forgot">("factors");
 
   const [passkeyToken, setPasskeyToken] = useState<string | null>(null);
   const [pinToken, setPinToken] = useState<string | null>(null);
   const [otpToken, setOtpToken] = useState<string | null>(null);
 
   const [pinValue, setPinValue] = useState("");
+  const [pinInvalid, setPinInvalid] = useState(false);
+  // Choosing a PIN takes two entries, so a typo is caught before it is saved.
   const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [pinStage, setPinStage] = useState<"new" | "confirm">("new");
 
   const [channel, setChannel] = useState<"email" | "sms">("email");
   const [otpChallenge, setOtpChallenge] = useState<string | null>(null);
@@ -160,14 +161,14 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
     }
   }
 
-  async function submitPin() {
-    if (pinValue.length < 4) return;
+  async function submitPin(pin: string) {
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
       const res = await verifyPin({
         userId,
-        pin: pinValue,
+        pin,
         purpose,
         reference,
         requiredLevel: mode === "composed" ? "identity_check" : level,
@@ -181,25 +182,46 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
       setPinValue("");
       await compose({ passkey: passkeyToken, pin: res.token, otp: otpToken });
     } catch (e) {
+      // Wrong PIN: shake, clear the boxes, and leave them ready for another try.
+      setPinInvalid(true);
+      setPinValue("");
       setError(e instanceof Error ? e.message : "That PIN isn't right.");
     } finally {
       setBusy(false);
     }
   }
 
-  async function createPin() {
-    if (newPin.length !== 4 && newPin.length !== 6) return;
+  async function createPin(pin: string) {
     setBusy(true);
     setError(null);
     try {
-      const s = await apiSetPin(userId, newPin, null, institutionId);
+      const s = await apiSetPin(userId, pin, null, institutionId);
       setStatus(s);
       setNewPin("");
+      setConfirmPin("");
+      setPinStage("new");
     } catch (e) {
+      // The server may refuse a PIN the operator's rules do not allow.
       setError(e instanceof Error ? e.message : "Could not set your PIN.");
+      setPinInvalid(true);
+      setNewPin("");
+      setConfirmPin("");
+      setPinStage("new");
     } finally {
       setBusy(false);
     }
+  }
+
+  function confirmNewPin(entered: string) {
+    if (entered === newPin) {
+      void createPin(entered);
+      return;
+    }
+    setError("Those PINs don't match. Try again.");
+    setPinInvalid(true);
+    setConfirmPin("");
+    setNewPin("");
+    setPinStage("new");
   }
 
   async function requestCode() {
@@ -217,17 +239,18 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
     }
   }
 
-  async function submitCode() {
-    if (!otpChallenge || code.trim().length < 6) return;
+  async function submitCode(entered: string) {
+    if (!otpChallenge || entered.length < 6 || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await verifyOtp({ userId, challengeId: otpChallenge, code: code.trim(), requiredLevel: "pin" });
+      const res = await verifyOtp({ userId, challengeId: otpChallenge, code: entered, requiredLevel: "pin" });
       setOtpToken(res.token);
       setCode("");
       await compose({ passkey: passkeyToken, pin: pinToken, otp: res.token });
     } catch (e) {
       setError(e instanceof Error ? e.message : "That code isn't right.");
+      setCode("");
     } finally {
       setBusy(false);
     }
@@ -245,25 +268,6 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
 
   if (loading) {
     return <div className="flex items-center justify-center py-10 text-[13px] text-d-muted">Checking your security…</div>;
-  }
-
-  if (view === "forgot") {
-    return (
-      <div className="flex flex-col gap-3 pb-2">
-        <p className="text-[14px] font-semibold text-d-text">Reset your PIN</p>
-        <PinReset
-          userId={userId}
-          institutionId={institutionId}
-          status={status}
-          bankName={bankName}
-          onDone={(next) => {
-            setStatus(next);
-            setView("factors");
-          }}
-          onCancel={() => setView("factors")}
-        />
-      </div>
-    );
   }
 
   return (
@@ -296,52 +300,75 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
 
       {active === "pin" &&
         (status?.pin_set ? (
-          <div className="flex flex-col gap-3">
-            <input
+          <div className="flex flex-col items-center gap-4">
+            <PinInput
+              length={status.pin_length}
               value={pinValue}
-              onChange={(e) => setPinValue(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              onKeyDown={(e) => e.key === "Enter" && submitPin()}
-              inputMode="numeric"
-              type="password"
-              autoComplete="off"
-              autoFocus
-              placeholder="Enter your PIN"
-              aria-label="Enter your PIN"
-              className={pinInput}
-            />
-            <Button size="lg" full loading={busy} disabled={pinValue.length < 4} onClick={submitPin}>
-              {busy ? "Checking…" : "Confirm"}
-            </Button>
-            <button
-              type="button"
-              onClick={() => {
-                setError(null);
-                setView("forgot");
+              onChange={(v) => {
+                setPinInvalid(false);
+                setPinValue(v);
               }}
-              className="text-center text-[12px] font-semibold text-brand hover:underline"
-            >
-              Forgot your PIN?
-            </button>
+              onComplete={(v) => void submitPin(v)}
+              label="Enter your PIN"
+              autoFocus
+              disabled={busy}
+              invalid={pinInvalid}
+            />
+            {busy && <p className="text-[12px] text-d-muted">Checking...</p>}
+            <p className="text-center text-[12px] text-d-faint">
+              Forgot your PIN? Ask {bankName} to reset it.
+            </p>
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
-            <p className="text-[13px] leading-relaxed text-d-muted">
-              Choose a transaction PIN to continue. It can be any 4 or 6 digits, and you&apos;ll use it again next time.
+          <div className="flex flex-col items-center gap-4">
+            <p className="text-center text-[13px] leading-relaxed text-d-muted">
+              {pinStage === "new"
+                ? `Choose a ${status?.pin_policy.length ?? 4}-digit transaction PIN. You will use it again next time.`
+                : "Enter it once more to confirm."}
             </p>
-            <input
-              value={newPin}
-              onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              inputMode="numeric"
-              type="password"
-              autoComplete="off"
-              autoFocus
-              placeholder="Choose a 4 or 6 digit PIN"
-              aria-label="Choose a 4 or 6 digit PIN"
-              className={pinInput}
-            />
-            <Button size="lg" full loading={busy} disabled={newPin.length !== 4 && newPin.length !== 6} onClick={createPin}>
-              {busy ? "Saving…" : "Set PIN"}
-            </Button>
+            {pinStage === "new" ? (
+              <PinInput
+                key="new"
+                length={status?.pin_policy.length ?? 4}
+                value={newPin}
+                onChange={(v) => {
+                  setPinInvalid(false);
+                  setNewPin(v);
+                }}
+                onComplete={() => setPinStage("confirm")}
+                label="Choose a PIN"
+                autoFocus
+                invalid={pinInvalid}
+              />
+            ) : (
+              <>
+                <PinInput
+                  key="confirm"
+                  length={status?.pin_policy.length ?? 4}
+                  value={confirmPin}
+                  onChange={(v) => {
+                    setPinInvalid(false);
+                    setConfirmPin(v);
+                  }}
+                  onComplete={confirmNewPin}
+                  label="Confirm your PIN"
+                  autoFocus
+                  disabled={busy}
+                  invalid={pinInvalid}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmPin("");
+                    setNewPin("");
+                    setPinStage("new");
+                  }}
+                  className="text-[12px] font-semibold text-brand hover:underline"
+                >
+                  Start again
+                </button>
+              </>
+            )}
           </div>
         ))}
 
@@ -388,20 +415,17 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
                   <span className="font-mono font-bold">{debugCode}</span>
                 </Notice>
               )}
-              <input
+              <PinInput
+                length={6}
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                onKeyDown={(e) => e.key === "Enter" && submitCode()}
-                inputMode="numeric"
-                autoComplete="one-time-code"
+                onChange={setCode}
+                onComplete={(v) => void submitCode(v)}
+                label="6-digit code"
+                masked={false}
                 autoFocus
-                placeholder="6-digit code"
-                aria-label="6-digit code"
-                className={pinInput}
+                disabled={busy}
               />
-              <Button size="lg" full loading={busy} disabled={code.length < 6} onClick={submitCode}>
-                {busy ? "Checking…" : "Confirm"}
-              </Button>
+              {busy && <p className="text-center text-[12px] text-d-muted">Checking...</p>}
             </>
           )}
         </div>

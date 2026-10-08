@@ -1160,6 +1160,10 @@ export async function topUp(
 
 export interface SecurityStatus {
   pin_set: boolean;
+  /** Digits in this customer's PIN (or the configured length if none is set yet). */
+  pin_length: number;
+  /** The operator's PIN rules, from the server's environment. */
+  pin_policy: { length: number; block_weak: boolean };
   pin_locked: boolean;
   pin_locked_until: string | null;
   failed_attempts: number;
@@ -1214,26 +1218,6 @@ export async function setPin(
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(typeof body?.detail === "string" ? body.detail : "Could not set your PIN.");
-  }
-  return (await res.json()) as SecurityStatus;
-}
-
-/** Choose a new PIN after proving the registered channel with a one-time code.
- * `otpToken` comes from verifying a code requested with purpose "pin_reset". */
-export async function resetPin(
-  userId: string,
-  pin: string,
-  otpToken: string,
-  institution: string | null,
-): Promise<SecurityStatus> {
-  const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/pin/reset`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ pin, otp_token: otpToken, institution_id: institution }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(typeof body?.detail === "string" ? body.detail : "Could not reset your PIN.");
   }
   return (await res.json()) as SecurityStatus;
 }
