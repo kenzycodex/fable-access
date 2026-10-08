@@ -399,7 +399,7 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     # Channel-specific cutoffs: the same score means more on a riskier rail, so
     # USSD/internet trip sooner than an in-person branch transfer. Falls back to
     # the default when the channel is unknown.
-    th = thresholds_for(channel)
+    th = thresholds_for(channel, institution_id)
     action = "BLOCK" if score >= th["block"] else "FLAG" if score >= th["flag"] else "PASS"
     risk_level = "HIGH" if score >= th["block"] else "MEDIUM" if score >= th["flag"] else "LOW"
 

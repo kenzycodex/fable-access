@@ -119,6 +119,23 @@ CHANNEL_THRESHOLDS = {
 }
 
 
-def thresholds_for(channel: str | None) -> dict:
-    """The (block, flag) cutoffs for a channel, falling back to the default."""
-    return CHANNEL_THRESHOLDS.get(channel or "", _DEFAULT_THRESHOLD)
+def thresholds_for(channel: str | None, institution_id: str | None = None) -> dict:
+    """The (block, flag) cutoffs for a channel, falling back to the default.
+
+    When the institution has set its own base cutoffs, the channel's offset
+    from Fable's default is kept and applied to the institution's base, so the
+    per-channel tuning survives a bank moving its overall risk appetite.
+    """
+    th = CHANNEL_THRESHOLDS.get(channel or "", _DEFAULT_THRESHOLD)
+    if not institution_id:
+        return th
+    from policy import base_thresholds
+
+    base = base_thresholds(institution_id)
+    if base is None:
+        return th
+    block, flag = base
+    return {
+        "block": round(min(max(block + (th["block"] - _DEFAULT_BLOCK), 0.1), 0.99), 3),
+        "flag": round(min(max(flag + (th["flag"] - _DEFAULT_FLAG), 0.05), 0.98), 3),
+    }

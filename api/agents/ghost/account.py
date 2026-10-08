@@ -13,7 +13,12 @@ from config import GHOST_COOLING_HIGH, GHOST_COOLING_MED, GHOST_COOLING_LOW
 from db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict, dumps, loads
 
 
-def calculate_cooling_window(risk_score: float) -> int:
+def calculate_cooling_window(risk_score: float, institution_id: str | None = None) -> int:
+    """How long Ghost holds a transfer: the institution's policy, or the defaults."""
+    if institution_id:
+        from policy import cooling_minutes
+
+        return cooling_minutes(institution_id, risk_score)
     if risk_score >= 0.9:
         return GHOST_COOLING_HIGH
     elif risk_score >= 0.7:
@@ -30,7 +35,7 @@ def create_ghost_container(
     signals: list[str] | None = None,
 ) -> dict:
     ghost_id = f"ghost_{uuid.uuid4().hex[:12]}"
-    cooling_minutes = calculate_cooling_window(risk_score)
+    cooling_minutes = calculate_cooling_window(risk_score, institution_id)
     created_at = datetime.now(timezone.utc)
     expires_at = created_at + timedelta(minutes=cooling_minutes)
 

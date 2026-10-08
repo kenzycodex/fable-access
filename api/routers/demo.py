@@ -254,7 +254,7 @@ def seed_threat_history(user_id: str, days: int, institution_id: str = DEFAULT_I
             # cancelled = fraud prevented (money returned).
             if tmpl["ghost"] and rnd.random() < 0.7:
                 gid = f"ghost_{uuid.uuid4().hex[:12]}"
-                cooling = calculate_cooling_window(score)
+                cooling = calculate_cooling_window(score, institution_id)
                 cur.execute(
                     # institution_id was missing from this column list, so every
                     # seeded container was written with a NULL tenant. It then

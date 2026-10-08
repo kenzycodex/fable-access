@@ -8,7 +8,23 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query, Request
 
-from config import BLOCK_THRESHOLD, FLAG_THRESHOLD, GHOST_COOLING_HIGH, GHOST_COOLING_MED, GHOST_COOLING_LOW
+import policy
+
+
+def _thresholds(institution: str) -> dict:
+    """The base cutoffs in force for this institution: its own, or Fable's."""
+    p = policy.effective(institution)
+    return {"block": p["block_threshold"], "flag": p["flag_threshold"]}
+
+
+def _cooling(institution: str) -> dict:
+    p = policy.effective(institution)
+    return {
+        "high_risk_minutes": p["hold_high_minutes"],
+        "medium_risk_minutes": p["hold_medium_minutes"],
+        "low_risk_minutes": p["hold_low_minutes"],
+    }
+
 from db import cursor, row_to_dict, loads
 from tenancy import tenant_for_console
 from intelligence.context import tenant_clause
@@ -120,7 +136,7 @@ def overview(request: Request, institution: str | None = Query(None)):
             "flag_rate": round(flagged / total_tx, 4) if total_tx else 0,
             "avg_risk_score": round(avg_score, 3),
             "signal_layers": len(SHIELD_PIPELINE),
-            "thresholds": {"block": BLOCK_THRESHOLD, "flag": FLAG_THRESHOLD},
+            "thresholds": _thresholds(institution),
         },
         "ghost": {
             "status": "active",
@@ -250,7 +266,7 @@ def shield_decisions(request: Request, limit: int = Query(25, ge=1, le=200), ins
     return {
         "decisions": rows,
         "pipeline": SHIELD_PIPELINE,
-        "thresholds": {"block": BLOCK_THRESHOLD, "flag": FLAG_THRESHOLD},
+        "thresholds": _thresholds(institution),
         "accuracy": {
             "transactions_scored": total,
             "pass_rate": round(by_action.get("PASS", 0) / total, 4) if total else 0,
@@ -293,9 +309,5 @@ def ghost_containers(request: Request, limit: int = Query(50, ge=1, le=200), ins
             "cancellation_rate": round(cancelled / created, 4) if created else 0,
             "money_saved_ngn": by_status.get("CANCELLED", {}).get("amount", 0),
         },
-        "cooling_windows": {
-            "high_risk_minutes": GHOST_COOLING_HIGH,
-            "medium_risk_minutes": GHOST_COOLING_MED,
-            "low_risk_minutes": GHOST_COOLING_LOW,
-        },
+        "cooling_windows": _cooling(institution),
     }
