@@ -9,9 +9,13 @@ Every endpoint is tenant-scoped by the `institution` query parameter, which the
 dashboard sends from its logged-in session. A tenant never sees another
 institution's transactions.
 """
+import csv
+import io
+import re
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 
 from db import cursor, row_to_dict, loads
 from tenancy import tenant_for_console
@@ -153,6 +157,69 @@ def stats(request: Request, institution: str | None = Query(None)):
     }
 
 
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# One column list for every console view of a transaction, so the table, the
+# review queue and the CSV can never disagree about what a row contains. A
+# flagged or blocked row with no review state yet is an open case.
+TXN_COLUMNS = """id, user_id, amount, recipient_id, recipient_name, recipient_account,
+                 recipient_bank, narration, channel, device_fingerprint, risk_score,
+                 risk_level, action_taken, shield_signals, latency_ms, created_at, status,
+                 explanation,
+                 CASE WHEN action_taken IN ('FLAG','BLOCK')
+                      THEN COALESCE(review_state, 'open') END AS review_state,
+                 review_outcome, assignee, reviewed_by, reviewed_at"""
+
+
+def txn_filters(
+    institution: str,
+    *,
+    action: str | None = None,
+    user: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> tuple[str, list]:
+    """WHERE clause and params shared by the console's transaction reads.
+
+    Dates are whole days (YYYY-MM-DD), inclusive at both ends, compared against
+    the stored UTC timestamp. Anything else is a 400 rather than a silent
+    no-op, so a malformed range can't quietly export everything.
+    """
+    if not institution:
+        raise HTTPException(status_code=401, detail="No institution.")
+    where = "WHERE institution_id = ?"
+    params: list = [institution]
+    if action:
+        actions = [a.strip().upper() for a in action.split(",") if a.strip()]
+        if not set(actions) <= {"PASS", "FLAG", "BLOCK"}:
+            raise HTTPException(status_code=400, detail="action must be PASS, FLAG or BLOCK.")
+        where += f" AND action_taken IN ({','.join('?' * len(actions))})"
+        params += actions
+    if user:
+        where += " AND user_id = ?"
+        params.append(user)
+    for value, op in ((date_from, ">="), (date_to, "<=")):
+        if value:
+            if not _DATE.match(value):
+                raise HTTPException(status_code=400, detail="Dates must be YYYY-MM-DD.")
+            where += f" AND date(created_at) {op} ?"
+            params.append(value)
+    return where, params
+
+
+def shape_rows(rows: list[dict]) -> list[dict]:
+    """Decode signals and attach the customer's display name."""
+    # Resolve the display name here rather than leaving the client to guess.
+    # It previously had only a user_id to work with and rendered a hardcoded
+    # name, so every customer at every institution showed as the same person.
+    from agents.copilot.demo_customers import customer_name_for
+
+    for r in rows:
+        r["signals"] = loads(r.pop("shield_signals", None), [])
+        r["customer_name"] = customer_name_for(r.get("user_id"))
+    return rows
+
+
 @router.get("/transactions")
 def transactions(
     request: Request,
@@ -161,46 +228,115 @@ def transactions(
     action: str | None = Query(None),
     institution: str | None = Query(None),
     user: str | None = Query(None),
+    date_from: str | None = Query(None, alias="from"),
+    date_to: str | None = Query(None, alias="to"),
 ):
     institution = tenant_for_console(request)
-    where = "WHERE 1=1"
-    params: list = []
-    if action:
-        where += " AND action_taken = ?"
-        params.append(action.upper())
-    if institution:
-        where += " AND institution_id = ?"
-        params.append(institution)
-    if user:
-        # The demo bank asks for one customer's own history.
-        where += " AND user_id = ?"
-        params.append(user)
+    where, params = txn_filters(institution, action=action, user=user, date_from=date_from, date_to=date_to)
 
     with cursor() as cur:
         cur.execute(f"SELECT COUNT(*) AS n FROM transactions {where}", params)
         total = cur.fetchone()["n"]
 
         cur.execute(
-            f"""SELECT id, user_id, amount, recipient_id, recipient_name, recipient_account,
-                       recipient_bank, narration,
-                       channel, device_fingerprint, risk_score, risk_level, action_taken,
-                       shield_signals, latency_ms, created_at, status, explanation
-                FROM transactions {where}
-                ORDER BY created_at DESC LIMIT ? OFFSET ?""",
+            f"SELECT {TXN_COLUMNS} FROM transactions {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
             params + [limit, offset],
+        )
+        rows = shape_rows([row_to_dict(r) for r in cur.fetchall()])
+
+    return {"total": total, "limit": limit, "offset": offset, "transactions": rows}
+
+
+def _csv_response(filename: str, header: list[str], rows) -> StreamingResponse:
+    """Stream a CSV without holding the whole export in memory."""
+
+    def generate():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(header)
+        yield buf.getvalue()
+        for row in rows:
+            buf.seek(0)
+            buf.truncate(0)
+            # A cell starting with = + - @ is executed as a formula by Excel and
+            # Sheets. Narrations and names are customer-controlled text, so they
+            # are neutralised rather than exported raw.
+            writer.writerow(
+                ["'" + v if isinstance(v, str) and v[:1] in ("=", "+", "-", "@") else v for v in row]
+            )
+            yield buf.getvalue()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export/transactions.csv")
+def export_transactions(
+    request: Request,
+    action: str | None = Query(None),
+    date_from: str | None = Query(None, alias="from"),
+    date_to: str | None = Query(None, alias="to"),
+):
+    institution = tenant_for_console(request)
+    where, params = txn_filters(institution, action=action, date_from=date_from, date_to=date_to)
+    with cursor() as cur:
+        cur.execute(
+            f"SELECT {TXN_COLUMNS} FROM transactions {where} ORDER BY created_at DESC LIMIT 50000",
+            params,
+        )
+        rows = shape_rows([row_to_dict(r) for r in cur.fetchall()])
+
+    header = [
+        "id", "created_at_utc", "customer_id", "customer_name", "amount_ngn", "recipient_name",
+        "recipient_account", "recipient_bank", "channel", "narration", "risk_score", "decision",
+        "status", "review_state", "review_outcome", "reviewed_by", "signals", "explanation",
+    ]
+    out = (
+        [
+            r["id"], r["created_at"], r.get("user_id"), r.get("customer_name"), r["amount"],
+            r.get("recipient_name") or r.get("recipient_id"), r.get("recipient_account"),
+            r.get("recipient_bank"), r.get("channel"), r.get("narration"), r.get("risk_score"),
+            r.get("action_taken"), r.get("status"), r.get("review_state"), r.get("review_outcome"),
+            r.get("reviewed_by"), " | ".join(str(s) for s in r.get("signals") or []), r.get("explanation"),
+        ]
+        for r in rows
+    )
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return _csv_response(f"fable-transactions-{institution}-{stamp}.csv", header, out)
+
+
+@router.get("/export/audit.csv")
+def export_audit(
+    request: Request,
+    date_from: str | None = Query(None, alias="from"),
+    date_to: str | None = Query(None, alias="to"),
+):
+    institution = tenant_for_console(request)
+    where = "WHERE (institution_id = ? OR institution_id IS NULL)"
+    params: list = [institution]
+    for value, op in ((date_from, ">="), (date_to, "<=")):
+        if value:
+            if not _DATE.match(value):
+                raise HTTPException(status_code=400, detail="Dates must be YYYY-MM-DD.")
+            where += f" AND date(created_at) {op} ?"
+            params.append(value)
+    with cursor() as cur:
+        cur.execute(
+            f"SELECT id, created_at, event_type, user_id, payload FROM audit_log {where} ORDER BY id DESC LIMIT 50000",
+            params,
         )
         rows = [row_to_dict(r) for r in cur.fetchall()]
 
-    # Resolve the display name here rather than leaving the client to guess.
-    # It previously had only a user_id to work with and rendered a hardcoded
-    # name, so every customer at every institution showed as the same person.
-    from agents.copilot.demo_customers import customer_name_for
-
-    for r in rows:
-        r["signals"] = loads(r.pop("shield_signals"), [])
-        r["customer_name"] = customer_name_for(r.get("user_id"))
-
-    return {"total": total, "limit": limit, "offset": offset, "transactions": rows}
+    out = ([r["id"], r["created_at"], r["event_type"], r.get("user_id"), r.get("payload") or ""] for r in rows)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return _csv_response(
+        f"fable-audit-{institution}-{stamp}.csv",
+        ["id", "created_at_utc", "event", "subject", "details_json"],
+        out,
+    )
 
 
 @router.get("/alerts")
