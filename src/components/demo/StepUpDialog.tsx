@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { Fingerprint, EnvelopeSimple, DeviceMobile, CheckCircle } from "@phosphor-icons/react";
 import { DemoSheet } from "@/components/demo/DemoSheet";
+import { useInstitution } from "@/components/demo/InstitutionProvider";
+import { PinReset } from "@/components/demo/PinReset";
+import { Button, Notice, SuccessTick, inputClass } from "@/components/demo/kit";
 import {
   authenticatePasskey,
   sendOtp,
@@ -26,8 +29,10 @@ interface DialogProps {
   reference: string | null;
 }
 
+const pinInput = `${inputClass} text-center text-[18px] font-bold tracking-[0.3em] tabular-nums`;
+
 /**
- * Collects the factors a contained release demands and hands back one proof.
+ * Collects the factors a decision demands and hands back one proof.
  *
  * Releasing money out of a Ghost hold is the single most attacker-valuable
  * action in the product, so it can't be waved through on the session alone. The
@@ -37,30 +42,26 @@ interface DialogProps {
  * none of them.
  *
  * Where the device has an enrolled passkey it is required as the strongest
- * factor; where it doesn't, a PIN plus an out-of-band code stand in — the same
- * composition real Nigerian banks rely on, and honest about what it is.
+ * factor; where it doesn't, a PIN plus an out-of-band code stand in.
  */
 export function StepUpDialog(props: DialogProps) {
   const { open, onClose, requirement } = props;
   return (
-    <DemoSheet
-      open={open}
-      onClose={onClose}
-      title="Verify it's you"
-      subtitle={requirement?.label ?? "Release verification"}
-    >
+    <DemoSheet open={open} onClose={onClose} title="Verify it's you" subtitle={requirement?.label ?? "Confirm to continue"}>
       {/* Keyed on the reference so each new hold mounts a fresh flow with clean
-          state — no reset-in-effect needed. */}
+          state, with no reset-in-effect needed. */}
       {open && <StepUpFlow key={props.reference ?? "flow"} {...props} />}
     </DemoSheet>
   );
 }
 
-function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, reference }: DialogProps) {
+function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, purpose, reference }: DialogProps) {
+  const { name: bankName } = useInstitution();
   const [status, setStatus] = useState<SecurityStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<"factors" | "forgot">("factors");
 
   const [passkeyToken, setPasskeyToken] = useState<string | null>(null);
   const [pinToken, setPinToken] = useState<string | null>(null);
@@ -82,11 +83,7 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
   // containment release needs the composed substitute. A "passkey" tier with no
   // passkey enrolled escalates to the composed path rather than dead-ending.
   const mode: "single_pin" | "single_passkey" | "composed" =
-    level === "pin"
-      ? "single_pin"
-      : level === "passkey" && hasPasskey
-        ? "single_passkey"
-        : "composed";
+    level === "pin" ? "single_pin" : level === "passkey" && hasPasskey ? "single_passkey" : "composed";
 
   useEffect(() => {
     securityStatus(userId)
@@ -98,11 +95,11 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
       .finally(() => setLoading(false));
   }, [userId]);
 
-  // Releasing needs TWO independent factors, not three. One "primary" — the
-  // device passkey if enrolled, otherwise the PIN — plus one out-of-band code
-  // to the customer's own email/phone. When there's no registered contact, the
-  // out-of-band step is replaced by the PIN, so a passkey+PIN customer never
-  // gets asked for a code that has nowhere to go.
+  // Releasing needs TWO independent factors, not three: one primary (the device
+  // passkey if enrolled, otherwise the PIN) plus one out-of-band code to the
+  // customer's own email or phone. With no registered contact, the out-of-band
+  // step is replaced by the PIN, so a passkey customer is never asked for a code
+  // that has nowhere to go.
   const hasContact = !!(status?.email_set || status?.phone_set);
   const composedSteps: Factor[] = hasPasskey
     ? hasContact
@@ -110,16 +107,15 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
       : ["passkey", "pin"]
     : hasContact
       ? ["pin", "otp"]
-      : ["pin"]; // only a PIN and no contact — the one factor available
-  const steps: Factor[] =
-    mode === "single_pin" ? ["pin"] : mode === "single_passkey" ? ["passkey"] : composedSteps;
+      : ["pin"];
+  const steps: Factor[] = mode === "single_pin" ? ["pin"] : mode === "single_passkey" ? ["passkey"] : composedSteps;
   const doneMap: Record<Factor, boolean> = { passkey: !!passkeyToken, pin: !!pinToken, otp: !!otpToken };
   const active = steps.find((s) => !doneMap[s]) ?? null;
   const allDone = steps.every((s) => doneMap[s]);
 
-  /** Compose the collected factors into one release proof, once every required
-   * step is in hand. Called from whichever handler completes the final factor,
-   * rather than from an effect, so state updates stay driven by user actions. */
+  /** Compose the collected factors into one proof, once every required step is
+   * in hand. Called from whichever handler completes the final factor, rather
+   * than from an effect, so state updates stay driven by user actions. */
   async function compose(tokens: { passkey: string | null; pin: string | null; otp: string | null }) {
     const ready = steps.every((s) => tokens[s]);
     if (!ready) return;
@@ -169,8 +165,14 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
     setBusy(true);
     setError(null);
     try {
-      const res = await verifyPin({ userId, pin: pinValue, purpose, reference, requiredLevel: mode === "composed" ? "identity_check" : level });
-      // A single-PIN tier (a medium-risk flag) is done here — no code needed.
+      const res = await verifyPin({
+        userId,
+        pin: pinValue,
+        purpose,
+        reference,
+        requiredLevel: mode === "composed" ? "identity_check" : level,
+      });
+      // A single-PIN tier (a medium-risk flag) is done here: no code needed.
       if (mode === "single_pin") {
         onVerified(res.token);
         return;
@@ -231,34 +233,45 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
     }
   }
 
-  // Success: a clean tick, echoing the connect modal — the calm end state.
   if (allDone) {
     return (
-      <div className="flex flex-col items-center gap-3 py-8 animate-check-pop">
-        <VerifyTick />
-        <p className="text-[15px] font-bold text-gray-900 dark:text-white">{busy ? "Verifying…" : "Verified"}</p>
-        <p className="text-[12px] text-gray-500 dark:text-white/40">
-          {busy ? "Sending your transfer securely." : "You're all set."}
-        </p>
+      <div className="flex animate-check-pop flex-col items-center gap-2 py-8">
+        <SuccessTick size={64} />
+        <p className="mt-2 text-[16px] font-bold text-d-text">{busy ? "Verifying…" : "Verified"}</p>
+        <p className="text-[13px] text-d-muted">{busy ? "Sending your transfer securely." : "You're all set."}</p>
       </div>
     );
   }
 
   if (loading) {
+    return <div className="flex items-center justify-center py-10 text-[13px] text-d-muted">Checking your security…</div>;
+  }
+
+  if (view === "forgot") {
     return (
-      <div className="flex items-center justify-center py-10 text-[12px] text-gray-500 dark:text-white/40">
-        Checking your security…
+      <div className="flex flex-col gap-3 pb-2">
+        <p className="text-[14px] font-semibold text-d-text">Reset your PIN</p>
+        <PinReset
+          userId={userId}
+          institutionId={institutionId}
+          status={status}
+          bankName={bankName}
+          onDone={(next) => {
+            setStatus(next);
+            setView("factors");
+          }}
+          onCancel={() => setView("factors")}
+        />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* One calm line, no alarm. */}
-      <p className="text-[12px] leading-relaxed text-gray-500 dark:text-white/45">
+    <div className="flex flex-col gap-4 pb-2">
+      <p className="text-[13px] leading-relaxed text-d-muted">
         {mode === "composed"
           ? "A quick two-step check before this transfer leaves your account."
-          : requirement?.detail ?? "Confirm it's really you."}
+          : (requirement?.detail ?? "Confirm it's really you.")}
       </p>
 
       {/* Compact progress, only when there's more than one factor. */}
@@ -275,22 +288,15 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
         </div>
       )}
 
-      {/* The one factor in focus. */}
       {active === "passkey" && (
-        <button
-          type="button"
-          onClick={runPasskey}
-          disabled={busy}
-          className="flex items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] py-3.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-        >
-          <Fingerprint size={18} weight="bold" />
-          {busy ? "Waiting for device…" : "Confirm with fingerprint or face"}
-        </button>
+        <Button size="lg" full loading={busy} onClick={runPasskey} icon={<Fingerprint size={18} weight="bold" />}>
+          {busy ? "Waiting for your device…" : "Confirm with fingerprint or face"}
+        </Button>
       )}
 
       {active === "pin" &&
         (status?.pin_set ? (
-          <div className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-3">
             <input
               value={pinValue}
               onChange={(e) => setPinValue(e.target.value.replace(/\D/g, "").slice(0, 6))}
@@ -301,16 +307,26 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
               autoFocus
               placeholder="Enter your PIN"
               aria-label="Enter your PIN"
-              className={pinInputCls}
+              className={pinInput}
             />
-            <button type="button" onClick={submitPin} disabled={busy || pinValue.length < 4} className={primaryBtnCls}>
+            <Button size="lg" full loading={busy} disabled={pinValue.length < 4} onClick={submitPin}>
               {busy ? "Checking…" : "Confirm"}
+            </Button>
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setView("forgot");
+              }}
+              className="text-center text-[12px] font-semibold text-brand hover:underline"
+            >
+              Forgot your PIN?
             </button>
           </div>
         ) : (
-          <div className="flex flex-col gap-2.5">
-            <p className="text-[12px] leading-relaxed text-gray-500 dark:text-white/45">
-              Set a transaction PIN to continue. You&apos;ll re-use it next time.
+          <div className="flex flex-col gap-3">
+            <p className="text-[13px] leading-relaxed text-d-muted">
+              Choose a transaction PIN to continue. It can be any 4 or 6 digits, and you&apos;ll use it again next time.
             </p>
             <input
               value={newPin}
@@ -319,18 +335,18 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
               type="password"
               autoComplete="off"
               autoFocus
-              placeholder="Choose a 4 or 6-digit PIN"
-              aria-label="Choose a 4 or 6-digit PIN"
-              className={pinInputCls}
+              placeholder="Choose a 4 or 6 digit PIN"
+              aria-label="Choose a 4 or 6 digit PIN"
+              className={pinInput}
             />
-            <button type="button" onClick={createPin} disabled={busy || (newPin.length !== 4 && newPin.length !== 6)} className={primaryBtnCls}>
+            <Button size="lg" full loading={busy} disabled={newPin.length !== 4 && newPin.length !== 6} onClick={createPin}>
               {busy ? "Saving…" : "Set PIN"}
-            </button>
+            </Button>
           </div>
         ))}
 
       {active === "otp" && (
-        <div className="flex flex-col gap-2.5">
+        <div className="flex flex-col gap-3">
           {!otpChallenge ? (
             <>
               {/* Offer the channels the customer actually has. */}
@@ -341,10 +357,8 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
                       key={ch}
                       type="button"
                       onClick={() => setChannel(ch)}
-                      className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border py-2.5 text-[12px] font-semibold transition-colors ${
-                        channel === ch
-                          ? "border-[var(--brand-primary)] bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]"
-                          : "border-gray-200 text-gray-500 dark:border-white/[0.08] dark:text-white/40"
+                      className={`flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border text-[12px] font-semibold transition-colors ${
+                        channel === ch ? "border-brand bg-brand/10 text-brand" : "border-d-border text-d-muted"
                       }`}
                     >
                       {ch === "email" ? <EnvelopeSimple size={15} /> : <DeviceMobile size={15} />}
@@ -353,21 +367,26 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
                   ))}
                 </div>
               )}
-              <button type="button" onClick={requestCode} disabled={busy} className={`flex items-center justify-center gap-2 ${primaryBtnCls}`}>
-                {channel === "email" ? <EnvelopeSimple size={17} weight="bold" /> : <DeviceMobile size={17} weight="bold" />}
+              <Button
+                size="lg"
+                full
+                loading={busy}
+                onClick={requestCode}
+                icon={channel === "email" ? <EnvelopeSimple size={17} weight="bold" /> : <DeviceMobile size={17} weight="bold" />}
+              >
                 {busy ? "Sending…" : `Send a code by ${channel === "email" ? "email" : "SMS"}`}
-              </button>
+              </Button>
             </>
           ) : (
             <>
-              <p className="text-[12px] text-gray-500 dark:text-white/45">
-                Code sent to <span className="font-semibold text-gray-700 dark:text-white/70">{otpDest}</span>.
+              <p className="text-[13px] text-d-muted">
+                Code sent to <span className="font-semibold text-d-text">{otpDest}</span>.
               </p>
               {debugCode && (
-                <p className="rounded-lg bg-gray-100 px-3 py-2 text-[11px] text-gray-600 dark:bg-white/[0.06] dark:text-white/50">
-                  No {channel === "sms" ? "SMS provider" : "mail server"} configured, so the code is shown here:{" "}
+                <Notice>
+                  No {channel === "sms" ? "SMS provider" : "mail server"} is configured, so the code is shown here:{" "}
                   <span className="font-mono font-bold">{debugCode}</span>
-                </p>
+                </Notice>
               )}
               <input
                 value={code}
@@ -378,35 +397,30 @@ function StepUpFlow({ onVerified, requirement, userId, institutionId, purpose, r
                 autoFocus
                 placeholder="6-digit code"
                 aria-label="6-digit code"
-                className={pinInputCls}
+                className={pinInput}
               />
-              <button type="button" onClick={submitCode} disabled={busy || code.length < 6} className={primaryBtnCls}>
+              <Button size="lg" full loading={busy} disabled={code.length < 6} onClick={submitCode}>
                 {busy ? "Checking…" : "Confirm"}
-              </button>
+              </Button>
             </>
           )}
         </div>
       )}
 
       {(requirement?.recent_failures ?? 0) > 0 && (
-        <p className="text-center text-[11px] text-gray-400 dark:text-white/30">
+        <p className="text-center text-[12px] text-d-faint">
           {requirement!.recent_failures} recent failed attempt{requirement!.recent_failures === 1 ? "" : "s"} on this account.
         </p>
       )}
 
-      {error && (
-        <p className="rounded-xl bg-red-50 px-3.5 py-2.5 text-[12px] text-red-600 dark:bg-red-500/10 dark:text-red-400">
-          {error}
-        </p>
-      )}
+      {error && <Notice tone="danger">{error}</Notice>}
+
+      <button type="button" onClick={onClose} className="text-center text-[12px] font-semibold text-d-muted hover:text-d-text">
+        Cancel
+      </button>
     </div>
   );
 }
-
-const pinInputCls =
-  "w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-[18px] font-bold tracking-[0.3em] tabular-nums text-gray-900 outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white";
-const primaryBtnCls =
-  "rounded-xl bg-[var(--brand-primary)] py-3.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40";
 
 function factorLabel(factor: Factor, channel: "email" | "sms"): string {
   if (factor === "passkey") return "Device";
@@ -414,43 +428,22 @@ function factorLabel(factor: Factor, channel: "email" | "sms"): string {
   return channel === "sms" ? "SMS code" : "Email code";
 }
 
-/** A small labelled progress dot with an optional connector — the whole
- * multi-factor flow at a glance, without the boxy checklist. */
+/** A small labelled progress dot with an optional connector: the whole
+ * multi-factor flow at a glance. */
 function StepDot({ label, state, connect }: { label: string; state: "done" | "active" | "todo"; connect: boolean }) {
   return (
     <div className="flex items-center">
       <div className="flex flex-col items-center gap-1">
         <span
-          className={`flex size-6 items-center justify-center rounded-full text-[10px] font-bold transition-colors ${
-            state === "done"
-              ? "bg-emerald-500 text-white"
-              : state === "active"
-                ? "bg-[var(--brand-primary)] text-white"
-                : "bg-gray-200 text-gray-400 dark:bg-white/[0.08] dark:text-white/30"
+          className={`flex size-7 items-center justify-center rounded-full text-[11px] font-bold transition-colors ${
+            state === "done" ? "bg-emerald-500 text-white" : state === "active" ? "bg-brand text-white" : "bg-d-surface-2 text-d-faint"
           }`}
         >
-          {state === "done" ? <CheckCircle size={13} weight="fill" /> : "•"}
+          {state === "done" ? <CheckCircle size={14} weight="fill" /> : "•"}
         </span>
-        <span
-          className={`text-[10px] font-medium ${
-            state === "todo" ? "text-gray-400 dark:text-white/30" : "text-gray-600 dark:text-white/55"
-          }`}
-        >
-          {label}
-        </span>
+        <span className={`text-[11px] font-medium ${state === "todo" ? "text-d-faint" : "text-d-muted"}`}>{label}</span>
       </div>
-      {connect && <span className="mx-1.5 mb-4 h-px w-6 bg-gray-200 dark:bg-white/[0.08]" />}
+      {connect && <span className="mx-2 mb-4 h-px w-8 bg-d-border" />}
     </div>
-  );
-}
-
-/** Ring sweeps, then the tick strokes itself in — matched to the connect modal. */
-function VerifyTick() {
-  return (
-    <svg viewBox="0 0 64 64" className="size-14" fill="none" aria-hidden="true">
-      <circle cx="32" cy="32" r="27" className="stroke-emerald-500/15" strokeWidth="4" />
-      <circle cx="32" cy="32" r="27" className="stroke-emerald-500 animate-check-ring" strokeWidth="4" strokeLinecap="round" />
-      <path d="M21 33.5 L28.5 41 L43 25" className="stroke-emerald-500 animate-check-stroke" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }

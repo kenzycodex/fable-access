@@ -678,7 +678,15 @@ export function dashboardAlerts(limit = 50, institution?: string | null): Promis
 }
 
 export interface DashboardCompliance {
-  audit: { transactions_logged: number; ghost_containers: number; ghost_cancelled: number; decisions_explained: number };
+  audit: {
+    transactions_logged: number;
+    ghost_containers: number;
+    ghost_cancelled: number;
+    decisions_explained: number;
+    events_recorded?: number;
+  };
+  /** The recorded audit events, newest first. */
+  audit_trail?: { id: number; user_id: string | null; event_type: string; payload: Record<string, unknown>; created_at: string }[];
   friction: { frictionless_rate: number; friction_events: number };
   fraud_prevented_ngn: number;
   incidents: { id: string; user_id: string; amount: number; recipient_bank: string | null; risk_score: number; action_taken: string; created_at: string }[];
@@ -748,6 +756,25 @@ export interface CopilotCustomer {
   avg_time_to_submit_s?: number | null;
   last_activity: string;
   last_updated?: string;
+  /** Ledger balance, or null when the customer has no account row yet. */
+  balance?: number | null;
+  /** The verification factors this customer has set up. */
+  verification?: {
+    pin_set: boolean;
+    pin_locked: boolean;
+    passkeys: number;
+    contact_set: boolean;
+    two_factor: boolean;
+  };
+}
+
+/** Clear a customer's PIN so they can choose a new one. Needs a console session
+ * for this institution; the customer sets the new PIN themselves. */
+export async function resetCustomerPin(institutionId: string, userId: string): Promise<void> {
+  await fetchJson(
+    `/v1/institutions/${encodeURIComponent(institutionId)}/customers/${encodeURIComponent(userId)}/pin/reset`,
+    { method: "POST" },
+  );
 }
 
 export function agentsCopilotCustomers(institution?: string | null): Promise<{ customers: CopilotCustomer[]; total: number }> {
@@ -1168,6 +1195,26 @@ export async function setPin(
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(typeof body?.detail === "string" ? body.detail : "Could not set your PIN.");
+  }
+  return (await res.json()) as SecurityStatus;
+}
+
+/** Choose a new PIN after proving the registered channel with a one-time code.
+ * `otpToken` comes from verifying a code requested with purpose "pin_reset". */
+export async function resetPin(
+  userId: string,
+  pin: string,
+  otpToken: string,
+  institution: string | null,
+): Promise<SecurityStatus> {
+  const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/pin/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ pin, otp_token: otpToken, institution_id: institution }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.detail === "string" ? body.detail : "Could not reset your PIN.");
   }
   return (await res.json()) as SecurityStatus;
 }
