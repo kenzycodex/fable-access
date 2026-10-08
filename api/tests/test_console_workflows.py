@@ -356,3 +356,33 @@ def test_live_institution_rejects_keyless_writes(client):
     # Sandbox banks, like every demo bank, still accept scoring by name.
     other = {**payload, "user_id": f"{OTHER}_chioma", "institution_id": OTHER}
     assert client.post("/v1/shield/analyze", json=other).status_code != 401
+
+
+def test_board_report_is_computed_over_the_range(client):
+    h = _headers(OWNER)
+    r = client.get("/v1/dashboard/report", headers=h)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["institution"]["id"] == BANK
+    assert body["volume"]["transactions"] == body["volume"]["passed"] + body["volume"]["flagged"] + body["volume"]["blocked"]
+    empty = client.get("/v1/dashboard/report?from=2099-01-01", headers=h).json()
+    assert empty["volume"]["transactions"] == 0 and empty["review"]["precision"] is None
+    assert client.get("/v1/dashboard/report").status_code == 401
+
+
+def test_a_renamed_admin_is_not_recreated_on_restart():
+    """Changing the console email used to leave both addresses able to sign in,
+    because startup re-seeded the configured one whenever it was missing."""
+    import main
+    from db import cursor
+
+    with cursor() as cur:
+        cur.execute("DELETE FROM admins WHERE email = ?", (main.DEFAULT_ADMIN_EMAIL,))
+        cur.execute(
+            "INSERT OR REPLACE INTO admins (email, institution_id, hashed_password) VALUES (?, ?, 'x')",
+            ("renamed@meridian.ng", main.DEFAULT_ADMIN_INSTITUTION),
+        )
+    main.ensure_default_admin()
+    with cursor() as cur:
+        cur.execute("SELECT 1 FROM admins WHERE email = ?", (main.DEFAULT_ADMIN_EMAIL,))
+        assert cur.fetchone() is None

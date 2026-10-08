@@ -172,21 +172,29 @@ def channel_breakdown(institution_id: str | None = None) -> list[dict]:
     return out
 
 
+SIGNAL_LABELS = {
+    "amount_anomaly": "Amount anomaly",
+    "new_recipient": "New recipient",
+    "time_anomaly": "Unusual time",
+    "channel_risk": "Higher-risk channel",
+    "scam_pattern": "Scam-script match",
+    "ml_anomaly": "ML anomaly",
+    "device_anomaly": "Unrecognized device",
+    "location_anomaly": "Location anomaly",
+    "session_freshness": "Fresh session",
+    "behavioral_anomaly": "Behavioral anomaly",
+    "timezone_mismatch": "Timezone mismatch",
+}
+
+
+def signal_label(code: str) -> str:
+    code = "nip_code" if code.startswith("nip_") else code
+    return SIGNAL_LABELS.get(code, code.replace("_", " ").title())
+
+
 def signal_frequency(institution_id: str | None = None) -> list[dict]:
     """How often each Shield signal type fired across flagged/blocked transfers."""
-    labels = {
-        "amount_anomaly": "Amount anomaly",
-        "new_recipient": "New recipient",
-        "time_anomaly": "Unusual time",
-        "channel_risk": "Higher-risk channel",
-        "scam_pattern": "Scam-script match",
-        "ml_anomaly": "ML anomaly",
-        "device_anomaly": "Unrecognized device",
-        "location_anomaly": "Location anomaly",
-        "session_freshness": "Fresh session",
-        "behavioral_anomaly": "Behavioral anomaly",
-        "timezone_mismatch": "Timezone mismatch",
-    }
+    labels = SIGNAL_LABELS
     counts: dict[str, int] = {}
     for signals in _risky_signals(institution_id):
         for sig in signals:

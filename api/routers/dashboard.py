@@ -461,3 +461,145 @@ def compliance(request: Request, institution: str | None = Query(None)):
             {"name": "NIBSS fraud reporting", "status": "aligned"},
         ],
     }
+
+
+@router.get("/report")
+def report(
+    request: Request,
+    date_from: str | None = Query(None, alias="from"),
+    date_to: str | None = Query(None, alias="to"),
+):
+    """A board-level summary of one period, every figure computed on the server.
+
+    The console's live feed only holds the latest 200 transfers, which is fine
+    for a screen and wrong for a report: a month at a real bank is far more
+    than that. Everything here is aggregated in SQL over the whole range.
+
+    "Money kept from fraud" uses the same rule as fraud_prevented(): a transfer
+    Shield did not pass that ended up blocked, cancelled or still held.
+    """
+    import audit
+
+    institution = tenant_for_console(request)
+    where, params = txn_filters(institution, date_from=date_from, date_to=date_to)
+
+    with cursor() as cur:
+        cur.execute(
+            f"""SELECT action_taken AS a, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amt
+                FROM transactions {where} GROUP BY action_taken""",
+            params,
+        )
+        by_action = {(r["a"] or "PASS"): {"count": r["n"], "amount": r["amt"]} for r in cur.fetchall()}
+
+        cur.execute(
+            f"""SELECT COALESCE(SUM(amount), 0) AS amt, COUNT(*) AS n FROM transactions {where}
+                AND action_taken IN ('BLOCK', 'FLAG')
+                AND COALESCE(status, CASE action_taken WHEN 'BLOCK' THEN 'blocked' ELSE 'flagged' END)
+                    IN ('blocked', 'cancelled', 'held')""",
+            params,
+        )
+        kept = row_to_dict(cur.fetchone())
+
+        cur.execute(
+            f"""SELECT CASE WHEN action_taken IN ('FLAG','BLOCK') THEN COALESCE(review_state, 'open') END AS s,
+                       review_outcome AS o, COUNT(*) AS n
+                FROM transactions {where} AND action_taken IN ('FLAG','BLOCK')
+                GROUP BY s, o""",
+            params,
+        )
+        reviews = {"open": 0, "in_review": 0, "escalated": 0, "resolved": 0, "fraud": 0, "legitimate": 0}
+        for r in cur.fetchall():
+            reviews[r["s"]] = reviews.get(r["s"], 0) + r["n"]
+            if r["o"]:
+                reviews[r["o"]] += r["n"]
+
+        cur.execute(
+            f"SELECT decision_ms FROM transactions {where} AND decision_ms IS NOT NULL ORDER BY decision_ms ASC",
+            params,
+        )
+        latencies = [r["decision_ms"] for r in cur.fetchall()]
+
+        cur.execute(
+            f"""SELECT channel, COUNT(*) AS n,
+                       SUM(CASE WHEN action_taken IN ('FLAG','BLOCK') THEN 1 ELSE 0 END) AS risky
+                FROM transactions {where} GROUP BY channel ORDER BY n DESC""",
+            params,
+        )
+        channels = [
+            {"label": CHANNEL_LABELS.get(r["channel"], r["channel"] or "Unknown"), "total": r["n"], "risky": r["risky"]}
+            for r in cur.fetchall()
+        ]
+
+        cur.execute(f"SELECT shield_signals FROM transactions {where} AND action_taken IN ('FLAG','BLOCK')", params)
+        signal_counts: dict[str, int] = {}
+        for r in cur.fetchall():
+            for raw in loads(r["shield_signals"], []) or []:
+                code = str(raw).split(":", 1)[0].strip()
+                if code:
+                    signal_counts[code] = signal_counts.get(code, 0) + 1
+
+        audit_where = "WHERE (institution_id = ? OR institution_id IS NULL)"
+        audit_params: list = [institution]
+        for value, op in ((date_from, ">="), (date_to, "<=")):
+            if value:
+                audit_where += f" AND date(created_at) {op} ?"
+                audit_params.append(value)
+        cur.execute(
+            f"SELECT event_type, COUNT(*) AS n FROM audit_log {audit_where} GROUP BY event_type",
+            audit_params,
+        )
+        events = {r["event_type"]: r["n"] for r in cur.fetchall()}
+
+        cur.execute("SELECT name FROM institutions WHERE institution_id = ?", (institution,))
+        inst_row = cur.fetchone()
+
+    import policy
+
+    total = sum(v["count"] for v in by_action.values())
+    blocked = by_action.get("BLOCK", {"count": 0, "amount": 0})
+    flagged = by_action.get("FLAG", {"count": 0, "amount": 0})
+    passed = by_action.get("PASS", {"count": 0, "amount": 0})
+    reviewed = reviews["fraud"] + reviews["legitimate"]
+
+    from intelligence.context import signal_label
+
+    top_signals = sorted(signal_counts.items(), key=lambda kv: kv[1], reverse=True)[:6]
+    return {
+        "institution": {"id": institution, "name": inst_row["name"] if inst_row else institution},
+        "period": {"from": date_from, "to": date_to},
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "volume": {
+            "transactions": total,
+            "value_ngn": sum(v["amount"] for v in by_action.values()),
+            "passed": passed["count"],
+            "flagged": flagged["count"],
+            "blocked": blocked["count"],
+            "frictionless_rate": round(passed["count"] / total, 4) if total else None,
+        },
+        "protection": {
+            "kept_from_fraud_ngn": kept["amt"] or 0,
+            "transfers_stopped": kept["n"] or 0,
+            "blocked_value_ngn": blocked["amount"],
+        },
+        "review": {
+            **reviews,
+            "reviewed": reviewed,
+            # Of the flags and blocks a person has looked at, how many were real.
+            # None until someone has reviewed something, rather than a made-up rate.
+            "precision": round(reviews["fraud"] / reviewed, 4) if reviewed else None,
+        },
+        "latency_ms": _percentiles(latencies),
+        "channels": channels,
+        "top_signals": [{"code": c, "label": signal_label(c), "count": n} for c, n in top_signals],
+        "controls": {
+            "identity_checks_passed": events.get(audit.STEPUP_PASSED, 0),
+            "identity_checks_failed": events.get(audit.STEPUP_FAILED, 0),
+            "holds_created": events.get(audit.CONTAINMENT_CREATED, 0),
+            "holds_cancelled": events.get(audit.CONTAINMENT_CANCELLED, 0) + events.get(audit.CONTAINMENT_EXPIRED, 0),
+            "policy_changes": events.get(audit.POLICY_CHANGED, 0),
+            "team_changes": sum(events.get(e, 0) for e in (audit.TEAM_INVITED, audit.TEAM_ROLE_CHANGED, audit.TEAM_REMOVED)),
+            "key_rotations": events.get(audit.KEY_ROTATED, 0),
+        },
+        "policy": policy.effective(institution),
+    }
+
