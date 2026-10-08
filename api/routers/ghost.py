@@ -2,6 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 import audit
 import notifications
+import webhooks
 
 from models.schemas import GhostCreateRequest, GhostActionRequest
 from agents.ghost.account import (
@@ -51,6 +52,17 @@ def create(payload: GhostCreateRequest, request: Request, background: Background
                  ghost_id=container["ghost_id"], amount=transaction.get("amount"),
                  risk_score=payload.risk_score, institution_id=institution_id)
 
+    webhooks.emit(institution_id, "containment.created", {
+        "ghost_id": container["ghost_id"],
+        "user_id": payload.user_id,
+        "amount": transaction.get("amount"),
+        "recipient_account": transaction.get("recipient_account"),
+        "recipient_bank": transaction.get("recipient_bank"),
+        "risk_score": payload.risk_score,
+        "cooling_window_minutes": container["cooling_window_minutes"],
+        "expires_at": container.get("expires_at"),
+    })
+
     background.add_task(
         notifications.notify_containment,
         payload.user_id, institution_id, container["ghost_id"],
@@ -68,10 +80,23 @@ def get(ghost_id: str):
     return container
 
 
+def _resolved(container: dict, outcome: str) -> None:
+    """Tell the bank's systems how a hold ended."""
+    webhooks.emit(container.get("institution_id"), "containment.resolved", {
+        "ghost_id": container.get("ghost_id"),
+        "user_id": container.get("user_id"),
+        "amount": container.get("amount"),
+        "outcome": outcome,
+        "status": container.get("status"),
+    })
+
+
 @router.post("/{ghost_id}/cancel")
 def cancel(ghost_id: str, payload: GhostActionRequest):
     try:
-        return cancel_ghost(ghost_id, payload.user_id)
+        result = cancel_ghost(ghost_id, payload.user_id)
+        _resolved({**(get_ghost_container(ghost_id) or {}), **(result or {})}, "cancelled")
+        return result
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except PermissionError as e:
@@ -81,7 +106,9 @@ def cancel(ghost_id: str, payload: GhostActionRequest):
 @router.post("/{ghost_id}/confirm")
 def confirm(ghost_id: str, payload: GhostActionRequest):
     try:
-        return release_ghost(ghost_id, payload.user_id, payload.stepup_token)
+        result = release_ghost(ghost_id, payload.user_id, payload.stepup_token)
+        _resolved({**(get_ghost_container(ghost_id) or {}), **(result or {})}, "released")
+        return result
     except ExpiredContainer as e:
         # 410, not 409: the hold existed and is now gone by design. Cancelling
         # is still available, so the client can offer the safe action.

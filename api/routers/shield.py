@@ -10,11 +10,13 @@ from models.schemas import (
     ShieldExplanationResponse,
     FeedbackRequest,
 )
+import audit
 import notifications
+import webhooks
 from agents.shield.analyzer import analyze_transaction_safe
 from agents.shield.explainer import generate_llm_explanation, llm_available
 from agents.copilot.baseline import log_transaction
-from tenancy import resolve_institution
+from tenancy import require_role, resolve_institution
 from accounts import InsufficientFunds, assert_can_spend, debit
 
 router = APIRouter(prefix="/v1/shield", tags=["shield"])
@@ -161,6 +163,22 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
             )
         except Exception:  # noqa: BLE001 — a notification must never fail a decision
             pass
+        webhooks.emit(
+            institution_id,
+            "transaction.blocked" if result["action"] == "BLOCK" else "transaction.flagged",
+            {
+                "id": transaction_id,
+                "user_id": payload.user_id,
+                "amount": transaction.get("amount"),
+                "recipient_account": transaction.get("recipient_account"),
+                "recipient_bank": transaction.get("recipient_bank"),
+                "channel": transaction.get("channel"),
+                "risk_score": result["risk_score"],
+                "action_taken": result["action"],
+                "signals": list(result["signals"]),
+                "explanation": result["explanation"],
+            },
+        )
 
     # Row is committed; the write-up worker now has something to update. It
     # also populates the cache, so the next decision of this shape resolves
@@ -229,12 +247,33 @@ def explanation(transaction_id: str):
 
 
 @router.post("/feedback")
-def feedback(payload: FeedbackRequest):
+def feedback(payload: FeedbackRequest, request: Request):
+    """The bank's verdict on a decision, from its own systems.
+
+    This used to accept anyone's word for any transaction: no credential and no
+    tenant check, so a caller could relabel another bank's fraud as legitimate
+    and teach Copilot that it was normal. It now needs the institution's API key
+    or a console session, and only touches that institution's transactions.
+    It is the API equivalent of resolving a case in the review queue.
+    """
+    from datetime import datetime, timezone
+
     from db import cursor
 
+    who = require_role(request, "analyst")
+    outcome = "fraud" if payload.was_fraud else "legitimate"
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     with cursor() as cur:
         cur.execute(
-            "UPDATE transactions SET confirmed_legitimate = ? WHERE id = ?",
-            (0 if payload.was_fraud else 1, payload.transaction_id),
+            """UPDATE transactions
+               SET confirmed_legitimate = ?, review_outcome = ?, reviewed_by = ?, reviewed_at = ?,
+                   review_state = CASE WHEN action_taken IN ('FLAG','BLOCK') THEN 'resolved' ELSE review_state END
+               WHERE id = ? AND institution_id = ?""",
+            (0 if payload.was_fraud else 1, outcome, who["email"], now, payload.transaction_id, who["inst"]),
         )
-    return {"status": "recorded", "transaction_id": payload.transaction_id}
+        found = cur.rowcount > 0
+    if not found:
+        raise HTTPException(status_code=404, detail="Unknown transaction")
+    audit.record(audit.FEEDBACK_RECORDED, payload.user_id, institution_id=who["inst"],
+                 transaction_id=payload.transaction_id, outcome=outcome, by=who["email"])
+    return {"status": "recorded", "transaction_id": payload.transaction_id, "outcome": outcome}
