@@ -3,9 +3,35 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, CaretDown, CircleNotch, Crosshair, DeviceMobile, Eye, Fingerprint, MapPin, ShieldCheck, Timer, XCircle } from "@phosphor-icons/react";
-import { Avatar, Card, Screen, ScreenHeader } from "@/components/demo/kit";
+import useSWR from "swr";
+import {
+  CaretDown,
+  Check,
+  Crosshair,
+  Fingerprint,
+  MapPin,
+  PaperPlaneTilt,
+  Timer,
+  WarningCircle,
+  XCircle,
+} from "@phosphor-icons/react";
+import { useInstitution } from "@/components/demo/InstitutionProvider";
+import { PageHeader } from "@/components/demo/PageHeader";
+import {
+  Avatar,
+  Button,
+  ButtonLink,
+  Card,
+  CardHeader,
+  DetailRow,
+  Eyebrow,
+  Field,
+  Notice,
+  Segmented,
+  inputClass,
+} from "@/components/demo/kit";
 import { BehavioralTracker } from "@/lib/fable/biometrics";
+import { InsufficientFundsError, accountBalance } from "@/lib/fable/api";
 import { collectDeviceFingerprint, type DeviceFingerprint } from "@/lib/fable/fingerprint";
 import { formatNaira } from "@/lib/fable/format";
 import { collectGeolocation, getGeolocationSnapshot, type GeoLocation } from "@/lib/fable/geolocation";
@@ -13,9 +39,7 @@ import { CHANNEL_LABELS } from "@/lib/fable/scoring";
 import { CONTACTS, QUICK_AMOUNTS } from "@/lib/fable/seed";
 import { ensureSession, getSessionContext, type BankingSession } from "@/lib/fable/session";
 import { submitTransfer } from "@/lib/fable/store";
-import { InsufficientFundsError } from "@/lib/fable/api";
 import type { Channel, Recipient } from "@/lib/fable/types";
-import { useInstitution } from "@/components/demo/InstitutionProvider";
 
 interface Bank {
   name: string;
@@ -28,30 +52,38 @@ type VerifyState = "idle" | "verifying" | "verified" | "error";
 /** Why a name is simulated rather than a real NUBAN lookup. Surfaced on the
  * badge so a degraded integration is never mistaken for a working one. */
 const FALLBACK_HINTS: Record<string, string> = {
-  no_key: "No Paystack key configured — set PAYSTACK_SECRET_KEY in .env.local.",
+  no_key: "No Paystack key configured. Set PAYSTACK_SECRET_KEY in .env.local.",
   ip_blocked:
     "Paystack is blocking this machine's IP on /bank/resolve. Clear the Test IP allowlist in the Paystack dashboard (empty = allow all). See /api/paystack-status.",
   unauthorized: "Paystack rejected the key. Check you copied the Test Secret Key (sk_test_...).",
   transport: "Could not reach Paystack. Check your connection.",
 };
 
-// One passive biometrics tracker per transfer-page visit (module scope keeps
-// it out of React's render path; the mount effect owns its lifecycle).
+// One passive behavioural tracker per visit to this page (module scope keeps it
+// out of React's render path; the mount effect owns its lifecycle).
 let tracker: BehavioralTracker | null = null;
 const recordKey = (field: string) => () => tracker?.recordKey(field);
 const recordPaste = (field: string) => () => tracker?.recordPaste(field);
 
+// The names the seeded beneficiaries resolve to.
+const CONTACT_REAL_NAMES: Record<string, string> = {
+  Mum: "Adeola Musa",
+  Landlord: "Emeka Okafor",
+  Chioma: "Chioma Nnamdi",
+  Unknown: "Bello Mukhtar",
+};
+
 export default function TransferPage() {
-  const { href } = useInstitution();
+  const { href, customer, institutionId } = useInstitution();
   const router = useRouter();
-  const [mode, setMode] = useState<"beneficiary" | "new">("beneficiary");
+
+  const [mode, setMode] = useState<"saved" | "new">("saved");
   const [contact, setContact] = useState<Recipient | null>(null);
   const [verify, setVerify] = useState<VerifyState>("idle");
   const [resolveSource, setResolveSource] = useState<string | null>(null);
   const [fallbackReason, setFallbackReason] = useState<string | null>(null);
   const [accountNumber, setAccountNumber] = useState("");
   const [banks, setBanks] = useState<Bank[]>([]);
-  const [bankSource, setBankSource] = useState<"paystack" | "fallback">("fallback");
   const [selectedBankCode, setSelectedBankCode] = useState("");
   const [amount, setAmount] = useState("");
   const [narration, setNarration] = useState("");
@@ -60,30 +92,34 @@ export default function TransferPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // --- Fable SDK: real data collection ---
+  // What the Fable SDK has actually collected on this page.
   const [device, setDevice] = useState<DeviceFingerprint | null>(null);
   const [location, setLocation] = useState<GeoLocation | null>(null);
   const [session, setSession] = useState<BankingSession | null>(null);
   const [sessionSeconds, setSessionSeconds] = useState(0);
 
+  const { data: account } = useSWR(
+    customer ? ["account", customer.user_id, institutionId] : null,
+    () => accountBalance(customer!.user_id, institutionId),
+    { refreshInterval: 15_000, keepPreviousData: true },
+  );
+
   useEffect(() => {
-    // Session starts (or resumes) the moment the banking surface loads.
+    // The session starts (or resumes) the moment the banking surface loads.
     const s = ensureSession();
     setSession(s);
     const tick = setInterval(() => setSessionSeconds(Math.round((Date.now() - s.loginTimestamp) / 1000)), 1000);
 
-    // Device fingerprint + geolocation (real GPS permission prompt, IP fallback).
     void collectDeviceFingerprint().then(setDevice);
     void collectGeolocation().then(setLocation);
 
-    // Passive behavioral biometrics for the whole page visit.
     const t = new BehavioralTracker();
     t.start();
     tracker = t;
 
-    // Auto-detect the channel this browser actually is (selector stays for testing).
-    const isMobile =
-      window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 768;
+    // Auto-detect the channel this browser actually is. The selector stays so a
+    // demo can switch to USSD, which Shield treats as a riskier rail.
+    const isMobile = window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 768;
     const detected: Channel = isMobile ? "app" : "web";
     setDetectedChannel(detected);
     setChannel(detected);
@@ -95,15 +131,13 @@ export default function TransferPage() {
     };
   }, []);
 
-  // Real bank list (Paystack when a key is configured, fallback list otherwise).
+  // Real bank list (Paystack when a key is configured, a built-in list otherwise).
   useEffect(() => {
     let cancelled = false;
     fetch("/api/banks")
       .then((r) => r.json())
-      .then((data: { banks: Bank[]; source: "paystack" | "fallback" }) => {
-        if (cancelled) return;
-        setBanks(data.banks);
-        setBankSource(data.source);
+      .then((data: { banks: Bank[] }) => {
+        if (!cancelled) setBanks(data.banks);
       })
       .catch(() => {});
     return () => {
@@ -113,41 +147,29 @@ export default function TransferPage() {
 
   const bankByCode = useMemo(() => new Map(banks.map((b) => [b.code, b])), [banks]);
 
-  // Real names for the hardcoded contacts
-  const getContactRealName = (name: string) => {
-    const map: Record<string, string> = { Mum: "Adeola Musa", Landlord: "Emeka Okafor", Chioma: "Chioma Nnamdi", Unknown: "Bello Mukhtar" };
-    return map[name] || name;
-  };
-
   const verifyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(verifyTimer.current), []);
 
   function selectContact(c: Recipient) {
-    setContact({ ...c, name: getContactRealName(c.name) });
-    setMode("beneficiary");
+    setContact({ ...c, name: CONTACT_REAL_NAMES[c.name] ?? c.name });
+    setMode("saved");
     setVerify("verifying");
     setResolveSource(null);
     clearTimeout(verifyTimer.current);
-    verifyTimer.current = setTimeout(() => setVerify("verified"), 950);
+    verifyTimer.current = setTimeout(() => setVerify("verified"), 700);
   }
 
   function handleAccountInput(val: string) {
     const clean = val.replace(/\D/g, "").slice(0, 10);
     setAccountNumber(clean);
-    setMode("new");
     setContact(null);
-    if (clean.length === 10 && selectedBankCode) {
-      startNewVerify(clean, selectedBankCode);
-    } else {
-      setVerify("idle");
-    }
+    if (clean.length === 10 && selectedBankCode) void startNewVerify(clean, selectedBankCode);
+    else setVerify("idle");
   }
 
   function handleBankSelect(code: string) {
     setSelectedBankCode(code);
-    if (accountNumber.length === 10 && code) {
-      startNewVerify(accountNumber, code);
-    }
+    if (accountNumber.length === 10 && code) void startNewVerify(accountNumber, code);
   }
 
   async function startNewVerify(acct: string, bankCode: string) {
@@ -155,21 +177,17 @@ export default function TransferPage() {
     setContact(null);
     setResolveSource(null);
     setFallbackReason(null);
-
     try {
       const res = await fetch("/api/resolve-account", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountNumber: acct, bankCode }),
       });
-
       const data = await res.json();
-
       if (!res.ok) {
         setVerify("error");
         return;
       }
-
       setContact({
         name: data.accountName,
         bank: data.bankName ?? bankByCode.get(bankCode)?.name ?? bankCode,
@@ -186,14 +204,16 @@ export default function TransferPage() {
   }
 
   const amountValue = Number(amount) || 0;
-  const canSubmit = contact !== null && verify === "verified" && amountValue > 0 && !submitting;
+  const available = account?.available ?? null;
+  const overBalance = available !== null && amountValue > available;
+  const canSubmit = contact !== null && verify === "verified" && amountValue > 0 && !overBalance && !submitting;
 
   async function handleSubmit() {
     if (!canSubmit || !contact) return;
     setSubmitting(true);
     setSubmitError(null);
 
-    // Bundle everything the SDK has actually collected on this page.
+    // Everything the SDK collected on this page travels with the transfer.
     const sdk = {
       device,
       location: getGeolocationSnapshot(),
@@ -201,24 +221,18 @@ export default function TransferPage() {
       behavior: tracker?.snapshot() ?? null,
     };
 
-    // Every exit path resets the spinner. Previously an error here — most
-    // often a declined-for-funds transfer — threw straight past the navigation
-    // with nothing to catch it, so the button sat on "Analyzing Risk…"
-    // forever. A frictionless product must never strand the user mid-action.
+    // Every exit path resets the spinner: a declined-for-funds transfer used to
+    // throw past the navigation and strand the button on "Checking" forever.
     try {
-      // A brief floor so the "Analyzing Risk" moment registers, not the ~1.4s
-      // it used to hold — the real scoring is already sub-200ms, so a long
-      // artificial wait was pure friction on the way to the result screen.
+      // A short floor so the checking moment registers. Scoring is sub-200ms, so
+      // a long artificial wait would be pure friction.
       const minDelay = new Promise((resolve) => setTimeout(resolve, 650));
-      await Promise.all([
-        submitTransfer({ amount: amountValue, recipient: contact, narration, channel }, sdk),
-        minDelay,
-      ]);
+      await Promise.all([submitTransfer({ amount: amountValue, recipient: contact, narration, channel }, sdk), minDelay]);
       router.push(href("/result"));
     } catch (err) {
       if (err instanceof InsufficientFundsError) {
         const short = err.shortfall > 0 ? ` You're ${formatNaira(err.shortfall)} short.` : "";
-        setSubmitError(`Not enough balance for this transfer.${short} Add money and try again.`);
+        setSubmitError(`Not enough balance for this transfer.${short}`);
       } else {
         setSubmitError("We couldn't process this transfer just now. Please try again.");
       }
@@ -227,62 +241,54 @@ export default function TransferPage() {
   }
 
   return (
-    <Screen>
-      <ScreenHeader title="Send money" />
+    <div className="mx-auto w-full max-w-[1240px] px-4 pb-8 pt-5 sm:px-6 lg:px-8 lg:pt-7">
+      <PageHeader title="Send money" subtitle="Move money to any Nigerian bank account" back />
 
-      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-5 lg:gap-5">
-        <div className="flex flex-col gap-4 lg:col-span-3">
-          {/* Recipient */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+        <div className="flex flex-col gap-5 lg:col-span-7">
+          {/* 1. Recipient */}
           <Card>
-            {/* Tab toggle */}
-            <div className="mb-4 flex gap-1 rounded-lg bg-gray-100 dark:bg-[#111] p-0.5 border border-gray-200 dark:border-white/[0.04]">
-              <button
-                type="button"
-                onClick={() => setMode("beneficiary")}
-                className={`flex-1 rounded-md py-2 text-[12px] font-medium transition-colors ${
-                  mode === "beneficiary" ? "bg-white text-gray-900 dark:bg-[#1a1a1a] dark:text-white shadow-sm border border-gray-200 dark:border-white/[0.05]" : "text-gray-500 dark:text-white/35 hover:text-gray-700 dark:hover:text-white/60"
-                }`}
-              >
-                Beneficiary
-              </button>
-              <button
-                type="button"
-                onClick={() => { setMode("new"); setContact(null); setVerify("idle"); }}
-                className={`flex-1 rounded-md py-2 text-[12px] font-medium transition-colors ${
-                  mode === "new" ? "bg-white text-gray-900 dark:bg-[#1a1a1a] dark:text-white shadow-sm border border-gray-200 dark:border-white/[0.05]" : "text-gray-500 dark:text-white/35 hover:text-gray-700 dark:hover:text-white/60"
-                }`}
-              >
-                New account
-              </button>
-            </div>
+            <CardHeader
+              title="Who are you sending to?"
+              action={
+                <Segmented
+                  value={mode}
+                  onChange={(m) => {
+                    setMode(m);
+                    setContact(null);
+                    setVerify("idle");
+                  }}
+                  options={[
+                    { value: "saved", label: "Saved" },
+                    { value: "new", label: "New account" },
+                  ]}
+                />
+              }
+            />
 
-            {mode === "beneficiary" ? (
-              /* Saved beneficiaries */
-              <div className="flex gap-4 overflow-x-auto pb-1 scrollbar-hide">
+            {mode === "saved" ? (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {CONTACTS.map((c) => {
-                  const selected = contact?.accountNumber === c.accountNumber && mode === "beneficiary";
+                  const selected = contact?.accountNumber === c.accountNumber;
                   return (
                     <button
                       key={c.accountNumber}
                       type="button"
                       onClick={() => selectContact(c)}
-                      className="flex shrink-0 flex-col items-center gap-1.5"
+                      className={`flex flex-col items-center gap-2 rounded-2xl border p-3.5 transition-all ${
+                        selected ? "border-brand bg-brand/[0.06] ring-4 ring-brand/10" : "border-d-border hover:bg-d-surface-2"
+                      }`}
                     >
-                      <span className={`rounded-full p-0.5 transition-all ${selected ? "ring-2 ring-[var(--brand-primary)]" : ""}`}>
-                        <Avatar name={c.name} size="lg" />
-                      </span>
-                      <span className={`text-[11px] font-medium ${selected ? "text-[var(--brand-primary)]" : "text-gray-500 dark:text-white/35"}`}>
-                        {c.name}
-                      </span>
+                      <Avatar name={c.name} size="lg" />
+                      <span className="text-[13px] font-semibold text-d-text">{c.name}</span>
+                      <span className="text-[11px] text-d-muted">{c.bank}</span>
                     </button>
                   );
                 })}
               </div>
             ) : (
-              /* New account input */
-              <div className="flex flex-col gap-3">
-                <div>
-                  <label className="mb-1 block text-[11px] font-bold text-gray-400 dark:text-white/25 uppercase tracking-wider">Account number</label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Account number">
                   <input
                     inputMode="numeric"
                     maxLength={10}
@@ -290,274 +296,245 @@ export default function TransferPage() {
                     onChange={(e) => handleAccountInput(e.target.value)}
                     onKeyDown={recordKey("account_number")}
                     onPaste={recordPaste("account_number")}
-                    placeholder="Enter 10-digit account number"
-                    aria-label="Enter 10-digit account number"
-                    className="w-full rounded-xl bg-gray-50 dark:bg-[#111] px-4 py-3 text-[14px] text-gray-900 dark:text-white tabular-nums outline-none placeholder:text-gray-400 dark:placeholder:text-white/15 focus:ring-1 focus:ring-[var(--brand-primary)]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
+                    placeholder="10-digit account number"
+                    aria-label="Account number"
+                    className={`${inputClass} tabular-nums`}
                   />
-                </div>
-                <div>
-                  <div className="mb-1 flex items-center justify-between">
-                    <label className="block text-[11px] font-bold text-gray-400 dark:text-white/25 uppercase tracking-wider">Bank</label>
-                    <span className={`text-[10px] font-semibold ${bankSource === "paystack" ? "text-emerald-500" : "text-gray-400 dark:text-white/25"}`}>
-                      {bankSource === "paystack" ? `${banks.length} banks · live` : "built-in list"}
-                    </span>
-                  </div>
+                </Field>
+                <Field label="Bank">
                   <div className="relative">
                     <select
                       value={selectedBankCode}
                       onChange={(e) => handleBankSelect(e.target.value)}
-                      className="w-full appearance-none rounded-xl bg-gray-50 dark:bg-[#111] px-4 py-3 text-[13px] text-gray-900 dark:text-white outline-none focus:ring-1 focus:ring-[var(--brand-primary)]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
+                      aria-label="Bank"
+                      className={`${inputClass} appearance-none pr-10`}
                     >
-                      <option value="" disabled>Select bank</option>
-                      {banks.map((b) => <option key={`${b.code}-${b.name}`} value={b.code}>{b.name}</option>)}
+                      <option value="" disabled>
+                        Select bank
+                      </option>
+                      {banks.map((b) => (
+                        <option key={`${b.code}-${b.name}`} value={b.code}>
+                          {b.name}
+                        </option>
+                      ))}
                     </select>
-                    <CaretDown size={14} className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-white/25" />
+                    <CaretDown size={14} className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-d-faint" />
                   </div>
-                </div>
+                </Field>
               </div>
             )}
 
-            {/* Verification status */}
-            {(verify === "verifying" || verify === "verified" || verify === "error") && (
+            {verify !== "idle" && (
               <div
-                className={`mt-4 flex items-center gap-2 rounded-xl px-4 py-3 text-[12px] transition-colors border ${
+                className={`mt-4 flex items-center gap-3 rounded-xl px-4 py-3 text-[13px] ${
                   verify === "verified"
-                    ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-500/20"
+                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                     : verify === "error"
-                    ? "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 border-red-100 dark:border-red-500/20"
-                    : "bg-gray-50 dark:bg-white/[0.03] text-gray-500 dark:text-white/40 border-gray-200 dark:border-white/[0.05]"
+                      ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                      : "bg-d-surface-2 text-d-muted"
                 }`}
               >
                 {verify === "verifying" ? (
                   <>
-                    <span className="size-3.5 animate-spin rounded-full border-[1.5px] border-white/10 border-t-white/40" />
-                    <span>Resolving account details...</span>
+                    <span className="size-4 animate-spin rounded-full border-2 border-d-border border-t-d-muted" />
+                    Looking up account…
                   </>
                 ) : verify === "error" ? (
                   <>
-                    <XCircle size={16} weight="fill" />
-                    <span>Account not found. Please check details.</span>
+                    <XCircle size={18} weight="fill" />
+                    We couldn&apos;t find that account. Check the number and bank.
                   </>
                 ) : contact ? (
                   <>
-                    <Check size={16} weight="bold" />
-                    <span>
+                    <Check size={18} weight="bold" />
+                    <span className="min-w-0 flex-1">
                       <span className="font-semibold">{contact.name}</span> · {contact.bank}
-                      {resolveSource === "paystack" ? (
-                        <span className="ml-1.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">NUBAN verified</span>
+                    </span>
+                    {mode === "new" &&
+                      (resolveSource === "paystack" ? (
+                        <span className="shrink-0 rounded-md bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                          Verified
+                        </span>
                       ) : (
                         <span
-                          className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+                          className="shrink-0 rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300"
                           title={FALLBACK_HINTS[fallbackReason ?? "no_key"]}
                         >
-                          Simulated name
+                          Demo name
                         </span>
-                      )}
-                    </span>
+                      ))}
                   </>
                 ) : null}
               </div>
             )}
           </Card>
 
-          {/* Amount */}
+          {/* 2. Amount */}
           <Card>
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-white/25">Amount</p>
-            <div className="flex items-center justify-center gap-1 py-3">
-              <span className="text-[24px] font-bold text-gray-400 dark:text-white/15">₦</span>
-              <input
-                inputMode="numeric"
-                value={amount ? Number(amount).toLocaleString("en-NG") : ""}
-                onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
-                onKeyDown={recordKey("amount")}
-                onPaste={recordPaste("amount")}
-                placeholder="0"
-                aria-label="0"
-                className="w-full bg-transparent text-center text-[40px] font-bold tabular-nums text-gray-900 dark:text-white outline-none placeholder:text-gray-300 dark:placeholder:text-white/10"
-              />
+            <CardHeader title="How much?" />
+            <div className="rounded-2xl bg-d-surface-2 px-4 py-6">
+              <div className="flex items-center justify-center gap-1.5">
+                <span className="text-[28px] font-bold text-d-faint">₦</span>
+                <input
+                  inputMode="numeric"
+                  value={amount ? Number(amount).toLocaleString("en-NG") : ""}
+                  onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
+                  onKeyDown={recordKey("amount")}
+                  onPaste={recordPaste("amount")}
+                  placeholder="0"
+                  aria-label="Amount in naira"
+                  className="w-full min-w-0 bg-transparent text-center text-[44px] font-bold tabular-nums text-d-text outline-none placeholder:text-d-faint/50 sm:text-[52px]"
+                />
+              </div>
+              {available !== null && (
+                <p className="mt-1 text-center text-[12px] text-d-muted">Available {formatNaira(available)}</p>
+              )}
             </div>
+
             <div className="mt-3 grid grid-cols-4 gap-2">
               {QUICK_AMOUNTS.map((a) => (
                 <button
                   key={a}
                   type="button"
                   onClick={() => setAmount(String(a))}
-                  className={`rounded-lg py-2.5 text-[11px] font-semibold transition-colors border ${
-                    amountValue === a
-                      ? "text-white"
-                      : "bg-gray-50 dark:bg-[#111] text-gray-600 dark:text-white/35 hover:bg-gray-100 dark:hover:bg-[#222] border-gray-200 dark:border-white/[0.04]"
+                  className={`h-10 rounded-xl text-[12px] font-semibold transition-colors ${
+                    amountValue === a ? "bg-brand text-white" : "bg-d-surface-2 text-d-muted hover:text-d-text"
                   }`}
                 >
                   ₦{a >= 1000 ? `${a / 1000}k` : a}
                 </button>
               ))}
             </div>
-          </Card>
 
-          {/* Fable SDK — live collection panel */}
-          <Card>
-            <div className="mb-3 flex items-center gap-2">
-              <Eye size={15} weight="fill" className="text-[var(--brand-primary)]" />
-              <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-white/25">Fable is watching — real data collected</p>
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <div className="flex items-start gap-2.5 rounded-lg bg-gray-50 dark:bg-[#111] px-3 py-2.5 border border-gray-200 dark:border-white/[0.04]">
-                <Fingerprint size={16} className="mt-0.5 shrink-0 text-[var(--brand-primary)]" />
-                <div className="min-w-0 text-[11px]">
-                  <p className="font-semibold text-gray-700 dark:text-white/70">Device</p>
-                  {device ? (
-                    <p className="truncate text-gray-500 dark:text-white/40">
-                      <span className="font-mono">{device.fingerprint_id}</span> · {device.os} · {device.browser}
-                      {device.battery_level != null && ` · 🔋${Math.round(device.battery_level * 100)}%`}
-                    </p>
-                  ) : (
-                    <p className="text-gray-400 dark:text-white/25">Fingerprinting…</p>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-start gap-2.5 rounded-lg bg-gray-50 dark:bg-[#111] px-3 py-2.5 border border-gray-200 dark:border-white/[0.04]">
-                <MapPin size={16} className="mt-0.5 shrink-0 text-[var(--brand-primary)]" />
-                <div className="min-w-0 text-[11px]">
-                  <p className="font-semibold text-gray-700 dark:text-white/70">Location</p>
-                  {location ? (
-                    location.source === "unavailable" ? (
-                      <p className="text-gray-400 dark:text-white/25">Unavailable (GPS denied, IP lookup failed)</p>
-                    ) : (
-                      <p className="truncate text-gray-500 dark:text-white/40">
-                        {[location.locality, location.city, location.country].filter(Boolean).join(", ") || `${location.latitude?.toFixed(3)}, ${location.longitude?.toFixed(3)}`}
-                        <span className="ml-1.5 rounded bg-[var(--brand-primary)]/10 px-1 py-0.5 text-[9px] font-bold uppercase text-[var(--brand-primary)]">{location.source}</span>
-                      </p>
-                    )
-                  ) : (
-                    <p className="text-gray-400 dark:text-white/25">Locating… (allow GPS or IP fallback)</p>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-start gap-2.5 rounded-lg bg-gray-50 dark:bg-[#111] px-3 py-2.5 border border-gray-200 dark:border-white/[0.04]">
-                <Timer size={16} className="mt-0.5 shrink-0 text-[var(--brand-primary)]" />
-                <div className="min-w-0 text-[11px]">
-                  <p className="font-semibold text-gray-700 dark:text-white/70">Session</p>
-                  {session ? (
-                    <p className="text-gray-500 dark:text-white/40">
-                      {sessionSeconds < 60 ? `${sessionSeconds}s` : `${Math.floor(sessionSeconds / 60)}m ${sessionSeconds % 60}s`} since login · {session.authMethod}
-                    </p>
-                  ) : (
-                    <p className="text-gray-400 dark:text-white/25">Starting…</p>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-start gap-2.5 rounded-lg bg-gray-50 dark:bg-[#111] px-3 py-2.5 border border-gray-200 dark:border-white/[0.04]">
-                <Crosshair size={16} className="mt-0.5 shrink-0 text-[var(--brand-primary)]" />
-                <div className="min-w-0 text-[11px]">
-                  <p className="font-semibold text-gray-700 dark:text-white/70">Behavior</p>
-                  <p className="text-gray-500 dark:text-white/40">
-                    Typing, pointer, scroll &amp; paste tracked live
-                  </p>
-                </div>
-              </div>
+            <div className="mt-5">
+              <Field
+                label="Narration (optional)"
+                hint={
+                  <>
+                    <span className="font-semibold text-amber-600 dark:text-amber-400">Demo tip:</span> try &ldquo;urgent help abeg&rdquo; to a new
+                    account to see Shield step in.
+                  </>
+                }
+              >
+                <input
+                  value={narration}
+                  onChange={(e) => setNarration(e.target.value)}
+                  onKeyDown={recordKey("narration")}
+                  onPaste={recordPaste("narration")}
+                  placeholder="What's this for?"
+                  aria-label="Narration"
+                  className={inputClass}
+                />
+              </Field>
             </div>
           </Card>
         </div>
 
-        {/* Right */}
-        <div className="flex flex-col gap-4 lg:col-span-2">
-          <Card className="flex flex-col gap-4">
-            <div>
-              <label className="mb-1.5 block text-[11px] font-bold text-gray-400 dark:text-white/25 uppercase tracking-wider">Narration</label>
-              <input
-                value={narration}
-                onChange={(e) => setNarration(e.target.value)}
-                onKeyDown={recordKey("narration")}
-                onPaste={recordPaste("narration")}
-                placeholder="What's this for?"
-                aria-label="What's this for?"
-                className="w-full rounded-xl bg-gray-50 dark:bg-[#111] px-4 py-3 text-[13px] text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-white/15 focus:ring-1 focus:ring-[var(--brand-primary)]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
+        {/* 3. Review */}
+        <div className="flex flex-col gap-5 lg:col-span-5">
+          <Card className="lg:sticky lg:top-6">
+            <CardHeader title="Review" />
+
+            <div className="divide-y divide-d-border">
+              <DetailRow label="From">{customer?.name ?? "—"}</DetailRow>
+              <DetailRow label="To">{contact ? contact.name : <span className="text-d-faint">Not chosen yet</span>}</DetailRow>
+              <DetailRow label="Bank">{contact?.bank ?? <span className="text-d-faint">—</span>}</DetailRow>
+              <DetailRow label="Amount">
+                <span className="text-[16px] font-bold tabular-nums">{formatNaira(amountValue)}</span>
+              </DetailRow>
+            </div>
+
+            <div className="mt-4">
+              <Eyebrow className="mb-2">Sent via</Eyebrow>
+              <Segmented
+                value={channel}
+                onChange={setChannel}
+                options={CHANNELS.map((ch) => ({
+                  value: ch,
+                  label: detectedChannel === ch ? `${CHANNEL_LABELS[ch]} · detected` : CHANNEL_LABELS[ch],
+                }))}
+                className="w-full [&>button]:flex-1"
               />
-              <p className="mt-1.5 text-[11px] text-gray-500 dark:text-white/30">
-                Try <span className="font-medium text-amber-500 dark:text-amber-400/60">&ldquo;urgent help abeg&rdquo;</span> to a new contact to test Fable Shield.
-              </p>
             </div>
 
-            <div>
-              <div className="mb-1.5 flex items-center justify-between">
-                <label className="block text-[11px] font-bold text-gray-400 dark:text-white/25 uppercase tracking-wider">Channel</label>
-                {detectedChannel && (
-                  <span className="flex items-center gap-1 text-[10px] font-semibold text-gray-400 dark:text-white/30">
-                    <DeviceMobile size={12} />
-                    auto-detected: {CHANNEL_LABELS[detectedChannel]}
-                  </span>
-                )}
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {CHANNELS.map((ch) => (
-                  <button
-                    key={ch}
-                    type="button"
-                    onClick={() => setChannel(ch)}
-                    className={`relative rounded-xl py-2.5 text-[12px] font-medium transition-colors border ${
-                      channel === ch
-                        ? "text-white"
-                        : "bg-gray-50 dark:bg-[#111] text-gray-600 dark:text-white/35 hover:bg-gray-100 dark:hover:bg-[#222] border-gray-200 dark:border-white/[0.04]"
-                    }`}
-                  >
-                    {CHANNEL_LABELS[ch]}
-                    {detectedChannel === ch && (
-                      <span className={`absolute -top-1.5 -right-1.5 rounded-full px-1.5 text-[8px] font-bold uppercase ${channel === ch ? "bg-white text-[var(--brand-primary)]" : "bg-[var(--brand-primary)] text-white"}`}>
-                        auto
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </Card>
+            {overBalance && (
+              <Notice tone="warning" className="mt-4 flex items-start gap-2">
+                <WarningCircle size={18} weight="fill" className="mt-0.5 shrink-0" />
+                <span>
+                  That&apos;s more than your available balance.{" "}
+                  <Link href={href("/add-money")} className="font-semibold underline">
+                    Add money
+                  </Link>
+                </span>
+              </Notice>
+            )}
 
-          <Card>
-            <div className="mb-2.5 flex items-center justify-between text-[13px]">
-              <span className="text-gray-500 dark:text-white/40">Transfer amount</span>
-              <span className="font-semibold tabular-nums text-gray-900 dark:text-white">{formatNaira(amountValue)}</span>
-            </div>
-            <div className="mb-5 flex items-center justify-between text-[13px]">
-              <span className="text-gray-500 dark:text-white/40">Transaction fee</span>
-              <span className="font-semibold tabular-nums text-gray-900 dark:text-white">₦10.00</span>
-            </div>
-
-            <div className="mb-5 flex items-center justify-between border-t border-gray-200 dark:border-white/[0.04] pt-4 text-[14px]">
-              <span className="font-bold text-gray-700 dark:text-white/60">Total debit</span>
-              <span className="font-bold tabular-nums text-gray-900 dark:text-white">{formatNaira(amountValue + 10)}</span>
-            </div>
-
-            <button
-              type="button"
+            <Button
+              size="lg"
+              full
+              className="mt-5"
               disabled={!canSubmit}
+              loading={submitting}
               onClick={handleSubmit}
-              style={canSubmit ? { backgroundColor: "var(--brand-primary, #7C3AED)" } : undefined}
-              className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-gray-100 dark:disabled:bg-[#111] disabled:text-gray-400 dark:disabled:text-white/15 disabled:border disabled:border-gray-200 dark:disabled:border-white/[0.04] shadow-lg disabled:shadow-none"
+              icon={!submitting ? <PaperPlaneTilt size={18} weight="fill" /> : undefined}
             >
-              {submitting ? (
-                <>
-                  <CircleNotch size={18} className="animate-spin" />
-                  Analyzing Risk...
-                </>
-              ) : (
-                <>
-                  <ShieldCheck size={18} weight="fill" />
-                  Send {formatNaira(amountValue)}
-                </>
-              )}
-            </button>
+              {submitting ? "Checking transfer…" : amountValue > 0 ? `Send ${formatNaira(amountValue)}` : "Send money"}
+            </Button>
 
             {submitError && (
-              <div className="mt-3 flex items-start gap-2 rounded-xl bg-red-50 px-3.5 py-2.5 text-[12px] leading-relaxed text-red-600 dark:bg-red-500/10 dark:text-red-400">
-                <span className="flex-1">{submitError}</span>
-                <Link href={href("/add-money")} className="shrink-0 font-bold underline">
-                  Add money
-                </Link>
-              </div>
+              <Notice tone="danger" className="mt-3">
+                {submitError}{" "}
+                {submitError.startsWith("Not enough") && (
+                  <ButtonLink href={href("/add-money")} variant="ghost" size="sm" className="!h-auto !px-0 underline">
+                    Add money
+                  </ButtonLink>
+                )}
+              </Notice>
             )}
+
+            {/* What Fable reads, collapsed by default. It is the product's real
+                data collection, shown for evaluators without crowding the form. */}
+            <details className="group mt-5 rounded-xl border border-d-border">
+              <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-[13px] font-semibold text-d-text">
+                What Fable checks on this transfer
+                <CaretDown size={14} className="text-d-faint transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="flex flex-col gap-3 border-t border-d-border px-4 py-3.5 text-[12px]">
+                <Signal icon={<Fingerprint size={16} />} title="Device">
+                  {device ? `${device.os} · ${device.browser}` : "Reading…"}
+                </Signal>
+                <Signal icon={<MapPin size={16} />} title="Location">
+                  {location
+                    ? location.source === "unavailable"
+                      ? "Not available"
+                      : [location.city, location.country].filter(Boolean).join(", ") || "Approximate"
+                    : "Locating…"}
+                </Signal>
+                <Signal icon={<Timer size={16} />} title="Session">
+                  {session
+                    ? `${sessionSeconds < 60 ? `${sessionSeconds}s` : `${Math.floor(sessionSeconds / 60)}m ${sessionSeconds % 60}s`} since sign-in`
+                    : "Starting…"}
+                </Signal>
+                <Signal icon={<Crosshair size={16} />} title="Behaviour">
+                  Typing, paste and pace on this page
+                </Signal>
+              </div>
+            </details>
           </Card>
         </div>
       </div>
-    </Screen>
+    </div>
+  );
+}
+
+function Signal({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <span className="mt-0.5 shrink-0 text-brand">{icon}</span>
+      <div className="min-w-0">
+        <p className="font-semibold text-d-text">{title}</p>
+        <p className="truncate text-d-muted">{children}</p>
+      </div>
+    </div>
   );
 }

@@ -3,17 +3,17 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { MagnifyingGlass, Faders } from "@phosphor-icons/react";
-import { DemoSheet } from "@/components/demo/DemoSheet";
+import { CaretDown, MagnifyingGlass, Receipt } from "@phosphor-icons/react";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
-import { Avatar, Card, Screen, ScreenHeader } from "@/components/demo/kit";
+import { PageHeader } from "@/components/demo/PageHeader";
+import { Avatar, ButtonLink, Card, EmptyState, Screen, Segmented, Skeleton, inputClass } from "@/components/demo/kit";
 import { customerTransactions } from "@/lib/fable/api";
-import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
+import { formatDateTime, formatNaira, formatRelativeTime } from "@/lib/fable/format";
 import { useFableStore } from "@/lib/fable/store";
 import type { Transaction } from "@/lib/fable/types";
-import { riskTone } from "@/lib/fable/ui";
+import { statusTone } from "@/lib/fable/ui";
 
-type FilterMode = "all" | "credit" | "debit";
+type Direction = "all" | "credit" | "debit";
 type Period = "all" | "week" | "month";
 type SortMode = "newest" | "oldest" | "largest";
 
@@ -23,17 +23,17 @@ export default function HistoryPage() {
   const store = useFableStore();
   const { customer, institutionId, href } = useInstitution();
   const router = useRouter();
-  const [filter, setFilter] = useState<FilterMode>("all");
-  const [search, setSearch] = useState("");
 
-  // Advanced filters, behind the Faders button.
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [direction, setDirection] = useState<Direction>("all");
+  const [search, setSearch] = useState("");
   const [period, setPeriod] = useState<Period>("all");
   const [sort, setSort] = useState<SortMode>("newest");
   const [riskOnly, setRiskOnly] = useState(false);
+  // One reference time per visit, so the period filter is stable between renders.
+  const [now] = useState(() => Date.now());
 
   // This customer's real history, keyed on user_id rather than name. Two
-  // institutions can have similarly-named customers; only the id is unique.
+  // institutions can have similarly named customers; only the id is unique.
   const { data: serverTxns } = useSWR(
     customer ? ["demo:history", customer.user_id, institutionId] : null,
     () => customerTransactions(customer!.user_id, institutionId, 200),
@@ -41,28 +41,25 @@ export default function HistoryPage() {
   );
 
   // Transfers made this session appear immediately, ahead of the next poll.
-  // Scoped to the selected customer: the store is shared per-institution, so
-  // an unscoped filter leaked one customer's session transfers into another's.
+  // Scoped to the selected customer: the store is shared per institution, so an
+  // unscoped filter leaked one customer's transfers into another's feed.
   const localLive = (store?.transactions ?? []).filter((t) => t.live && t.userId === customer?.user_id);
-  const myTxns: Transaction[] = [
+  const all: Transaction[] = [
     ...localLive,
     ...(serverTxns ?? []).filter((t) => !localLive.some((l) => l.id === t.id)),
   ];
 
-  const filteredTxns = myTxns
+  const rows = all
     .filter((t) => {
-      if (filter === "credit" && t.direction !== "credit") return false;
-      if (filter === "debit" && t.direction !== "debit") return false;
+      if (direction !== "all" && t.direction !== direction) return false;
       if (riskOnly && t.action === "PASS") return false;
       if (period !== "all") {
-        const cutoff = Date.now() - (period === "week" ? 7 : 30) * DAY_MS;
+        const cutoff = now - (period === "week" ? 7 : 30) * DAY_MS;
         if (t.timestamp < cutoff) return false;
       }
       if (search.trim()) {
         const q = search.toLowerCase();
-        if (!t.recipientName.toLowerCase().includes(q) && !t.narration?.toLowerCase().includes(q)) {
-          return false;
-        }
+        if (!t.recipientName.toLowerCase().includes(q) && !t.narration?.toLowerCase().includes(q)) return false;
       }
       return true;
     })
@@ -72,223 +69,213 @@ export default function HistoryPage() {
       return b.timestamp - a.timestamp;
     });
 
-  // Day grouping only reads correctly in date order.
-  const groups = groupByDay(sort === "largest" ? [...filteredTxns].sort((a, b) => b.timestamp - a.timestamp) : filteredTxns);
-  const activeCount = (period !== "all" ? 1 : 0) + (sort !== "newest" ? 1 : 0) + (riskOnly ? 1 : 0);
-
-  function resetFilters() {
-    setPeriod("all");
-    setSort("newest");
-    setRiskOnly(false);
-  }
+  const loading = store === null || (!serverTxns && !!customer);
+  const filtered = direction !== "all" || riskOnly || period !== "all" || search.trim() !== "";
 
   return (
     <Screen>
-      <ScreenHeader title="Activity" />
+      <PageHeader title="Activity" subtitle="Everything that has moved in or out of your account" back />
 
-      <div className="mb-5 flex flex-col gap-3">
-        {/* Search bar */}
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <MagnifyingGlass size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-white/35" />
+      <Card padded={false}>
+        {/* Toolbar */}
+        <div className="flex flex-col gap-3 border-b border-d-border p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative lg:w-[320px]">
+            <MagnifyingGlass size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-d-faint" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name or narration"
+              placeholder="Search name or narration"
               aria-label="Search by name or narration"
-              className="w-full rounded-xl bg-gray-50 dark:bg-[#1a1a1a] py-2.5 pl-9 pr-3 text-[13px] text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-white/25 focus:ring-1 focus:ring-[var(--brand-primary)]/40 transition-all border border-gray-200 dark:border-white/[0.04]"
+              className={`${inputClass} !h-10 pl-10 text-[13px]`}
             />
           </div>
-          <button
-            type="button"
-            onClick={() => setSheetOpen(true)}
-            aria-label={activeCount ? `Filters (${activeCount} active)` : "Filters"}
-            className={`relative flex size-10 shrink-0 items-center justify-center rounded-xl border transition-colors ${
-              activeCount
-                ? "border-[var(--brand-primary)]/30 bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]"
-                : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 dark:border-white/[0.04] dark:bg-[#1a1a1a] dark:text-white/50 dark:hover:bg-[#222]"
-            }`}
-          >
-            <Faders size={18} />
-            {activeCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-[var(--brand-primary)] text-[9px] font-bold text-white">
-                {activeCount}
-              </span>
-            )}
-          </button>
-        </div>
 
-        {/* Filter tabs */}
-        <div className="flex gap-2">
-          <FilterTab active={filter === "all"} onClick={() => setFilter("all")}>All</FilterTab>
-          <FilterTab active={filter === "credit"} onClick={() => setFilter("credit")}>Credits</FilterTab>
-          <FilterTab active={filter === "debit"} onClick={() => setFilter("debit")}>Debits</FilterTab>
-        </div>
-      </div>
-
-      {store === null ? (
-        <Card>
-          <div className="h-40 animate-pulse rounded-2xl bg-gray-100 dark:bg-white/[0.04]" />
-        </Card>
-      ) : filteredTxns.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12">
-          <div className="flex size-12 items-center justify-center rounded-full bg-gray-100 dark:bg-[#1a1a1a] text-gray-400 dark:text-white/20 mb-3">
-            <MagnifyingGlass size={24} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmented
+              value={direction}
+              onChange={setDirection}
+              options={[
+                { value: "all", label: "All" },
+                { value: "credit", label: "Money in" },
+                { value: "debit", label: "Money out" },
+              ]}
+            />
+            <Select value={period} onChange={(v) => setPeriod(v as Period)} label="Period">
+              <option value="all">All time</option>
+              <option value="week">Last 7 days</option>
+              <option value="month">Last 30 days</option>
+            </Select>
+            <Select value={sort} onChange={(v) => setSort(v as SortMode)} label="Sort">
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="largest">Largest</option>
+            </Select>
+            <button
+              type="button"
+              onClick={() => setRiskOnly((r) => !r)}
+              aria-pressed={riskOnly}
+              className={`h-10 rounded-xl px-3.5 text-[12px] font-semibold transition-colors ${
+                riskOnly ? "bg-amber-500/16 text-amber-700 dark:text-amber-300" : "bg-d-surface-2 text-d-muted hover:text-d-text"
+              }`}
+            >
+              Flagged &amp; blocked
+            </button>
           </div>
-          <p className="text-[13px] font-medium text-gray-500 dark:text-white/40">No transactions found</p>
         </div>
-      ) : (
-        <div className="flex flex-col gap-5">
-          {groups.map((g, gi) => (
-            <div key={g.label} className="flex flex-col gap-2 animate-fade-in-up" style={{ animationDelay: `${gi * 0.08}s` }}>
-              <p className="px-1 text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-white/30">{g.label}</p>
-              <Card className="!p-0 overflow-hidden border border-gray-200 dark:border-white/[0.04]">
-                <div className="divide-y divide-gray-100 dark:divide-white/[0.04]">
-                  {g.items.map((t) => (
-                    <HistoryRow key={t.id} txn={t} onOpen={() => router.push(href(`/tx/${t.id}`))} />
-                  ))}
+
+        {loading ? (
+          <div className="flex flex-col gap-4 p-5">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <Skeleton className="size-10 rounded-full" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-3.5 w-44" />
+                  <Skeleton className="h-3 w-28" />
                 </div>
-              </Card>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <DemoSheet
-        open={sheetOpen}
-        onClose={() => setSheetOpen(false)}
-        title="Filters"
-        subtitle={`${filteredTxns.length} of ${myTxns.length} transactions`}
-      >
-        <div className="flex flex-col gap-5">
-          <FilterGroup label="Period">
-            <FilterChip active={period === "all"} onClick={() => setPeriod("all")}>All time</FilterChip>
-            <FilterChip active={period === "week"} onClick={() => setPeriod("week")}>Last 7 days</FilterChip>
-            <FilterChip active={period === "month"} onClick={() => setPeriod("month")}>Last 30 days</FilterChip>
-          </FilterGroup>
-
-          <FilterGroup label="Sort by">
-            <FilterChip active={sort === "newest"} onClick={() => setSort("newest")}>Newest</FilterChip>
-            <FilterChip active={sort === "oldest"} onClick={() => setSort("oldest")}>Oldest</FilterChip>
-            <FilterChip active={sort === "largest"} onClick={() => setSort("largest")}>Largest</FilterChip>
-          </FilterGroup>
-
-          <FilterGroup label="Risk">
-            <FilterChip active={!riskOnly} onClick={() => setRiskOnly(false)}>All transfers</FilterChip>
-            <FilterChip active={riskOnly} onClick={() => setRiskOnly(true)}>Flagged &amp; blocked</FilterChip>
-          </FilterGroup>
-
-          <div className="flex gap-2 pt-1">
-            <button
-              type="button"
-              onClick={resetFilters}
-              disabled={activeCount === 0}
-              className="rounded-xl border border-gray-200 px-4 py-3 text-[13px] font-bold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-40 dark:border-white/[0.08] dark:text-white/50 dark:hover:bg-white/[0.04]"
-            >
-              Reset
-            </button>
-            <button
-              type="button"
-              onClick={() => setSheetOpen(false)}
-              className="flex-1 rounded-xl bg-[var(--brand-primary)] py-3 text-[13px] font-bold text-white transition-opacity hover:opacity-90"
-            >
-              Show {filteredTxns.length} result{filteredTxns.length === 1 ? "" : "s"}
-            </button>
+                <Skeleton className="h-4 w-20" />
+              </div>
+            ))}
           </div>
-        </div>
-      </DemoSheet>
+        ) : rows.length === 0 ? (
+          <EmptyState
+            icon={<Receipt size={22} />}
+            title={filtered ? "Nothing matches those filters" : "No activity yet"}
+            body={filtered ? "Try a different search or clear a filter." : "Transfers you send and receive will appear here."}
+            action={
+              !filtered ? (
+                <ButtonLink href={href("/transfer")} size="sm">
+                  Send money
+                </ButtonLink>
+              ) : undefined
+            }
+          />
+        ) : (
+          <>
+            {/* Desktop: a table, which is what a statement is. */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[640px] text-left text-[13px]">
+                <thead>
+                  <tr className="text-[11px] font-semibold uppercase tracking-[0.08em] text-d-faint">
+                    <th className="px-5 py-3 font-semibold">Recipient</th>
+                    <th className="px-3 py-3 font-semibold">Narration</th>
+                    <th className="px-3 py-3 font-semibold">Date &amp; time</th>
+                    <th className="px-3 py-3 font-semibold">Status</th>
+                    <th className="px-5 py-3 text-right font-semibold">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((t) => {
+                    const credit = t.direction === "credit";
+                    const tone = statusTone(t.status);
+                    return (
+                      <tr
+                        key={t.id}
+                        onClick={() => router.push(href(`/tx/${t.id}`))}
+                        className="cursor-pointer border-t border-d-border transition-colors hover:bg-d-surface-2"
+                      >
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-3">
+                            <Avatar name={t.recipientName} size="sm" />
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-d-text">{t.recipientName}</p>
+                              <p className="truncate text-[12px] text-d-muted">{t.recipientBank}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="max-w-[200px] truncate px-3 py-3 text-d-muted">{t.narration || "-"}</td>
+                        <td className="whitespace-nowrap px-3 py-3 text-d-muted">{formatDateTime(t.timestamp)}</td>
+                        <td className="px-3 py-3">
+                          <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${tone.chip}`}>
+                            {tone.label}
+                          </span>
+                        </td>
+                        <td
+                          className={`whitespace-nowrap px-5 py-3 text-right font-bold tabular-nums ${
+                            credit ? "text-emerald-600 dark:text-emerald-400" : "text-d-text"
+                          }`}
+                        >
+                          {credit ? "+" : "-"}
+                          {formatNaira(t.amount)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Phone: stacked rows. */}
+            <ul className="divide-y divide-d-border md:hidden">
+              {rows.map((t) => {
+                const credit = t.direction === "credit";
+                const flagged = t.action !== "PASS";
+                const tone = statusTone(t.status);
+                return (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      onClick={() => router.push(href(`/tx/${t.id}`))}
+                      className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-d-surface-2"
+                    >
+                      <Avatar name={t.recipientName} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[14px] font-semibold text-d-text">{t.recipientName}</p>
+                        <p className="flex flex-wrap items-center gap-x-2 text-[12px] text-d-muted">
+                          {formatRelativeTime(t.timestamp)}
+                          {flagged && (
+                            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${tone.chip}`}>
+                              {tone.label}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      <span
+                        className={`shrink-0 whitespace-nowrap text-[14px] font-bold tabular-nums ${
+                          credit ? "text-emerald-600 dark:text-emerald-400" : "text-d-text"
+                        }`}
+                      >
+                        {credit ? "+" : "-"}
+                        {formatNaira(t.amount)}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <p className="border-t border-d-border px-5 py-3 text-[12px] text-d-muted">
+              Showing {rows.length} of {all.length} transactions
+            </p>
+          </>
+        )}
+      </Card>
     </Screen>
   );
 }
 
-function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
+function Select({
+  value,
+  onChange,
+  label,
+  children,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div>
-      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-white/25">{label}</p>
-      <div className="flex flex-wrap gap-2">{children}</div>
+    <div className="relative">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+        className="h-10 appearance-none rounded-xl bg-d-surface-2 pl-3.5 pr-9 text-[12px] font-semibold text-d-text outline-none focus:ring-4 focus:ring-brand/10"
+      >
+        {children}
+      </select>
+      <CaretDown size={12} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-d-faint" />
     </div>
   );
-}
-
-function FilterChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-xl border px-3.5 py-2 text-[12px] font-semibold transition-colors ${
-        active
-          ? "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white"
-          : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 dark:border-white/[0.06] dark:bg-[#141414] dark:text-white/50 dark:hover:bg-[#1c1c1c]"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function FilterTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full px-4 py-1.5 text-[12px] font-medium transition-colors ${
-        active ? "bg-[var(--brand-primary)] text-white" : "bg-gray-100 dark:bg-[#1a1a1a] text-gray-600 dark:text-white/45 hover:bg-gray-200 dark:hover:bg-[#222] hover:text-gray-900 dark:hover:text-white/70"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function HistoryRow({ txn, onOpen }: { txn: Transaction; onOpen: () => void }) {
-  const credit = txn.direction === "credit";
-  const tone = riskTone(txn.action);
-  const flagged = txn.action !== "PASS";
-
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.02]"
-    >
-      <Avatar name={txn.recipientName} />
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="truncate text-[14px] font-semibold text-gray-900 dark:text-white">{txn.recipientName}</span>
-        <span className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-gray-500 dark:text-white/35">
-          {formatRelativeTime(txn.timestamp)} · {txn.narration || txn.recipientBank}
-          {flagged && (
-            <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase ${tone.chip}`}>
-              {txn.status}
-            </span>
-          )}
-        </span>
-      </div>
-      <span className={`ml-auto text-[14px] font-bold tabular-nums ${credit ? "text-emerald-600 dark:text-emerald-400" : "text-gray-900 dark:text-white/60"}`}>
-        {credit ? "+" : "-"}
-        {formatNaira(txn.amount)}
-      </span>
-    </button>
-  );
-}
-
-function groupByDay(txns: Transaction[]): { label: string; items: Transaction[] }[] {
-  const buckets = new Map<string, Transaction[]>();
-  const now = Date.now();
-  const dayMs = 24 * 60 * 60 * 1000;
-  for (const t of txns) {
-    const age = now - t.timestamp;
-    const label =
-      age < dayMs && new Date(t.timestamp).getDate() === new Date(now).getDate()
-        ? "Today"
-        : age < 2 * dayMs
-          ? "Yesterday"
-          : age < 7 * dayMs
-            ? "This week"
-            : "Earlier";
-    if (!buckets.has(label)) buckets.set(label, []);
-    buckets.get(label)!.push(t);
-  }
-  const order = ["Today", "Yesterday", "This week", "Earlier"];
-  return order.filter((l) => buckets.has(l)).map((label) => ({ label, items: buckets.get(label)! }));
 }

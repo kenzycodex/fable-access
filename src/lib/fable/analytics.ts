@@ -114,12 +114,12 @@ export function alerts(txns: Transaction[]): Transaction[] {
 
 /** Coarse spend categories inferred from who was paid and what for. */
 const CATEGORY_RULES: { label: string; test: RegExp }[] = [
-  { label: "🍔 Food & Dining", test: /food|vendor|biggs|restaurant|eat|lunch|shoprite|grocer/i },
-  { label: "🚗 Transport", test: /transport|fuel|uber|bolt|haulage|logistics|petrol/i },
-  { label: "⚡ Utilities", test: /nepa|light|electric|power|dstv|water|utility|bill/i },
-  { label: "📱 Airtime & Data", test: /airtime|data|mtn|glo|airtel|9mobile|recharge/i },
-  { label: "🏠 Rent & Housing", test: /rent|landlord|shop_rent|accommodation|service charge/i },
-  { label: "🛍️ Shopping", test: /jumia|konga|slot|shopping|store|order|laptop/i },
+  { label: "Food & dining", test: /food|vendor|biggs|restaurant|eat|lunch|shoprite|grocer/i },
+  { label: "Transport", test: /transport|fuel|uber|bolt|haulage|logistics|petrol/i },
+  { label: "Utilities", test: /nepa|light|electric|power|dstv|water|utility|bill/i },
+  { label: "Airtime & data", test: /airtime|data|mtn|glo|airtel|9mobile|recharge/i },
+  { label: "Rent & housing", test: /rent|landlord|shop_rent|accommodation|service charge/i },
+  { label: "Shopping", test: /jumia|konga|slot|shopping|store|order|laptop/i },
 ];
 
 function categorize(txn: Transaction): string {
@@ -127,7 +127,7 @@ function categorize(txn: Transaction): string {
   for (const rule of CATEGORY_RULES) {
     if (rule.test.test(haystack)) return rule.label;
   }
-  return "💸 Transfers";
+  return "Transfers";
 }
 
 export interface CustomerSummary {
