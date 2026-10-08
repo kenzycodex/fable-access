@@ -44,6 +44,7 @@ def resolve_institution(request, claimed: str | None = None) -> str:
     from_key = institution_from_api_key(extract_api_key(request))
     if from_key:
         return from_key
+    claimed = canonical_institution(claimed)
     if claimed and institution_exists(claimed):
         return claimed
     return _fallback_institution()
@@ -100,6 +101,7 @@ def tenant_for_read(request, claimed: str | None = None) -> str:
     if from_key:
         return from_key
 
+    claimed = canonical_institution(claimed)
     if claimed and institution_exists(claimed):
         return claimed
     return _fallback_institution()
@@ -144,6 +146,26 @@ def institution_exists(institution_id: str) -> bool:
     with cursor() as cur:
         cur.execute("SELECT 1 FROM institutions WHERE institution_id = ?", (institution_id,))
         return cur.fetchone() is not None
+
+
+def canonical_institution(institution_id: str | None) -> str | None:
+    """The current id for an institution id someone may still be using.
+
+    A renamed institution's old id lives on as an alias. Anything that arrives
+    carrying it (an old link, a stale browser tab, a setting that was never
+    updated) is mapped to the institution's present id instead of being treated
+    as unknown. An id that exists is returned as it is, and an unknown one comes
+    back unchanged so callers keep their existing "not found" handling.
+    """
+    if not institution_id or institution_exists(institution_id):
+        return institution_id
+    try:
+        with cursor() as cur:
+            cur.execute("SELECT institution_id FROM institution_aliases WHERE alias = ?", (institution_id,))
+            row = cur.fetchone()
+        return row["institution_id"] if row else institution_id
+    except Exception:  # noqa: BLE001 - a database without the table yet
+        return institution_id
 
 
 def get_institution(institution_id: str) -> dict | None:

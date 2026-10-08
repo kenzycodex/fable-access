@@ -241,3 +241,70 @@ def test_institution_profile_rejects_bad_input(client):
     assert client.patch(url, json={"name": "x"}, headers=own).status_code == 400
     assert client.patch(url, json={"contact_email": "not-an-email"}, headers=own).status_code == 400
     assert client.patch(url, json={}, headers=own).status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Renaming an institution's internal id
+# ---------------------------------------------------------------------------
+
+def test_renaming_an_institution_id_moves_everything_and_keeps_the_old_one_working(client):
+    import sqlite3
+
+    import config
+    import security
+    from agents.copilot.demo_customers import seed_institution
+    from scripts import rename_institution as ren
+    from tenancy import register_institution
+
+    register_institution("oldbank", "Old Bank", "risk@old.ng")
+    seed_institution("oldbank", days=30)
+    assert client.post("/v1/accounts/oldbank_tunde/security/pin", json={"pin": "4821"}).status_code == 200
+
+    def counts(conn):
+        return {
+            "txns": conn.execute("select count(*) from transactions where institution_id = 'oldbank'").fetchone()[0],
+            "customers": conn.execute("select count(*) from transactions where user_id like 'oldbank|_%' escape '|'").fetchone()[0],
+        }
+
+    conn = sqlite3.connect(config.DB_PATH, timeout=30)
+    before = counts(conn)
+    assert before["txns"] > 0
+
+    # A dry run reports the change and makes none.
+    dry = ren.rename(conn, "oldbank", "newbank", do_apply=False)
+    assert dry["mapping"]["oldbank_tunde"] == "newbank_tunde"
+    assert counts(conn) == before
+
+    ren.rename(conn, "oldbank", "newbank", do_apply=True)
+    conn.close()
+
+    check = sqlite3.connect(config.DB_PATH)
+    assert check.execute("select count(*) from transactions where institution_id = 'oldbank'").fetchone()[0] == 0
+    assert check.execute("select count(*) from transactions where institution_id = 'newbank'").fetchone()[0] == before["txns"]
+    assert check.execute("select count(*) from transactions where user_id like 'oldbank|_%' escape '|'").fetchone()[0] == 0
+    check.close()
+
+    # The customer's PIN came with them, under the new id.
+    assert security.status("newbank_tunde")["pin_set"] is True
+    assert security.status("oldbank_tunde")["pin_set"] is False
+
+    # The old id is still understood, so old links and open tabs keep working.
+    assert client.get("/v1/branding/resolve/oldbank").json()["institution_id"] == "newbank"
+    assert client.get("/v1/institutions/newbank").status_code == 200
+
+
+def test_renaming_refuses_unsafe_requests(client):
+    import sqlite3
+
+    import config
+    from scripts import rename_institution as ren
+
+    conn = sqlite3.connect(config.DB_PATH, timeout=30)
+    for old, new in [("endpointbank", "endpointbank"), ("endpointbank", "Bad Name!"), ("endpointbank", "demo"),
+                     ("nosuchbank", "whatever")]:
+        try:
+            ren.rename(conn, old, new, do_apply=False)
+        except ren.RenameError:
+            continue
+        raise AssertionError(f"{old} -> {new} should have been refused")
+    conn.close()

@@ -146,6 +146,15 @@ CREATE TABLE IF NOT EXISTS user_locations (
     seen_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Former ids of renamed institutions. Renaming an id (see
+-- scripts/rename_institution.py) leaves the old one here, so links, settings and
+-- open browser tabs that still use it keep resolving to the same institution.
+CREATE TABLE IF NOT EXISTS institution_aliases (
+    alias TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS institutions (
     institution_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

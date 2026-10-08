@@ -87,6 +87,14 @@ def resolve_slug(slug: str) -> str | None:
             return row["institution_id"]
         cur.execute("SELECT institution_id FROM institutions WHERE institution_id = ?", (slug,))
         row = cur.fetchone()
+        if row:
+            return row["institution_id"]
+        # A former id of a renamed institution keeps pointing at it.
+        try:
+            cur.execute("SELECT institution_id FROM institution_aliases WHERE alias = ?", (slug,))
+            row = cur.fetchone()
+        except Exception:  # noqa: BLE001 - a database without the table yet
+            row = None
         return row["institution_id"] if row else None
 
 
