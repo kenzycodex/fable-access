@@ -1,266 +1,42 @@
 "use client";
 
 import Link from "next/link";
+import { Brain, Ghost, Lightning, ShieldCheck, ArrowSquareOut } from "@phosphor-icons/react";
+import { BarChart, DonutChart } from "@/components/dashboard/charts";
 import {
-  Brain,
-  Eye,
-  Ghost,
-  ShieldCheck,
-  Lightning,
-} from "@phosphor-icons/react";
-import { Card, FeaturePanel, PageHeader, RiskBadge, StatCard } from "@/components/dashboard/primitives";
+  Avatar,
+  Badge,
+  BarList,
+  ButtonLink,
+  Card,
+  CardHeader,
+  EmptyState,
+  OutcomeBadge,
+  PageHeader,
+  RiskBadge,
+  Skeleton,
+  StatCard,
+  table,
+} from "@/components/dashboard/primitives";
+import { changeLabel, dailyOutcomes, periodPair } from "@/lib/fable/analytics";
+import { LATENCY_BUDGET_MS } from "@/lib/fable/constants";
 import { formatNaira, formatNairaCompact, formatRelativeTime } from "@/lib/fable/format";
-import { useSignedInInstitution } from "@/lib/fable/useInstitution";
-import { useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
 import type { Transaction } from "@/lib/fable/types";
-
-/** The decision-time budget Fable states publicly, in ms. */
-const LATENCY_BUDGET_MS = 200;
+import { useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
+import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 
 const AGENTS = [
-  { name: "Copilot", role: "Baseline engine", icon: Brain, built: true },
-  { name: "Shield", role: "Threat defense", icon: ShieldCheck, built: true },
-  { name: "Ghost", role: "Containment", icon: Ghost, built: true },
-  // Watch is not built. It was rendering with a pulsing green "Active" badge
-  // like the three agents that do run, which claims a capability the system
-  // does not have. The docs already mark it "coming soon"; the console should
-  // say the same thing.
-  { name: "Watch", role: "Passive monitor", icon: Eye, built: false },
+  { name: "Copilot", role: "Learns each customer's habits", icon: Brain, href: "/dashboard/agents/copilot" },
+  { name: "Shield", role: "Scores every transfer", icon: ShieldCheck, href: "/dashboard/agents/shield" },
+  { name: "Ghost", role: "Holds risky transfers", icon: Ghost, href: "/dashboard/agents/ghost" },
 ];
 
-export default function OverviewPage() {
-  const { institution } = useSignedInInstitution();
-  const feed = useDashboardFeed();
-  const s = feed.stats;
-  const recent = feed.transactions.slice(0, 8);
+const isProtected = (t: Transaction) =>
+  t.action !== "PASS" && (t.status === "blocked" || t.status === "cancelled" || t.status === "held");
 
-  // Trend shape for the KPI tiles, from the same feed the numbers come from.
-  const trendAll = dailySeries(feed.transactions, () => true);
-  const trendBlocked = dailySeries(feed.transactions, (t) => t.action === "BLOCK");
-
-  // Money protected comes from the server's canonical figure, the same one
-  // Copilot quotes. Computing it separately on the client produced a different
-  // number under the same label, which is the fastest way to lose trust in a
-  // fraud console. The client-side sum stays as the offline fallback only.
-  const { data: intel } = useIntelligence();
-  const amountProtected = intel?.summary.fraud_prevented_ngn ?? s.amountProtected;
-
-  // Decision time. Two figures do two jobs here.
-  //
-  // The headline is p50 — the typical decision. It is the stable, honest
-  // "how fast is this normally" number, and unlike the tail it doesn't lurch
-  // when a single cold-start request lands in a small sample.
-  //
-  // The budget, though, is a promise about the *tail*, so the caption checks
-  // p95 against 200ms and the card turns red when that promise is broken. Both
-  // are shown because a headline alone can hide a bad tail and a tail alone
-  // reads as alarming when the typical case is fine.
-  //
-  // Earlier this card showed a single mean under a hardcoded "Well under 200ms
-  // budget" caption — a literal that kept claiming success while the number
-  // beside it read 3989ms. And that 3989ms was the wrong series entirely:
-  // request time with the explanation LLM counted in, not decision time. The
-  // verdict lands in ~30ms; prose is generated off the request path now and
-  // reported separately below.
-  const { data: stats } = useDashboardStats();
-  const latency = stats?.latency_ms ?? null;
-  const overBudget = latency !== null && latency.p95 > LATENCY_BUDGET_MS;
-
-  return (
-    <>
-      <div className="relative mb-3 rounded-3xl overflow-hidden border border-gray-200 dark:border-white/[0.04] bg-white dark:bg-black p-8 lg:p-10 shadow-sm dark:shadow-none">
-        {/* Abstract SVG Background Illustration */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-40">
-          <svg className="absolute left-[10%] top-0 h-[200%] w-auto -translate-y-1/4 animate-[spin_60s_linear_infinite]" viewBox="0 0 800 800" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <g filter="url(#blur-glow)">
-              <circle cx="400" cy="400" r="300" fill="url(#purple-grad)" fillOpacity="0.4" />
-              <path d="M400 150C538 150 650 262 650 400C650 538 538 650 400 650C262 650 150 538 150 400C150 262 262 150 400 150Z" stroke="url(#purple-grad)" strokeWidth="2" strokeDasharray="10 10" />
-            </g>
-            <defs>
-              <filter id="blur-glow" x="-100" y="-100" width="1000" height="1000" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
-                <feGaussianBlur stdDeviation="60" result="effect1_foregroundBlur" />
-              </filter>
-              <radialGradient id="purple-grad" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(400 400) rotate(90) scale(300)">
-                <stop stopColor="#7C3AED" />
-                <stop offset="1" stopColor="#4c1d95" stopOpacity="0" />
-              </radialGradient>
-            </defs>
-          </svg>
-        </div>
-
-        <div className="relative z-10">
-          <PageHeader
-            title={institution ? `Good morning, ${institution.name}` : "Good morning"}
-            description="Live view of every decision Fable made across your customers today."
-            actions={<EngineChip source={feed.source} />}
-          />
-        </div>
-      </div>
-
-      {/* KPI row */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 mt-0">
-        <StatCard
-          label="Transactions"
-          value={feed.ready ? String(s.total) : "—"}
-          sub="Scored by Fable"
-          trend={feed.ready ? trendAll ?? undefined : undefined}
-        />
-        <StatCard
-          label="Threats blocked"
-          value={feed.ready ? String(s.blockCount) : "—"}
-          sub={feed.ready ? `${s.flagCount} flagged for review` : "Loading"}
-          icon={<ShieldCheck size={20} weight="fill" />}
-          accent="text-red-400"
-          trend={feed.ready ? trendBlocked ?? undefined : undefined}
-        />
-        <StatCard
-          label="Amount protected"
-          value={feed.ready ? formatNairaCompact(amountProtected) : "—"}
-          sub="Kept out of fraud"
-          accent="text-emerald-400"
-        />
-        <StatCard
-          label="Decision time"
-          value={latency ? `${Math.round(latency.p50)}ms` : "—"}
-          sub={
-            !latency
-              ? "No decisions measured yet"
-              : overBudget
-                ? `p95 ${Math.round(latency.p95)}ms · over ${LATENCY_BUDGET_MS}ms budget`
-                : `p95 ${Math.round(latency.p95)}ms · within ${LATENCY_BUDGET_MS}ms budget`
-          }
-          icon={<Lightning size={20} weight="fill" />}
-          accent={overBudget ? "text-red-400" : "text-amber-400"}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 mt-4">
-        {/* Recent activity */}
-        {/* The one inverted surface on the page. It marks the region the view is
-            actually about; a second dark panel here and neither would read as
-            primary. */}
-        <FeaturePanel className="lg:col-span-2">
-          <div className="mb-4 flex items-center justify-between border-b border-white/[0.07] pb-4">
-            <h2 className="text-[16px] font-bold text-white">Live Activity Stream</h2>
-            <Link href="/dashboard/transactions" className="text-[12px] font-bold text-[#A78BFA] hover:text-white transition-colors">
-              View all
-            </Link>
-          </div>
-          <div className="flex flex-col">
-            {!feed.ready ? (
-              <SkeletonRows />
-            ) : (
-              recent.map((t) => <ActivityRow key={t.id} txn={t} />)
-            )}
-          </div>
-        </FeaturePanel>
-
-        {/* Right column: risk split + agents */}
-        <div className="flex flex-col gap-6">
-          <Card className="!p-0 flex flex-col">
-            <div className="p-6 pb-4">
-              <h2 className="mb-5 text-[15px] font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <span className="flex size-6 items-center justify-center rounded bg-gray-100 dark:bg-white/[0.05] border border-gray-200 dark:border-white/10 text-gray-500 dark:text-white/60">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-                </span>
-                Risk distribution
-              </h2>
-              {/* Same rule as the KPI row: no distribution until there is a
-                  settled feed to derive one from. A single local transfer
-                  briefly painted this bar 100% blocked. */}
-              <RiskBar
-                pass={feed.ready ? s.passCount : 0}
-                flag={feed.ready ? s.flagCount : 0}
-                block={feed.ready ? s.blockCount : 0}
-              />
-              <div className="mt-5 flex flex-col gap-3 text-[13px]">
-                <Legend color="#34d399" label="Passed" value={feed.ready ? s.passCount : null} />
-                <Legend color="#fbbf24" label="Flagged" value={feed.ready ? s.flagCount : null} />
-                <Legend color="#f87171" label="Blocked" value={feed.ready ? s.blockCount : null} />
-              </div>
-            </div>
-          </Card>
-
-          <Card className="relative group">
-            {/* SVG Illustration Background */}
-            <div className="absolute inset-0 pointer-events-none opacity-10">
-              <svg width="100%" height="100%" className="absolute inset-0">
-                <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
-                  <path d="M 30 0 L 0 0 0 30" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="2 2" className="text-[#7C3AED]"/>
-                </pattern>
-                <rect width="100%" height="100%" fill="url(#grid)" />
-              </svg>
-              <div className="absolute inset-0 bg-gradient-to-t from-white via-white/80 dark:from-black dark:via-black/80 to-transparent" />
-            </div>
-
-            <h2 className="mb-5 text-[15px] font-bold text-gray-900 dark:text-white relative z-10 flex items-center gap-2">
-              <span className="flex size-6 items-center justify-center rounded bg-[#7C3AED]/20 border border-[#7C3AED]/30 text-[#7C3AED]">
-                <Brain size={12} weight="bold" />
-              </span>
-              Active Agents
-            </h2>
-            <div className="flex flex-col gap-4 relative z-10">
-              {AGENTS.map((a) => {
-                const Icon = a.icon;
-                return (
-                  <div key={a.name} className="flex items-center gap-3 p-2 -mx-2 rounded-xl hover:bg-gray-50 dark:hover:bg-white/[0.03] transition-colors cursor-pointer group/agent">
-                    <span className="flex size-10 items-center justify-center rounded-xl bg-[#7C3AED]/10 text-[#7C3AED] border border-[#7C3AED]/20 transition-transform group-hover/agent:scale-110">
-                      <Icon size={20} weight="fill" />
-                    </span>
-                    <div className="flex flex-col">
-                      <span className="text-[13px] font-bold text-gray-900 dark:text-white transition-colors group-hover/agent:text-[#a78bfa]">{a.name}</span>
-                      <span className="text-[11px] text-gray-500 dark:text-white/40">{a.role}</span>
-                    </div>
-                    {a.built ? (
-                      <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-                        <span className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
-                        Active
-                      </span>
-                    ) : (
-                      <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-white/30">
-                        <span className="size-1.5 rounded-full bg-gray-300 dark:bg-white/20" />
-                        Coming soon
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function EngineChip({ source }: { source: "api" | "local" }) {
-  const live = source === "api";
-  return (
-    <span
-      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider ${
-        live 
-          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
-          : "bg-amber-500/10 text-amber-400 border-amber-500/20"
-      }`}
-      title={
-        live
-          ? "Connected to the Fable API — real Shield scoring and persistence"
-          : "Fable API offline — running on the built-in client engine"
-      }
-    >
-      <span className={`size-1.5 rounded-full ${live ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" : "bg-amber-400"}`} />
-      {live ? "Fable API · live" : "Local engine"}
-    </span>
-  );
-}
-
-/** Daily counts over the last 12 days, oldest first, from the real feed.
- *
- * Derived rather than stored, and deliberately not padded or smoothed: a bank
- * with three days of history gets three days of shape and nine days of zero,
- * which is the truth. Returns null when there is nothing to draw, so the tile
- * renders without a sparkline rather than with an invented one. */
-function dailySeries(txns: Transaction[], predicate: (t: Transaction) => boolean): number[] | null {
+/** Daily counts over the last 12 days for the tile sparklines. Null when there is
+ * not enough to draw, so a tile renders without a line rather than an invented one. */
+function daySeries(txns: Transaction[], predicate: (t: Transaction) => boolean): number[] | null {
   if (txns.length === 0) return null;
   const DAY = 86_400_000;
   const today = Math.floor(Date.now() / DAY);
@@ -277,110 +53,232 @@ function dailySeries(txns: Transaction[], predicate: (t: Transaction) => boolean
   return seen > 1 ? buckets : null;
 }
 
-function ActivityRow({ txn }: { txn: Transaction }) {
-  // A simple hash function to assign a color based on the first letter
-  const colors = ["bg-emerald-500/10 text-emerald-500", "bg-blue-500/10 text-blue-500", "bg-purple-500/10 text-purple-500", "bg-rose-500/10 text-rose-500", "bg-amber-500/10 text-amber-500"];
-  const initial = txn.customerName.charAt(0).toUpperCase();
-  const colorClass = colors[initial.charCodeAt(0) % colors.length];
+export default function OverviewPage() {
+  const { institution } = useSignedInInstitution();
+  const feed = useDashboardFeed();
+  const { data: stats } = useDashboardStats();
+  const { data: intel } = useIntelligence();
 
-  return (
-    <div className="flex items-center gap-4 border-b border-white/[0.06] py-3.5 last:border-0 hover:bg-white/[0.04] px-2 -mx-2 rounded-xl transition-colors cursor-pointer">
-      <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl font-bold border border-white/[0.06] ${colorClass}`}>
-        {initial}
-      </div>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="truncate text-[14px] font-bold text-white">
-          {txn.customerName} → {txn.recipientName}
-        </span>
-        <span className="flex items-center gap-2 text-[12px] text-white/45 font-medium">
-          {formatRelativeTime(txn.timestamp)} · {txn.recipientBank}
-          {txn.live && <span className="rounded-md bg-[#7C3AED]/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-[#7C3AED]">Live</span>}
-        </span>
-      </div>
-      <div className="ml-auto flex flex-col items-end gap-1.5">
-        <span className="text-[14px] font-bold tabular-nums text-white">{formatNaira(txn.amount)}</span>
-        <div className="flex items-center gap-1.5">
-          <RiskBadge action={txn.action} />
-          <OutcomeBadge txn={txn} />
-        </div>
-      </div>
-    </div>
-  );
-}
+  const s = feed.stats;
+  const txns = feed.transactions;
+  const ready = feed.ready;
+  const recent = txns.slice(0, 8);
 
-/** What happened *after* the decision.
- *
- * The row showed only `action`, which is Shield's verdict and is deliberately
- * immutable: a blocked transfer was blocked, and rewriting that would destroy
- * the audit trail. But it meant a customer who verified their identity and
- * released the money still read as "BLOCK" forever, so the console could not
- * distinguish fraud that was stopped from a false positive the customer
- * cleared. That difference is the whole argument for containment.
- *
- * Only rendered when the outcome adds something the verdict does not.
- */
-function OutcomeBadge({ txn }: { txn: Transaction }) {
-  const outcome = txn.status;
-  if (!outcome) return null;
+  // Money kept out of fraud comes from the server's one definition, the same
+  // number the Compliance page and Copilot quote. The client sum is only the
+  // fallback while that loads or when the API is offline.
+  const amountProtected = intel?.summary.fraud_prevented_ngn ?? s.amountProtected;
 
-  // A cleared PASS and a still-blocked BLOCK say nothing new.
-  if (outcome === "completed" && txn.action === "PASS") return null;
-  if (outcome === "blocked") return null;
+  // Decision time is the verdict time the 200ms budget governs: p50 is the
+  // typical decision, and the caption checks the tail (p95) against the budget.
+  const latency = stats?.latency_ms ?? null;
+  const overBudget = latency !== null && latency.p95 > LATENCY_BUDGET_MS;
 
-  const styles: Record<string, { label: string; className: string }> = {
-    released: { label: "released", className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" },
-    completed: { label: "verified & sent", className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" },
-    held: { label: "in containment", className: "bg-[#7C3AED]/10 text-[#7C3AED]" },
-    cancelled: { label: "cancelled", className: "bg-gray-500/10 text-gray-500 dark:text-white/40" },
-    flagged: { label: "awaiting review", className: "bg-amber-500/10 text-amber-600 dark:text-amber-400" },
-  };
-  const s = styles[outcome];
-  if (!s) return null;
+  // Week-on-week movement, from the same feed the numbers come from.
+  const scored = periodPair(txns, (r) => r.length);
+  const blocked = periodPair(txns, (r) => r.filter((t) => t.action === "BLOCK").length);
+  const protectedPair = periodPair(txns, (r) => r.filter(isProtected).reduce((n, t) => n + t.amount, 0));
 
-  return (
-    <span className={`rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${s.className}`}>
-      {s.label}
-    </span>
-  );
-}
+  const days = dailyOutcomes(txns, 14);
+  const patterns = (intel?.scam_patterns ?? []).slice(0, 4).map((p) => ({ label: p.label, count: p.count }));
 
-function RiskBar({ pass, flag, block }: { pass: number; flag: number; block: number }) {
-  const total = pass + flag + block || 1;
-  return (
-    <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-white/[0.04]">
-      <div style={{ width: `${(pass / total) * 100}%`, backgroundColor: "#34d399" }} className="transition-all duration-500" />
-      <div style={{ width: `${(flag / total) * 100}%`, backgroundColor: "#fbbf24" }} className="transition-all duration-500" />
-      <div style={{ width: `${(block / total) * 100}%`, backgroundColor: "#f87171" }} className="transition-all duration-500" />
-    </div>
-  );
-}
+  const total = ready ? s.passCount + s.flagCount + s.blockCount : 0;
+  const pct = (n: number) => (total ? `${Math.round((n / total) * 100)}%` : "0%");
 
-/** `value: null` means "not settled yet" — render a dash, not a zero. */
-function Legend({ color, label, value }: { color: string; label: string; value: number | null }) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="size-3 rounded-full shadow-sm" style={{ backgroundColor: color }} />
-      <span className="text-gray-500 dark:text-white/60 font-medium">{label}</span>
-      <span className="ml-auto font-bold tabular-nums text-gray-900 dark:text-white">
-        {value === null ? "—" : value.toLocaleString()}
-      </span>
-    </div>
-  );
-}
-
-function SkeletonRows() {
   return (
     <>
-      {[0, 1, 2, 3, 4].map((i) => (
-        <div key={i} className="flex items-center gap-4 py-3.5 px-2 -mx-2">
-          <div className="size-10 animate-pulse rounded-xl bg-gray-100 dark:bg-white/[0.04]" />
-          <div className="flex flex-col gap-2">
-            <div className="h-3.5 w-48 animate-pulse rounded bg-gray-100 dark:bg-white/[0.04]" />
-            <div className="h-2.5 w-32 animate-pulse rounded bg-gray-50 dark:bg-white/[0.03]" />
+      <PageHeader
+        title={institution ? `Welcome back, ${institution.name}` : "Overview"}
+        description="A live view of every decision Fable made across your customers."
+        actions={
+          <ButtonLink href="/demo" variant="secondary" size="md" icon={<ArrowSquareOut size={16} />}>
+            Open the demo bank
+          </ButtonLink>
+        }
+      />
+
+      {/* KPIs */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Transactions scored"
+          value={ready ? s.total.toLocaleString("en-NG") : "-"}
+          sub="vs previous 7 days"
+          delta={ready ? changeLabel(scored.current, scored.previous, true) : null}
+          trend={ready ? (daySeries(txns, () => true) ?? undefined) : undefined}
+          icon={<ShieldCheck size={17} weight="fill" />}
+        />
+        <StatCard
+          label="Threats blocked"
+          value={ready ? String(s.blockCount) : "-"}
+          sub={ready ? `${s.flagCount} flagged for review` : "Loading"}
+          delta={ready ? changeLabel(blocked.current, blocked.previous, false) : null}
+          trend={ready ? (daySeries(txns, (t) => t.action === "BLOCK") ?? undefined) : undefined}
+          tone="danger"
+        />
+        <StatCard
+          label="Amount protected"
+          value={ready ? formatNairaCompact(amountProtected) : "-"}
+          sub="vs previous 7 days"
+          delta={ready ? changeLabel(protectedPair.current, protectedPair.previous, true) : null}
+          tone="success"
+        />
+        <StatCard
+          label="Decision time"
+          value={latency ? `${Math.round(latency.p50)}ms` : "-"}
+          sub={
+            !latency
+              ? "No decisions measured yet"
+              : `p95 ${Math.round(latency.p95)}ms, ${overBudget ? "over" : "within"} the ${LATENCY_BUDGET_MS}ms budget`
+          }
+          icon={<Lightning size={17} weight="fill" />}
+          tone={overBudget ? "danger" : "warning"}
+        />
+      </div>
+
+      {/* Trend and mix */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader title="Decisions per day" subtitle="Last 14 days, by outcome" />
+          {!ready ? (
+            <Skeleton className="h-[220px] w-full" />
+          ) : (
+            <BarChart
+              data={days.map((d) => ({ label: d.label, values: [d.pass, d.flag, d.block] }))}
+              series={[
+                { key: "pass", label: "Passed", color: "#10b981" },
+                { key: "flag", label: "Flagged", color: "#f59e0b" },
+                { key: "block", label: "Blocked", color: "#ef4444" },
+              ]}
+              empty="No decisions in the last 14 days"
+            />
+          )}
+        </Card>
+
+        <Card>
+          <CardHeader title="Risk distribution" subtitle="All decisions" />
+          <DonutChart
+            segments={[
+              { label: "Passed", value: ready ? s.passCount : 0, color: "#10b981" },
+              { label: "Flagged", value: ready ? s.flagCount : 0, color: "#f59e0b" },
+              { label: "Blocked", value: ready ? s.blockCount : 0, color: "#ef4444" },
+            ]}
+            centerValue={ready ? total.toLocaleString("en-NG") : "-"}
+            centerLabel="decisions"
+          />
+          <ul className="mt-5 flex flex-col gap-2.5 text-[13px]">
+            {[
+              { label: "Passed", n: s.passCount, color: "#10b981" },
+              { label: "Flagged", n: s.flagCount, color: "#f59e0b" },
+              { label: "Blocked", n: s.blockCount, color: "#ef4444" },
+            ].map((row) => (
+              <li key={row.label} className="flex items-center gap-2.5">
+                <span className="size-2.5 rounded-full" style={{ backgroundColor: row.color }} />
+                <span className="text-d-muted">{row.label}</span>
+                <span className="ml-auto font-semibold tabular-nums text-d-text">{ready ? row.n.toLocaleString("en-NG") : "-"}</span>
+                <span className="w-10 text-right text-[12px] tabular-nums text-d-faint">{ready ? pct(row.n) : ""}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      </div>
+
+      {/* Activity, agents, patterns */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card padded={false} className="lg:col-span-2">
+          <div className="flex items-center justify-between px-5 pt-5">
+            <CardHeader title="Live activity" subtitle="The latest decisions, newest first" />
+            <Link href="/dashboard/transactions" className="-mt-3 text-[13px] font-semibold text-brand hover:underline">
+              View all
+            </Link>
           </div>
-          <div className="ml-auto h-3.5 w-20 animate-pulse rounded bg-gray-100 dark:bg-white/[0.04]" />
+
+          {!ready ? (
+            <div className="space-y-3 p-5">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-11 w-full" />
+              ))}
+            </div>
+          ) : recent.length === 0 ? (
+            <EmptyState icon={<ShieldCheck size={22} />} title="No decisions yet" body="Transfers scored by Fable will appear here as they happen." />
+          ) : (
+            <div className={table.wrap}>
+              <table className={table.base}>
+                <thead>
+                  <tr className={table.head}>
+                    <th className={table.th}>Customer</th>
+                    <th className={table.th}>Amount</th>
+                    <th className={table.th}>Decision</th>
+                    <th className={`${table.th} text-right`}>When</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recent.map((t) => (
+                    <tr key={t.id} className={table.row}>
+                      <td className={table.td}>
+                        <div className="flex items-center gap-3">
+                          <Avatar name={t.customerName} size="sm" />
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-d-text">
+                              {t.customerName}
+                              {t.live && <Badge tone="brand">Live</Badge>}
+                            </p>
+                            <p className="truncate text-[12px] text-d-muted">to {t.recipientName}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className={`${table.td} whitespace-nowrap font-semibold tabular-nums`}>{formatNaira(t.amount)}</td>
+                      <td className={table.td}>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <RiskBadge action={t.action} />
+                          {t.action !== "PASS" && <OutcomeBadge status={t.status} />}
+                        </div>
+                      </td>
+                      <td className={`${table.td} whitespace-nowrap text-right text-d-muted`}>{formatRelativeTime(t.timestamp)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardHeader title="Agents" subtitle="All running" />
+            <ul className="flex flex-col gap-1">
+              {AGENTS.map((a) => {
+                const Icon = a.icon;
+                return (
+                  <li key={a.name}>
+                    <Link href={a.href} className="-mx-2 flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-d-surface-2">
+                      <span className="flex size-10 items-center justify-center rounded-xl bg-brand/10 text-brand">
+                        <Icon size={20} weight="fill" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[14px] font-semibold text-d-text">{a.name}</span>
+                        <span className="block truncate text-[12px] text-d-muted">{a.role}</span>
+                      </span>
+                      <Badge tone="success">Active</Badge>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Top scam patterns"
+              action={
+                <Link href="/dashboard/intelligence" className="text-[13px] font-semibold text-brand hover:underline">
+                  Insights
+                </Link>
+              }
+            />
+            <BarList items={patterns} emptyLabel="No scam patterns detected yet" color="#ef4444" />
+          </Card>
         </div>
-      ))}
+      </div>
     </>
   );
 }

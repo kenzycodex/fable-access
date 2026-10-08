@@ -1,11 +1,20 @@
 "use client";
 
-import { CheckIcon, FileCheckIcon } from "@/components/app-icons";
-import { Card, PageHeader, StatCard } from "@/components/dashboard/primitives";
-import { summarize } from "@/lib/fable/analytics";
+import { Check, FileText, ShieldCheck } from "@phosphor-icons/react";
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  PageHeader,
+  Skeleton,
+  StatCard,
+  table,
+} from "@/components/dashboard/primitives";
 import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
-import { useCustomerNames } from "@/lib/fable/useInstitution";
 import { useCompliance, useDashboardFeed } from "@/lib/fable/useBackend";
+import { useCustomerNames } from "@/lib/fable/useInstitution";
 
 // Regulatory frameworks Fable is built against (real Nigerian/industry
 // standards). Presented as posture, nothing here is certified in the demo.
@@ -16,109 +25,155 @@ const FRAMEWORKS = [
   { name: "FATF AML typologies", note: "Mule-account and layering signals" },
 ];
 
+type Tone = "neutral" | "success" | "warning" | "danger" | "brand";
+type AuditEvent = NonNullable<ReturnType<typeof useCompliance>["data"]>["audit_trail"] extends (infer E)[] | undefined ? E : never;
+
+/**
+ * Compliance is the record, not the live view. The Overview answers "what is
+ * happening now"; this page answers "what was done, by whom, and can we show it",
+ * so its figures are counted from the audit events themselves rather than
+ * repeating the Overview's totals.
+ */
 export default function CompliancePage() {
   const nameFor = useCustomerNames();
   const feed = useDashboardFeed();
   const { data: compliance } = useCompliance();
+
   const events = compliance?.audit_trail ?? [];
-  const txns = [...feed.transactions].sort((a, b) => b.timestamp - a.timestamp);
-  const s = summarize(txns);
-  const incidents = txns.filter((t) => t.action === "BLOCK");
+  const incidents = [...feed.transactions].filter((t) => t.action === "BLOCK").sort((a, b) => b.timestamp - a.timestamp);
+
+  const count = (...types: string[]) => events.filter((e) => types.includes(e.event_type)).length;
+  const loaded = Boolean(compliance);
 
   return (
     <>
       <PageHeader
         title="Compliance"
-        description="A full audit trail behind every Fable decision, ready for regulators and the board."
+        description="The audit record behind every Fable decision: who was held, verified or changed, and when."
         actions={
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            icon={<FileText size={16} />}
             onClick={() => alert("In production this exports a signed PDF board report. Disabled in the demo.")}
-            className="inline-flex items-center gap-2 rounded-full bg-[#7C3AED] px-4 py-2 text-[12px] font-bold uppercase tracking-wide text-white transition-colors hover:bg-[#6D28D9] shadow-sm"
           >
-            <FileCheckIcon className="size-4" />
             Export board report
-          </button>
+          </Button>
         }
       />
 
-      {/* Board-report summary */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 mt-2">
-        <StatCard label="Decisions logged" value={String(s.total)} accent="text-[#7C3AED]" />
-        <StatCard label="Amount protected" value={formatNaira(s.amountProtected)} accent="text-emerald-400" />
-        <StatCard label="Incidents blocked" value={String(s.blockCount)} accent="text-red-400" />
-        <StatCard label="Avg decision" value={`${s.avgLatencyMs}ms`} accent="text-amber-400" />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Events on record" value={loaded ? String(events.length) : "-"} sub="In the recent audit trail" icon={<FileText size={17} weight="fill" />} />
+        <StatCard
+          label="Transfers held"
+          value={loaded ? String(count("containment.created")) : "-"}
+          sub={loaded ? `${count("containment.cancelled", "containment.expired")} returned to the customer` : "Loading"}
+          tone="warning"
+        />
+        <StatCard
+          label="Identity checks"
+          value={loaded ? String(count("stepup.passed", "stepup.failed")) : "-"}
+          sub={loaded ? `${count("stepup.failed")} failed` : "Loading"}
+          icon={<ShieldCheck size={17} weight="fill" />}
+          tone="success"
+        />
+        <StatCard
+          label="Security changes"
+          value={loaded ? String(count("security.changed")) : "-"}
+          sub="PIN set, changed or reset"
+          tone="danger"
+        />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 mt-4">
-        {/* Audit trail: the recorded events themselves, not a re-listing of
-            transfers. Containment, verification, security changes and top-ups
-            are what a compliance officer reconstructs an incident from. */}
-        <Card className="lg:col-span-2">
-          <h2 className="mb-4 text-[16px] font-bold text-gray-900 dark:text-white">Audit trail</h2>
-          <div className="flex flex-col divide-y divide-gray-100 dark:divide-white/[0.04]">
-            {!compliance ? (
-              <div className="h-24 animate-pulse rounded bg-gray-100 dark:bg-white/[0.04]" />
-            ) : events.length === 0 ? (
-              <p className="py-6 text-center text-[13px] text-gray-400 dark:text-white/40">No events recorded yet.</p>
-            ) : (
-              events.slice(0, 25).map((e) => {
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* The recorded events themselves, not a re-listing of transfers.
+            Containment, verification, security changes and top-ups are what a
+            compliance officer reconstructs an incident from. */}
+        <Card padded={false} className="lg:col-span-2">
+          <div className="px-5 pt-5">
+            <CardHeader title="Audit trail" subtitle="Most recent first" />
+          </div>
+          {!loaded ? (
+            <div className="space-y-3 p-5 pt-0">
+              {[0, 1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-11 w-full" />
+              ))}
+            </div>
+          ) : events.length === 0 ? (
+            <EmptyState icon={<FileText size={22} />} title="No events yet" body="Holds, verifications and security changes are recorded here." />
+          ) : (
+            <ul className="divide-y divide-d-border">
+              {events.slice(0, 25).map((e) => {
                 const d = describeEvent(e);
                 return (
-                  <div key={e.id} className="flex items-center gap-4 py-3 text-[13px]">
-                    <span className="w-20 shrink-0 tabular-nums text-gray-500 dark:text-white/40">{eventTime(e.created_at)}</span>
+                  <li key={e.id} className="flex items-center gap-4 px-5 py-3.5 text-[13px]">
+                    <span className="w-20 shrink-0 tabular-nums text-d-muted">{eventTime(e.created_at)}</span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium text-gray-800 dark:text-white/80">{d.label}</span>
+                      <span className="block truncate font-medium text-d-text">{d.label}</span>
                       {e.user_id && (
-                        <span className="block truncate text-[11px] text-gray-400 dark:text-white/35" title={e.user_id}>{nameFor(e.user_id)}</span>
+                        <span className="block truncate text-[12px] text-d-faint" title={e.user_id}>
+                          {nameFor(e.user_id)}
+                        </span>
                       )}
                     </span>
-                    <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${d.tone}`}>
-                      {d.tag}
-                    </span>
-                  </div>
+                    <Badge tone={d.tone}>{d.tag}</Badge>
+                  </li>
                 );
-              })
-            )}
-          </div>
+              })}
+            </ul>
+          )}
         </Card>
 
-        {/* Frameworks */}
         <Card>
-          <h2 className="mb-4 text-[16px] font-bold text-gray-900 dark:text-white">Regulatory posture</h2>
-          <div className="flex flex-col gap-4">
+          <CardHeader title="Regulatory posture" subtitle="What Fable is built against" />
+          <ul className="flex flex-col gap-4">
             {FRAMEWORKS.map((f) => (
-              <div key={f.name} className="flex items-start gap-3">
-                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
-                  <CheckIcon className="size-3.5" />
+              <li key={f.name} className="flex items-start gap-3">
+                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600 dark:text-emerald-400">
+                  <Check size={13} weight="bold" />
                 </span>
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-[13px] font-bold text-gray-900 dark:text-white">{f.name}</span>
-                  <span className="text-[12px] text-gray-500 dark:text-white/50">{f.note}</span>
-                </div>
-              </div>
+                <span>
+                  <span className="block text-[13px] font-semibold text-d-text">{f.name}</span>
+                  <span className="block text-[12px] text-d-muted">{f.note}</span>
+                </span>
+              </li>
             ))}
-          </div>
+          </ul>
         </Card>
       </div>
 
-      {/* Incident log */}
-      <Card>
-        <h2 className="mb-4 text-[16px] font-bold text-gray-900 dark:text-white">Incident log</h2>
+      <Card padded={false}>
+        <div className="px-5 pt-5">
+          <CardHeader title="Incident log" subtitle="Transfers Shield blocked" />
+        </div>
         {feed.ready && incidents.length === 0 ? (
-          <p className="py-6 text-center text-[13px] text-gray-400 dark:text-white/40">No incidents on record.</p>
+          <EmptyState icon={<ShieldCheck size={22} />} title="No incidents on record" body="Blocked transfers will be listed here." />
         ) : (
-          <div className="flex flex-col divide-y divide-gray-100 dark:divide-white/[0.04]">
-            {incidents.map((t) => (
-              <div key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 text-[13px]">
-                <span className="font-bold text-gray-900 dark:text-white">{t.customerName}</span>
-                <span className="text-gray-600 dark:text-white/60">
-                  attempted {formatNaira(t.amount)} to {t.recipientName}
-                </span>
-                <span className="text-gray-400 dark:text-white/40">· {formatRelativeTime(t.timestamp)}</span>
-                <span className="ml-auto text-[11px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 px-2 py-0.5 rounded-full border border-red-200 dark:border-red-500/20">{t.status}</span>
-              </div>
-            ))}
+          <div className={table.wrap}>
+            <table className={table.base}>
+              <thead>
+                <tr className={table.head}>
+                  <th className={table.th}>Customer</th>
+                  <th className={table.th}>Attempted</th>
+                  <th className={table.th}>Outcome</th>
+                  <th className={`${table.th} text-right`}>When</th>
+                </tr>
+              </thead>
+              <tbody>
+                {incidents.slice(0, 20).map((t) => (
+                  <tr key={t.id} className={table.row}>
+                    <td className={`${table.td} font-semibold text-d-text`}>{t.customerName}</td>
+                    <td className={table.td}>
+                      <span className="font-semibold tabular-nums">{formatNaira(t.amount)}</span>
+                      <span className="text-d-muted"> to {t.recipientName}</span>
+                    </td>
+                    <td className={table.td}>
+                      <Badge tone="danger">{t.status}</Badge>
+                    </td>
+                    <td className={`${table.td} whitespace-nowrap text-right text-d-muted`}>{formatRelativeTime(t.timestamp)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </Card>
@@ -126,35 +181,30 @@ export default function CompliancePage() {
   );
 }
 
-const TONE = {
-  ok: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400",
-  warn: "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400",
-  bad: "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400",
-  info: "bg-violet-50 text-violet-600 dark:bg-violet-500/10 dark:text-violet-400",
-};
-
-type AuditEvent = NonNullable<ReturnType<typeof useCompliance>["data"]>["audit_trail"] extends (infer E)[] | undefined ? E : never;
-
 /** Turn a recorded event into a sentence a compliance officer can read. */
-function describeEvent(e: AuditEvent): { label: string; tag: string; tone: string } {
+function describeEvent(e: AuditEvent): { label: string; tag: string; tone: Tone } {
   const p = e.payload ?? {};
   const amount = typeof p.amount === "number" ? ` of ${formatNaira(p.amount)}` : "";
 
   switch (e.event_type) {
     case "containment.created":
-      return { label: `Transfer${amount} held in containment`, tag: "Held", tone: TONE.warn };
+      return { label: `Transfer${amount} held in containment`, tag: "Held", tone: "warning" };
     case "containment.released":
-      return { label: `Held transfer${amount} released by the customer`, tag: "Released", tone: TONE.info };
+      return { label: `Held transfer${amount} released by the customer`, tag: "Released", tone: "brand" };
     case "containment.cancelled":
-      return { label: `Held transfer${amount} cancelled, money returned`, tag: "Cancelled", tone: TONE.ok };
+      return { label: `Held transfer${amount} cancelled, money returned`, tag: "Cancelled", tone: "success" };
     case "containment.expired":
-      return { label: "Holds auto-cancelled after their cooling window", tag: "Expired", tone: TONE.ok };
+      return { label: "Holds auto-cancelled after their cooling window", tag: "Expired", tone: "success" };
     case "stepup.passed":
-      return { label: `Identity check passed (${String(p.level ?? "verified")})`, tag: "Verified", tone: TONE.ok };
+      return { label: `Identity check passed (${String(p.level ?? "verified")})`, tag: "Verified", tone: "success" };
     case "stepup.failed":
-      return { label: `Failed ${String(p.factor ?? "verification")} check${p.reason ? `: ${String(p.reason).replace(/_/g, " ")}` : ""}`, tag: "Failed", tone: TONE.bad };
+      return {
+        label: `Failed ${String(p.factor ?? "verification")} check${p.reason ? `: ${String(p.reason).replace(/_/g, " ")}` : ""}`,
+        tag: "Failed",
+        tone: "danger",
+      };
     case "transfer.approved":
-      return { label: `Flagged transfer${amount} approved after verification`, tag: "Approved", tone: TONE.info };
+      return { label: `Flagged transfer${amount} approved after verification`, tag: "Approved", tone: "brand" };
     case "security.changed": {
       const change = String(p.change ?? "");
       const via = p.via === "institution" ? " by the institution" : p.via === "registered_code" ? " with a code to their registered contact" : "";
@@ -163,16 +213,16 @@ function describeEvent(e: AuditEvent): { label: string; tag: string; tone: strin
         : change === "pin_changed" ? "Transaction PIN changed"
         : change === "pin_reset" ? `Transaction PIN reset${via}`
         : "Security setting changed";
-      return { label, tag: "Security", tone: TONE.warn };
+      return { label, tag: "Security", tone: "warning" };
     }
     case "account.topup":
-      return { label: `Account topped up${amount}${p.method ? ` by ${String(p.method)}` : ""}`, tag: "Top-up", tone: TONE.info };
+      return { label: `Account topped up${amount}${p.method ? ` by ${String(p.method)}` : ""}`, tag: "Top-up", tone: "brand" };
     case "admin.login":
-      return { label: "Console sign-in", tag: "Sign-in", tone: TONE.info };
+      return { label: "Console sign-in", tag: "Sign-in", tone: "neutral" };
     case "institution.provisioned":
-      return { label: "Institution provisioned", tag: "Setup", tone: TONE.info };
+      return { label: "Institution provisioned", tag: "Setup", tone: "neutral" };
     default:
-      return { label: e.event_type, tag: "Event", tone: TONE.info };
+      return { label: e.event_type, tag: "Event", tone: "neutral" };
   }
 }
 
