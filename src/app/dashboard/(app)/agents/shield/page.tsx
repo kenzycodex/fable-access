@@ -19,7 +19,7 @@ export default function ShieldAgentPage() {
     <>
       <PageHeader
         title="Fable Shield"
-        description="The real-time scoring engine. Twelve signal layers, personal baselines, and hard thresholds — every decision below is real and fully explainable."
+        description="The real-time scoring engine. Fourteen signal layers, personal baselines, and hard thresholds — every decision below is real and fully explainable."
         actions={
           <Link href="/dashboard/agents" className="flex items-center gap-1.5 text-[12px] font-semibold text-gray-500 hover:text-gray-900 dark:text-white/40 dark:hover:text-white">
             <ArrowLeft size={14} weight="bold" /> All agents

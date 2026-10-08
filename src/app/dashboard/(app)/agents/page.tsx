@@ -48,7 +48,7 @@ export default function AgentsPage() {
           href="/dashboard/agents/shield"
           icon={<ShieldCheck size={22} weight="fill" />}
           name="Fable Shield"
-          tagline="Scores every transfer through 12 signal layers in real time."
+          tagline="Scores every transfer through 14 signal layers in real time."
           status={data ? "active" : "…"}
           stats={[
             { label: "Scored", value: fmt(data?.shield.transactions_scored) },

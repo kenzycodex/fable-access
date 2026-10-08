@@ -54,7 +54,7 @@ export const industryTabs: IndustryTab[] = [
     label: "Banks",
     panelTitle: "Banks & Digital Banks",
     icon: { src: "/images/why-fable/ind-finance.webp", alt: "", width: 80, height: 76 },
-    body: "Direct and indirect NIP participants plug Shield into the transfer flow before funds move, and Watch runs passive monitoring between sessions, without slowing down the 10-second NIP clearing window.",
+    body: "Direct and indirect NIP participants plug Shield into the transfer flow before funds move, with Ghost holding any overridden block, without slowing down the 10-second NIP clearing window.",
     learnMoreHref: "#technology",
     caseStudies: [],
   },

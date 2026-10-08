@@ -17,7 +17,7 @@ export const fableAgentBlocks = [
   },
   {
     title: "Shield Steps in When Something Doesn't Fit",
-    body: "New recipient, odd hour, urgent narration, wrong channel. Shield scores every flagged transfer across six signal layers and explains the call in plain language, inside a 200ms budget.",
+    body: "New recipient, odd hour, urgent narration, wrong channel. Shield scores every transfer across fourteen signal layers and explains the call in plain language, inside a 200ms budget.",
     image: { src: "/images/solutions/empower-team.webp", alt: "Reviewing a flagged transfer", width: 1024, height: 831 },
     imageSide: "right" as const,
     cta: { label: "See the pipeline", href: "/why-fable#technology" },
@@ -35,7 +35,7 @@ export const fableAgentBlocks = [
 // meets inside Fable, in order. Each step gets a one-liner.
 export const pipelineSteps = [
   { label: "Copilot", desc: "Builds a behavioral baseline per user — clears safe transfers instantly.", icon: "/images/journey/login.svg" },
-  { label: "Shield", desc: "Scores flagged transfers across six signal layers in under 200ms.", icon: "/images/journey/transaction.svg" },
+  { label: "Shield", desc: "Scores every transfer across fourteen signal layers, built to answer inside 200ms.", icon: "/images/journey/transaction.svg" },
   { label: "Ghost", desc: "Holds risky transfers in a cooling window so money never leaves.", icon: "/images/journey/post-transaction.svg" },
-  { label: "Watch", desc: "Monitors between sessions and alerts on emerging risk patterns.", icon: "/images/journey/signup.svg" },
+  { label: "Watch", desc: "Coming soon: passive monitoring between sessions for emerging risk patterns.", icon: "/images/journey/signup.svg" },
 ];
