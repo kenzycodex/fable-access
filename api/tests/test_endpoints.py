@@ -133,3 +133,73 @@ def test_tenant_cannot_be_switched_by_query_parameter(client):
                      headers={"X-Fable-Session": token})
     assert res.status_code == 200
     assert client.get("/v1/agents/overview").status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# PIN choice and recovery
+# ---------------------------------------------------------------------------
+
+def test_any_pin_of_the_right_length_is_accepted(client):
+    """There are no strength rules: a customer may pick 1234, 0000 or 1111.
+    The protection is the lock-out on repeated wrong attempts."""
+    user = "endpointbank_tunde"
+    for pin in ("1234", "0000", "111111"):
+        current = None if pin == "1234" else last
+        res = client.post(f"/v1/accounts/{user}/security/pin",
+                          json={"pin": pin, "current_pin": current})
+        assert res.status_code == 200, (pin, res.text)
+        last = pin
+
+
+def test_pin_must_still_be_digits_and_four_or_six_long(client):
+    user = "endpointbank_ada"
+    assert client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "12ab"}).status_code == 400
+    assert client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "12345"}).status_code == 400
+
+
+def test_forgotten_pin_reset_needs_a_real_code_proof(client):
+    """A bare request, or a token minted for a transfer, cannot reset the PIN."""
+    import security
+    from agents.shield import stepup
+
+    user = "endpointbank_chioma"
+    assert client.post(f"/v1/accounts/{user}/security/pin/reset",
+                       json={"pin": "2468", "otp_token": "nope"}).status_code == 401
+
+    transfer_token = stepup.issue_token(user, "pin", "transfer", "txn_x")["token"]
+    assert client.post(f"/v1/accounts/{user}/security/pin/reset",
+                       json={"pin": "2468", "otp_token": transfer_token}).status_code == 401
+
+    reset_token = stepup.issue_token(user, "pin", "pin_reset", None)["token"]
+    res = client.post(f"/v1/accounts/{user}/security/pin/reset",
+                      json={"pin": "2468", "otp_token": reset_token})
+    assert res.status_code == 200
+    assert security.check_pin(user, "2468") is True
+
+    # Single use: the same proof cannot be replayed to change it again.
+    assert client.post(f"/v1/accounts/{user}/security/pin/reset",
+                       json={"pin": "1357", "otp_token": reset_token}).status_code == 401
+
+
+def test_institution_can_clear_its_own_customers_pin_only(client):
+    import security
+    import sessions
+
+    user = "endpointbank_chioma"
+    client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "9999"}) if not security.status(user)["pin_set"] else None
+    assert security.status(user)["pin_set"] is True
+
+    url = f"/v1/institutions/endpointbank/customers/{user}/pin/reset"
+    assert client.post(url).status_code == 401  # no session
+
+    other = sessions.issue("risk@other.ng", "someotherbank")["token"]
+    assert client.post(url, headers={"X-Fable-Session": other}).status_code == 404
+
+    own = sessions.issue("risk@endpoint.ng", "endpointbank")["token"]
+    res = client.post(url, headers={"X-Fable-Session": own})
+    assert res.status_code == 200
+    assert res.json()["pin_set"] is False
+
+    stranger = client.post("/v1/institutions/endpointbank/customers/nobody_here/pin/reset",
+                           headers={"X-Fable-Session": own})
+    assert stranger.status_code == 404

@@ -16,27 +16,6 @@ PBKDF2_ROUNDS = 200_000
 MAX_PIN_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
 
-# Rejected outright. A PIN a scammer can guess over a phone call is not a
-# factor, and these are the ones people reach for first.
-WEAK_PINS = {
-    # Repeated digits
-    "0000", "1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888",
-    "9999", "000000", "111111", "222222", "333333", "444444", "555555",
-    "666666", "777777", "888888", "999999",
-    # Sequences, forward and back. The original list had 1234 and 4321 but
-    # stopped there, so 2345 and 6789 were accepted — and a scammer coaching
-    # someone over the phone works from a very short list.
-    "1234", "2345", "3456", "4567", "5678", "6789", "0123",
-    "4321", "5432", "6543", "7654", "8765", "9876", "3210",
-    "123456", "234567", "345678", "456789", "654321", "765432", "987654",
-    # Repeating pairs and keypad patterns
-    "1122", "1212", "2121", "1313", "2020", "6969", "121212", "112233",
-    "159753", "147258", "159357",
-    # Years people pick as a 4-digit PIN
-    *{str(y) for y in range(1950, 2031)},
-}
-
-
 class SecurityError(ValueError):
     """Rejected input, with a message meant for the customer."""
 
@@ -178,10 +157,9 @@ def set_pin(user_id: str, pin: str, current_pin: str | None = None,
         raise SecurityError("Your PIN must be digits only.")
     if len(pin) not in (4, 6):
         raise SecurityError("Your PIN must be 4 or 6 digits.")
-    if pin in WEAK_PINS:
-        raise SecurityError("That PIN is too easy to guess. Choose another.")
-    if len(set(pin)) == 1:
-        raise SecurityError("That PIN is too easy to guess. Choose another.")
+    # No strength rules beyond length. The customer picks their own PIN, and the
+    # real protection is the lock-out after repeated wrong attempts, not a list
+    # of "bad" numbers.
 
     row = _record(user_id)
 
@@ -194,6 +172,11 @@ def set_pin(user_id: str, pin: str, current_pin: str | None = None,
         if not _verify_hash(row, current_pin):
             raise SecurityError("Your current PIN isn't right.")
 
+    _store_pin(user_id, pin, institution_id)
+    return status(user_id)
+
+
+def _store_pin(user_id: str, pin: str, institution_id: str | None) -> None:
     salt = secrets.token_hex(16)
     stored = f"{salt}${_hash_pin(pin, salt)}"
 
@@ -208,6 +191,40 @@ def set_pin(user_id: str, pin: str, current_pin: str | None = None,
                  locked_until = NULL,
                  updated_at = datetime('now')""",
             (user_id, institution_id, stored, _now().isoformat()),
+        )
+
+
+def set_pin_verified(user_id: str, pin: str, institution_id: str | None = None) -> dict:
+    """Set a new PIN for a customer who has already proved themselves another way.
+
+    Used by the forgotten-PIN flow, where the proof is a one-time code sent to
+    the customer's own registered address. The caller is responsible for having
+    verified that proof; this only validates the PIN itself and stores it.
+    """
+    pin = pin.strip()
+    if not pin.isdigit():
+        raise SecurityError("Your PIN must be digits only.")
+    if len(pin) not in (4, 6):
+        raise SecurityError("Your PIN must be 4 or 6 digits.")
+    _store_pin(user_id, pin, institution_id)
+    return status(user_id)
+
+
+def clear_pin(user_id: str) -> dict:
+    """Remove a customer's PIN so they can choose a new one.
+
+    This is the institution's reset: a bank can do it for a customer who has
+    forgotten theirs, the same as at a branch. It deletes the factor rather than
+    replacing it, so the institution never learns or chooses a customer's PIN.
+    The customer sets a new one the next time a verification asks for it.
+    """
+    with cursor() as cur:
+        cur.execute(
+            """UPDATE user_security
+               SET pin_hash = NULL, pin_set_at = NULL, failed_attempts = 0,
+                   locked_until = NULL, updated_at = datetime('now')
+               WHERE user_id = ?""",
+            (user_id,),
         )
     return status(user_id)
 

@@ -6,6 +6,8 @@ The demo bank calls this to validate the institution slug in its URL
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+import audit
+import security
 import sessions
 from db import cursor
 from tenancy import get_institution, institution_from_api_key, list_institutions
@@ -108,3 +110,52 @@ def credentials(institution_id: str, request: Request):
         "masked_key": _mask(row["key"]),
         "created_at": row["created_at"],
     }
+
+
+def _customer_belongs(institution_id: str, user_id: str) -> bool:
+    """Is this customer one of the institution's own?
+
+    Checked across every place a customer can first appear, because an account
+    row only exists after a first balance read and a transaction only after a
+    first transfer, while the roster is the one thing a freshly provisioned
+    tenant always has.
+    """
+    roster = {c["user_id"] for c in customers_for_institution(institution_id)}
+    if user_id in roster:
+        return True
+    with cursor() as cur:
+        for table in ("accounts", "fable_users", "transactions"):
+            cur.execute(
+                f"SELECT 1 FROM {table} WHERE user_id = ? AND institution_id = ? LIMIT 1",
+                (user_id, institution_id),
+            )
+            if cur.fetchone():
+                return True
+    return False
+
+
+@router.post("/{institution_id}/customers/{user_id}/pin/reset")
+def reset_customer_pin(institution_id: str, user_id: str, request: Request):
+    """Clear a customer's transaction PIN so they can choose a new one.
+
+    What a bank does at a branch or on a support call for a customer who has
+    forgotten theirs. It deletes the PIN rather than setting one, so the
+    institution never learns or picks a customer's PIN: the customer chooses a
+    new one the next time a verification asks for it.
+
+    Needs a console session for this institution. Another tenant's session, or
+    a customer who is not yours, is a 404 so the endpoint cannot be used to
+    probe which customers or institutions exist.
+    """
+    try:
+        payload = sessions.verify(sessions.extract_token(request))
+    except sessions.SessionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+
+    if payload["inst"] != institution_id or not _customer_belongs(institution_id, user_id):
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    status = security.clear_pin(user_id)
+    audit.record(audit.SECURITY_CHANGED, user_id, institution_id=institution_id,
+                 change="pin_reset", via="institution", admin=payload["sub"])
+    return status
