@@ -12,7 +12,7 @@ interface CtaBannerProps {
 /**
  * Full-bleed closing CTA used at the bottom of every marketing page
  * (`.full-bg-cta` in the source): pink background, copy on the right,
- * and the `action.png` graphic absolutely positioned bottom-left,
+ * and the Fable illustration absolutely positioned bottom-left,
  * deliberately bleeding up into the section above at desktop widths.
  */
 export function CtaBanner({ title, subtitle, cta }: CtaBannerProps) {
@@ -27,13 +27,16 @@ export function CtaBanner({ title, subtitle, cta }: CtaBannerProps) {
               {cta.label}
             </Button>
           </Reveal>
-          <Reveal className="static mx-auto w-full max-w-[300px] pb-0 sm:max-w-[360px] lg:absolute lg:bottom-0 lg:left-0 lg:mx-0 lg:w-[50%] lg:max-w-none">
+          {/* The picture is square, so it is narrower than the old wide graphic to
+              keep the same bleed up into the section above. It is transparent, so
+              it sits straight on the purple. */}
+          <Reveal className="static mx-auto w-full max-w-[300px] pb-0 sm:max-w-[360px] lg:absolute lg:bottom-0 lg:left-0 lg:mx-0 lg:w-[42%] lg:max-w-none">
             <Image
-              src="/images/home/action.png"
-              alt=""
-              aria-hidden="true"
-              width={924}
-              height={759}
+              src="/images/home/talk-to-fable.png"
+              alt="A customer sending ₦85,000 on her phone, with Fable's Copilot, Shield and Ghost around her and the transfer marked protected"
+              width={1254}
+              height={1254}
+              sizes="(min-width: 1024px) 42vw, 360px"
               className="h-auto w-full"
             />
           </Reveal>
