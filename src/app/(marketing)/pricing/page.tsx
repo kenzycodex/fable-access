@@ -57,11 +57,11 @@ export default function PricingPage() {
       </section>
 
       {/* Service tiers */}
-      <Section className="bg-gradient-to-b from-black to-base text-white">
+      <Section>
         <Container>
           <Reveal className="mb-[var(--section-space-s)] flex flex-col gap-[var(--content-gap-s)]">
             <h2>{servicesIntro.title}</h2>
-            <p className="text-m text-white/80">{servicesIntro.body}</p>
+            <p className="text-m text-black/80">{servicesIntro.body}</p>
           </Reveal>
 
           {/* Same cut-corner tiles, lavender and purple, as the stat band on the
@@ -142,7 +142,7 @@ export default function PricingPage() {
             })}
           </div>
 
-          <Reveal className="mt-[var(--section-space-s)] max-w-[720px] text-m text-white/70">
+          <Reveal className="mt-[var(--section-space-s)] max-w-[720px] text-m text-black/70">
             <p>{pricingNote}</p>
           </Reveal>
         </Container>
