@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import { Breadcrumb } from "@/components/ui/Breadcrumb";
 import { Button } from "@/components/ui/Button";
+import { CodeBlock } from "@/components/ui/CodeBlock";
 import { Container, Section } from "@/components/ui/Section";
 import { Reveal } from "@/components/ui/Reveal";
 import { StickySubNav } from "@/components/sections/StickySubNav";
@@ -20,7 +21,7 @@ import {
 
 export const metadata: Metadata = {
   title: "Platform",
-  description: "Inside the Fable agent pipeline: Copilot, Shield, Ghost, and Watch, and the API shape behind them.",
+  description: "Inside the Fable agent pipeline: Copilot, Shield, and Ghost, and the API shape behind them.",
 };
 
 export default function PlatformPage() {
@@ -51,8 +52,9 @@ export default function PlatformPage() {
               Pipeline
             </h1>
             <p className="text-l text-white/85">
-              Copilot, Shield, Ghost, and Watch, in the order a transfer actually meets them, plus the API shape and
-              latency budget behind them.
+              Copilot, Shield, and Ghost, in the order a transfer actually meets them,
+              <br className="hidden lg:block" />
+              plus the API shape and latency budget behind them.
             </p>
             <div className="flex w-full flex-wrap items-center gap-[var(--content-gap)]">
               <Button href={demoCta.href} tone="secondary" className="!px-12">
@@ -98,12 +100,8 @@ export default function PlatformPage() {
             </p>
           </Reveal>
           <div className="grid grid-cols-1 gap-[var(--grid-gap)] lg:grid-cols-2">
-            <pre className="overflow-x-auto rounded-[var(--radius)] bg-black p-[var(--spacing-m)] text-xs text-white/90">
-              <code>{apiRequestExample}</code>
-            </pre>
-            <pre className="overflow-x-auto rounded-[var(--radius)] bg-black p-[var(--spacing-m)] text-xs text-white/90">
-              <code>{apiResponseExample}</code>
-            </pre>
+            <CodeBlock label="Request" lang="http" code={apiRequestExample} />
+            <CodeBlock label="Response" lang="json" code={apiResponseExample} />
           </div>
         </Container>
       </Section>
@@ -140,7 +138,7 @@ export default function PlatformPage() {
                 See where your transfer flow is exposed. Get started with a free, 1:1 risk assessment for your
                 institution.
               </p>
-              <Button href={demoCta.href} tone="secondary" className="lg:hidden">
+              <Button href={demoCta.href} tone="secondary">
                 Get Started
               </Button>
             </div>
@@ -179,11 +177,6 @@ export default function PlatformPage() {
                   height={568}
                   className="relative z-20 h-auto w-full"
                 />
-                <div className="absolute bottom-[42px] left-[-70px] z-30 hidden lg:block">
-                  <Button href={demoCta.href} tone="secondary">
-                    Get Started
-                  </Button>
-                </div>
               </div>
             </div>
           </Reveal>
