@@ -1,13 +1,14 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Eye, EyeSlash } from "@phosphor-icons/react";
+import { toast } from "sonner";
+import { AuthShell } from "@/components/dashboard/AuthShell";
+import { Button, Field, TextInput } from "@/components/app-kit";
 import { API_BASE } from "@/lib/fable/api";
 import { login, useFableStore } from "@/lib/fable/store";
-import { toast } from "sonner";
 
 /** Demo credentials shown on the sign-in card.
  *
@@ -50,7 +51,7 @@ export default function DashboardLoginPage() {
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -77,126 +78,103 @@ export default function DashboardLoginPage() {
   }
 
   return (
-    <div data-surface="app" className="h-dvh w-full bg-black">
-      <div className="animate-card-entrance grid h-full w-full lg:grid-cols-2 bg-black">
-        
-        {/* Image panel (Left Side) */}
-        <div className="relative hidden w-full h-full overflow-hidden lg:block bg-[#1E1145]">
-          <Image
-            src="/images/brand/login-bg.jpg"
-            alt="Fable Login Background"
-            fill
-            className="object-cover"
-            priority
+    <AuthShell
+      title="Welcome back"
+      description="Sign in to the Fable console."
+      footer={
+        <>
+          <p>
+            No account yet?{" "}
+            <Link href="/pricing" className="font-semibold text-brand hover:underline">
+              See pricing and talk to us
+            </Link>
+          </p>
+          <p className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[12px]">
+            <Link href="/privacy" className="hover:text-d-text hover:underline">Privacy Notice</Link>
+            <Link href="/terms" className="hover:text-d-text hover:underline">Terms of Service</Link>
+            <Link href="/terms#intellectual-property" className="hover:text-d-text hover:underline">IP Notice</Link>
+          </p>
+        </>
+      }
+    >
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSignIn();
+        }}
+      >
+        <Field label="Email">
+          <TextInput
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="username"
+            placeholder="you@institution.ng"
+            required
           />
-        </div>
+        </Field>
 
-        {/* Form panel (Right Side) */}
-        <div className="flex flex-col justify-center px-6 py-8 sm:px-12 lg:px-16 bg-black z-10 relative">
-          <div className="flex w-full max-w-[340px] mx-auto flex-col items-center">
-            
-            <div className="flex justify-center mb-10">
-              <Link href="/" className="relative flex w-fit items-center">
-                <Image src="/images/brand/fable-logo-white.png" alt="Fable" width={1671} height={547} className="h-14 w-auto drop-shadow-md" />
-              </Link>
-            </div>
-
-            <form
-              className="flex w-full flex-col gap-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSignIn();
-              }}
+        <Field
+          label="Password"
+          right={
+            <Link href="/dashboard/forgot-password" className="text-[12px] font-semibold text-brand hover:underline">
+              Forgot password?
+            </Link>
+          }
+        >
+          <div className="relative">
+            <TextInput
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              className="pr-12"
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-d-faint transition-colors hover:text-d-text"
             >
-              <div className="flex flex-col gap-3 w-full">
-                <div className="relative">
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-[14px] text-white outline-none transition-all focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] placeholder:text-gray-500 hover:bg-white/[0.04]"
-                    placeholder="Email"
-                    aria-label="Email"
-                  />
-                </div>
-
-                <div className="relative">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded border border-white/[0.08] bg-white/[0.02] pl-3 pr-10 py-3 text-[14px] text-white outline-none transition-all focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] placeholder:text-gray-500 hover:bg-white/[0.04]"
-                    placeholder="Password"
-                    aria-label="Password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
-                    tabIndex={-1}
-                  >
-                    {showPassword ? <EyeSlash size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex w-full mt-1">
-                <Link href="/dashboard/forgot-password" className="text-[14px] text-[#7C3AED] hover:underline hover:text-[#8b5cf6] transition-colors">
-                  Forgot your password?
-                </Link>
-              </div>
-
-              <button
-                type="submit"
-                disabled={submitting}
-                className="mt-2 flex w-full items-center justify-center gap-2 rounded bg-[#7C3AED] py-3 text-[15px] font-medium text-white transition-all hover:bg-[#6d28d9] disabled:opacity-70 shadow-lg shadow-[#7C3AED]/20"
-              >
-                {submitting ? (
-                  <>
-                    <span className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                    Authenticating...
-                  </>
-                ) : (
-                  "Log in"
-                )}
-              </button>
-
-              {DEMO_EMAIL && DEMO_PASSWORD && (
-                <div className="mt-4 rounded-lg border border-[#7C3AED]/20 bg-[#7C3AED]/5 p-3 text-center text-[13px] text-white/80">
-                  <p className="font-medium text-[#7C3AED] mb-1">Demo Account</p>
-                  <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-white/60">
-                    <p>Email: <span className="font-mono text-white">{DEMO_EMAIL}</span></p>
-                    <p>Pass: <span className="font-mono text-white">{DEMO_PASSWORD}</span></p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { setEmail(DEMO_EMAIL); setPassword(DEMO_PASSWORD); }}
-                    className="mt-2 text-[12px] text-[#7C3AED] hover:underline hover:text-[#8b5cf6] transition-colors"
-                  >
-                    Fill these in
-                  </button>
-                </div>
-              )}
-
-              <div className="mt-4 text-center text-[13px] text-gray-400 font-normal">
-                Don&apos;t have an account? <button type="button" className="text-[#7C3AED] hover:underline hover:text-[#8b5cf6] transition-colors">Contact Sales</button>.
-              </div>
-
-              <div className="mt-6 flex items-center justify-center gap-2 text-[12px] text-[#7C3AED]">
-                <Link href="/privacy" className="hover:underline hover:text-[#8b5cf6] transition-colors">Privacy Notice</Link>
-                <span className="text-gray-700">|</span>
-                <Link href="/terms" className="hover:underline hover:text-[#8b5cf6] transition-colors">Terms of Service</Link>
-                <span className="text-gray-700">|</span>
-                <Link href="/terms#intellectual-property" className="hover:underline hover:text-[#8b5cf6] transition-colors">IP Notice</Link>
-              </div>
-
-              <p className="mt-4 text-center text-[12px] text-gray-500 leading-relaxed px-4">
-                By accessing the Fable Console and related services you agree to the <Link href="/terms" className="underline hover:text-white/80">Terms of Service</Link> and acknowledge the <Link href="/privacy" className="underline hover:text-white/80">Privacy Notice</Link>.
-              </p>
-            </form>
+              {showPassword ? <EyeSlash size={18} /> : <Eye size={18} />}
+            </button>
           </div>
-        </div>
-      </div>
-    </div>
+        </Field>
+
+        <Button type="submit" size="lg" full loading={submitting} className="mt-1">
+          {submitting ? "Signing in" : "Sign in"}
+        </Button>
+
+        {DEMO_EMAIL && DEMO_PASSWORD && (
+          <div className="rounded-xl bg-brand/[0.07] p-4 text-[13px]">
+            <p className="font-semibold text-brand">Demo account</p>
+            <p className="mt-1.5 text-d-muted">
+              Email <span className="font-mono text-d-text">{DEMO_EMAIL}</span>
+            </p>
+            <p className="text-d-muted">
+              Password <span className="font-mono text-d-text">{DEMO_PASSWORD}</span>
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setEmail(DEMO_EMAIL);
+                setPassword(DEMO_PASSWORD);
+              }}
+              className="mt-2 text-[12px] font-semibold text-brand hover:underline"
+            >
+              Fill these in
+            </button>
+          </div>
+        )}
+
+        <p className="text-center text-[12px] leading-relaxed text-d-faint">
+          By signing in you agree to the{" "}
+          <Link href="/terms" className="underline hover:text-d-text">Terms of Service</Link> and acknowledge the{" "}
+          <Link href="/privacy" className="underline hover:text-d-text">Privacy Notice</Link>.
+        </p>
+      </form>
+    </AuthShell>
   );
 }

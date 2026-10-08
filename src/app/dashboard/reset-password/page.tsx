@@ -1,10 +1,11 @@
 "use client";
 
-import { API_BASE } from "@/lib/fable/api";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, Suspense } from "react";
+import { Suspense, useState } from "react";
+import { Button, Field, Notice, TextInput } from "@/components/app-kit";
+import { AuthShell } from "@/components/dashboard/AuthShell";
+import { API_BASE } from "@/lib/fable/api";
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -31,24 +32,24 @@ function ResetPasswordForm() {
       setError("Password must be at least 8 characters long.");
       return;
     }
-    
+
     setError("");
     setSubmitting(true);
-    
+
     try {
       const res = await fetch(`${API_BASE}/auth/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, new_password: password })
+        body: JSON.stringify({ token, new_password: password }),
       });
       const data = await res.json();
-      
+
       if (!res.ok) {
         setError(data.detail || "Failed to reset password.");
         setSubmitting(false);
         return;
       }
-      
+
       setSuccess(true);
       setTimeout(() => {
         router.push("/dashboard/login");
@@ -59,101 +60,44 @@ function ResetPasswordForm() {
     }
   }
 
+  if (success) {
+    return (
+      <Notice tone="success">
+        Your password has been reset. Taking you to sign in...
+      </Notice>
+    );
+  }
+
   return (
-    <div className="flex w-full max-w-[340px] mx-auto flex-col items-center">
-      <div className="flex justify-center mb-8">
-        <Link href="/" className="relative flex w-fit items-center">
-          <Image src="/images/brand/fable-logo-white.png" alt="Fable" width={1671} height={547} className="h-14 w-auto drop-shadow-md" />
-        </Link>
-      </div>
-
-      <div className="w-full text-center mb-8">
-        <h1 className="text-xl font-bold text-white mb-2">Create new password</h1>
-        <p className="text-sm text-gray-400">Enter a new secure password for your dashboard access.</p>
-      </div>
-
-      {success ? (
-        <div className="w-full rounded border border-[#00f5a0]/30 bg-[#00f5a0]/10 p-4 text-center">
-          <p className="text-[14px] text-white">
-            Your password has been successfully reset!
-          </p>
-          <p className="text-[12px] text-gray-400 mt-2">
-            Redirecting you to login...
-          </p>
-        </div>
-      ) : (
-        <form className="flex w-full flex-col gap-4" onSubmit={handleReset}>
-          {error && (
-            <div className="w-full rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-[13px] text-red-400">
-              {error}
-            </div>
-          )}
-          
-          <div className="flex flex-col gap-3 w-full">
-            <div className="relative">
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-[14px] text-white outline-none transition-all focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] placeholder:text-gray-500 hover:bg-white/[0.04]"
-                placeholder="New Password"
-                aria-label="New Password"
-                required
-              />
-            </div>
-
-            <div className="relative">
-              <input
-                type="password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                className="w-full rounded border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-[14px] text-white outline-none transition-all focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] placeholder:text-gray-500 hover:bg-white/[0.04]"
-                placeholder="Confirm New Password"
-                aria-label="Confirm New Password"
-                required
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded bg-[#7C3AED] py-3 text-[15px] font-medium text-white transition-all hover:bg-[#6d28d9] disabled:opacity-70 shadow-lg shadow-[#7C3AED]/20"
-          >
-            {submitting ? (
-              <>
-                <span className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                Saving...
-              </>
-            ) : (
-              "Set new password"
-            )}
-          </button>
-        </form>
-      )}
-    </div>
+    <form className="flex flex-col gap-4" onSubmit={handleReset}>
+      {error && <Notice tone="danger">{error}</Notice>}
+      <Field label="New password" hint="At least 8 characters.">
+        <TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required />
+      </Field>
+      <Field label="Confirm new password">
+        <TextInput type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" required />
+      </Field>
+      <Button type="submit" size="lg" full loading={submitting}>
+        {submitting ? "Saving" : "Set new password"}
+      </Button>
+    </form>
   );
 }
 
 export default function ResetPasswordPage() {
   return (
-    <div data-surface="app" className="h-dvh w-full bg-black">
-      <div className="animate-card-entrance grid h-full w-full lg:grid-cols-2 bg-black">
-        <div className="relative hidden w-full h-full overflow-hidden lg:block bg-[#1E1145]">
-          <Image
-            src="/images/brand/login-bg.jpg"
-            alt="Fable Login Background"
-            fill
-            className="object-cover"
-            priority
-          />
-        </div>
-        <div className="flex flex-col justify-center px-6 py-8 sm:px-12 lg:px-16 bg-black z-10 relative">
-          <Suspense fallback={<div className="text-white text-center">Loading...</div>}>
-            <ResetPasswordForm />
-          </Suspense>
-        </div>
-      </div>
-    </div>
+    <AuthShell
+      title="Create a new password"
+      description="Choose a new password for your console access."
+      footer={
+        <Link href="/dashboard/login" className="font-semibold text-brand hover:underline">
+          Back to sign in
+        </Link>
+      }
+    >
+      <Suspense fallback={<p className="text-center text-[13px] text-d-muted">Loading...</p>}>
+        <ResetPasswordForm />
+      </Suspense>
+    </AuthShell>
   );
 }
