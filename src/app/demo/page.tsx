@@ -45,8 +45,42 @@ async function resolveLandingInstitution(): Promise<string | null> {
   }
 }
 
+/**
+ * The address people should actually see for an institution: the URL its owner
+ * chose in Settings, falling back to its id.
+ *
+ * The entry point used to redirect to the institution's id, and the tenant page
+ * then rewrote the address to the chosen URL once it loaded. That showed the old
+ * name for a moment before switching. Resolving the final address here, before
+ * redirecting, means the browser only ever sees the right one.
+ *
+ * `segment` may be an id or a slug, so it is resolved to an id first.
+ */
+async function canonicalSegment(segment: string): Promise<string> {
+  try {
+    const resolved = await fetch(`${API_BASE}/v1/branding/resolve/${encodeURIComponent(segment)}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (!resolved.ok) return segment;
+    const { institution_id } = (await resolved.json()) as { institution_id: string };
+
+    const branding = await fetch(`${API_BASE}/v1/branding/${encodeURIComponent(institution_id)}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (!branding.ok) return institution_id;
+    const { slug } = (await branding.json()) as { slug?: string | null };
+    return slug || institution_id;
+  } catch {
+    // The tenant page can still resolve either form, so a lookup failure here
+    // only costs the brief address change, never a broken link.
+    return segment;
+  }
+}
+
 export default async function DemoIndexPage() {
   const institution = await resolveLandingInstitution();
   if (!institution) notFound();
-  redirect(`/demo/${institution}`);
+  redirect(`/demo/${await canonicalSegment(institution)}`);
 }
