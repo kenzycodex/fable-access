@@ -9,8 +9,8 @@ export const metadata: Metadata = {
 export default function NotFound() {
   return (
     <section
-      className="flex items-center bg-gradient-to-b from-base to-black px-[var(--gutter)] text-white"
-      style={{ minHeight: "70vh", paddingTop: "calc(var(--header-height, 90px) + var(--section-space-m))" }}
+      className="flex min-h-dvh items-center bg-gradient-to-b from-base to-black px-[var(--gutter)] pb-[var(--section-space-m)] text-white"
+      style={{ paddingTop: "calc(var(--header-height, 90px) + var(--section-space-m))" }}
     >
       <Container>
         <div className="flex max-w-[640px] flex-col items-start gap-[var(--spacing-m)]">
