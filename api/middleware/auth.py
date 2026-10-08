@@ -12,6 +12,21 @@ from config import API_KEYS
 from db import get_conn
 
 PUBLIC_PATHS = ("/", "/health", "/docs", "/redoc", "/openapi.json", "/favicon.ico")
+# Signing in, recovering a password and accepting an invite happen before the
+# caller has any credential, so they can never require one.
+PUBLIC_PREFIXES = ("/auth/login", "/auth/forgot-password", "/auth/reset-password")
+
+
+def _has_valid_session(request) -> bool:
+    """A signed-in console user. Turning on key enforcement used to lock the
+    console out entirely, because it presents a session, not an API key."""
+    import sessions
+
+    try:
+        sessions.verify(sessions.extract_token(request))
+        return True
+    except sessions.SessionError:
+        return False
 
 
 def _extract_key(request) -> str | None:
@@ -27,7 +42,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)  # demo mode: auth disabled
 
         path = request.url.path
-        if path in PUBLIC_PATHS or request.method == "OPTIONS":
+        if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES) or request.method == "OPTIONS":
+            return await call_next(request)
+        if _has_valid_session(request):
             return await call_next(request)
 
         key = _extract_key(request)

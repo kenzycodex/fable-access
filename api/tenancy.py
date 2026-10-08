@@ -46,6 +46,16 @@ def resolve_institution(request, claimed: str | None = None) -> str:
         return from_key
     claimed = canonical_institution(claimed)
     if claimed and institution_exists(claimed):
+        # A live institution's traffic is real money. Naming it is not enough
+        # to write to it: the caller must hold its key. Sandbox institutions,
+        # including every demo bank, stay open so the public demo keeps working.
+        if institution_mode(claimed) == "live":
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                status_code=401,
+                detail="This institution is live. Present its API key to send transactions.",
+            )
         return claimed
     return _fallback_institution()
 
@@ -122,24 +132,93 @@ def tenant_for_console(request) -> str:
     it. Closing S0-4 on the console while leaving that path open would have been
     closing it on paper only.
 
-    No session and no API key is a 401, with no fallback.
+    No session and no API key is a 401, with no fallback. A session for a
+    member who has since been deactivated is also a 401.
+    """
+    return console_identity(request)["inst"]
+
+
+ROLES = ("owner", "analyst", "viewer")
+
+# What each role may do. An API key acts as "service": a machine integration may
+# read and work cases, but managing people, keys and policy needs a person.
+_ROLE_RANK = {"viewer": 0, "analyst": 1, "service": 1, "owner": 2}
+
+
+def console_identity(request) -> dict:
+    """Who is calling the console API: institution, email and role.
+
+    The role is read from the admins table on every call rather than trusted
+    from the token. Tokens live for 12 hours and cannot be revoked, so a role
+    baked into one would let a demoted or removed member keep their old powers
+    until it expired.
     """
     from fastapi import HTTPException
     import sessions
 
     try:
-        return sessions.verify(sessions.extract_token(request))["inst"]
+        payload = sessions.verify(sessions.extract_token(request))
     except sessions.SessionError:
-        pass
+        payload = None
+
+    if payload:
+        with cursor() as cur:
+            cur.execute(
+                "SELECT role, name, active, institution_id FROM admins WHERE email = ?",
+                (payload.get("sub"),),
+            )
+            row = cur.fetchone()
+        # A session minted before this check existed, or by a test, may name an
+        # admin with no row. It still proves the institution, so it keeps the
+        # access it always had; a row that exists must be active and match.
+        if row is not None:
+            if not row["active"] or row["institution_id"] != payload["inst"]:
+                raise HTTPException(status_code=401, detail="This account no longer has console access.")
+            return {
+                "inst": payload["inst"],
+                "email": payload.get("sub"),
+                "name": row["name"],
+                "role": row["role"] or "owner",
+            }
+        return {"inst": payload["inst"], "email": payload.get("sub"), "name": None, "role": "owner"}
 
     from_key = institution_from_api_key(extract_api_key(request))
     if from_key:
-        return from_key
+        return {"inst": from_key, "email": "api-key", "name": "API key", "role": "service"}
 
     raise HTTPException(
         status_code=401,
         detail="Sign in to the console, or present your institution's API key.",
     )
+
+
+def require_role(request, minimum: str) -> dict:
+    """The caller's identity, or 403 when their role is below `minimum`.
+
+    `minimum` is "viewer", "analyst" or "owner". Owner-only actions also refuse
+    an API key: changing people, keys or policy should be done by a person.
+    """
+    from fastapi import HTTPException
+
+    who = console_identity(request)
+    if minimum == "owner" and who["role"] != "owner":
+        raise HTTPException(status_code=403, detail="Only an owner can change this.")
+    if _ROLE_RANK.get(who["role"], 0) < _ROLE_RANK[minimum]:
+        raise HTTPException(status_code=403, detail="Your role cannot do this.")
+    return who
+
+
+def institution_mode(institution_id: str | None) -> str:
+    """'live' or 'sandbox'. Unknown or unset is sandbox, the historical behaviour."""
+    if not institution_id:
+        return "sandbox"
+    try:
+        with cursor() as cur:
+            cur.execute("SELECT mode FROM institutions WHERE institution_id = ?", (institution_id,))
+            row = cur.fetchone()
+        return (row["mode"] if row and row["mode"] else "sandbox").lower()
+    except Exception:  # noqa: BLE001 - a database without the column yet
+        return "sandbox"
 
 
 def institution_exists(institution_id: str) -> bool:
