@@ -14,7 +14,7 @@ export default function HomePage() {
     <>
       {/* Hero */}
       <section
-        className="relative overflow-hidden bg-gradient-to-b from-base to-black px-[var(--gutter)] text-white"
+        className="relative overflow-hidden bg-gradient-to-b from-base to-black px-[var(--gutter)] pb-[var(--section-space-s)] text-white lg:flex lg:min-h-[660px] lg:items-center"
         style={{ paddingTop: "calc(var(--header-height, 90px) + var(--spacing-m))" }}
       >
         {/* TEMPORARY: pricing-page hero image, replacing the blob pattern. Revert with git. */}
@@ -29,8 +29,8 @@ export default function HomePage() {
             className="ml-auto h-auto w-full"
           />
         </div>
-        <Container className="relative z-[1]">
-          <div className="grid grid-cols-1 items-center gap-[var(--spacing-xl)] pb-[var(--section-space-s)] lg:grid-cols-[1fr_minmax(0,0.8fr)]">
+        <Container className="relative z-[1] w-full">
+          <div className="flex flex-col items-start gap-[var(--spacing-m)] lg:w-[62%]">
             <div className="flex flex-col items-start gap-[var(--spacing-m)]">
               {/* Fable-style floating badge */}
               <Reveal delay={0}>
@@ -38,14 +38,14 @@ export default function HomePage() {
               </Reveal>
 
               <Reveal delay={100}>
-                <h1 className="text-[3.5rem] lg:text-[5rem] font-bold leading-[1.05] tracking-tight">
+                <h1>
                   Stop Fraud Fast.
                   <br />
                   <span className="font-marker text-accent">Four</span> AI Agents.
                 </h1>
               </Reveal>
               <Reveal delay={200}>
-                <p className="text-m max-w-[560px]">
+                <p className="text-l max-w-[620px] text-white/85">
                   Copilot learns how your users actually move money. Shield stops the transfer that doesn&rsquo;t fit.
                   Ghost gives even a fully-scammed user a way back. All in the 10 seconds NIP gives you.
                 </p>
