@@ -6,7 +6,7 @@ import useSWR from "swr";
 import { CaretDown, MagnifyingGlass, Receipt } from "@phosphor-icons/react";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { PageHeader } from "@/components/demo/PageHeader";
-import { Avatar, ButtonLink, Card, EmptyState, Screen, Segmented, Skeleton, inputClass } from "@/components/demo/kit";
+import { Avatar, ButtonLink, Card, EmptyState, Screen, Segmented, Skeleton, inputClass } from "@/components/app-kit";
 import { customerTransactions } from "@/lib/fable/api";
 import { formatDateTime, formatNaira, formatRelativeTime } from "@/lib/fable/format";
 import { useFableStore } from "@/lib/fable/store";

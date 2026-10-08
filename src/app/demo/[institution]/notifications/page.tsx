@@ -6,7 +6,7 @@ import useSWR from "swr";
 import { ArrowDown, Ghost, ShieldCheck, ShieldWarning } from "@phosphor-icons/react";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { PageHeader } from "@/components/demo/PageHeader";
-import { Card, EmptyState, Screen } from "@/components/demo/kit";
+import { Card, EmptyState, Screen } from "@/components/app-kit";
 import { customerNotifications, markNotificationsRead, type FableNotification } from "@/lib/fable/api";
 import { formatRelativeTime } from "@/lib/fable/format";
 

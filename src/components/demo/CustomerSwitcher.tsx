@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { ArrowLeft, CaretDown, CheckCircle } from "@phosphor-icons/react";
-import { Avatar } from "@/components/demo/kit";
+import { Avatar } from "@/components/app-kit";
 import { DemoSheet } from "@/components/demo/DemoSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 

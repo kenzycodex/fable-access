@@ -19,7 +19,7 @@ import {
 import type { Icon } from "@phosphor-icons/react";
 import { SwitchCustomerSheet } from "@/components/demo/CustomerSwitcher";
 import { HeaderActions } from "@/components/demo/HeaderActions";
-import { Avatar } from "@/components/demo/kit";
+import { Avatar } from "@/components/app-kit";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { customerNotifications } from "@/lib/fable/api";
 

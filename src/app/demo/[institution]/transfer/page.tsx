@@ -29,7 +29,7 @@ import {
   Notice,
   Segmented,
   inputClass,
-} from "@/components/demo/kit";
+} from "@/components/app-kit";
 import { BehavioralTracker } from "@/lib/fable/biometrics";
 import { InsufficientFundsError, accountBalance } from "@/lib/fable/api";
 import { collectDeviceFingerprint, type DeviceFingerprint } from "@/lib/fable/fingerprint";

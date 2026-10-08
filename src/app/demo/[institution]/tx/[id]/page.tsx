@@ -4,7 +4,7 @@ import { useRouter, useParams } from "next/navigation";
 import useSWR from "swr";
 import { Ghost as GhostIcon, ShieldCheck } from "@phosphor-icons/react";
 import { PageHeader } from "@/components/demo/PageHeader";
-import { Avatar, Button, ButtonLink, Card, CardHeader, DetailRow, Eyebrow, Screen } from "@/components/demo/kit";
+import { Avatar, Button, ButtonLink, Card, CardHeader, DetailRow, Eyebrow, Screen } from "@/components/app-kit";
 import { PageSpinner } from "@/components/demo/Spinner";
 import { SignalCard } from "@/components/demo/SignalCard";
 import { customerTransactions } from "@/lib/fable/api";

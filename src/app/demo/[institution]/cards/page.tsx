@@ -6,7 +6,7 @@ import { Eye, EyeSlash } from "@phosphor-icons/react";
 import { BankCard } from "@/components/demo/BankCard";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { PageHeader } from "@/components/demo/PageHeader";
-import { Badge, Button, Card, CardHeader, DetailRow, Notice, Screen, Skeleton } from "@/components/demo/kit";
+import { Badge, Button, Card, CardHeader, DetailRow, Notice, Screen, Skeleton } from "@/components/app-kit";
 import { summarizeCustomer } from "@/lib/fable/analytics";
 import { customerOverview } from "@/lib/fable/api";
 import { accountNumberFor, cardFor, formatNaira, groupDigits } from "@/lib/fable/format";

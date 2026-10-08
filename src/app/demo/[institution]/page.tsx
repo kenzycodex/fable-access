@@ -30,7 +30,7 @@ import {
   Gauge,
   Screen,
   Skeleton,
-} from "@/components/demo/kit";
+} from "@/components/app-kit";
 import { summarizeCustomer } from "@/lib/fable/analytics";
 import { customerOverview } from "@/lib/fable/api";
 import {

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Ghost, ShareNetwork, ShieldWarning } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/demo/PageHeader";
-import { Button, Card, CardHeader, DetailRow, Eyebrow, Notice, Screen, SuccessTick } from "@/components/demo/kit";
+import { Button, Card, CardHeader, DetailRow, Eyebrow, Notice, Screen, SuccessTick } from "@/components/app-kit";
 import { PageSpinner } from "@/components/demo/Spinner";
 import { RiskScoreCounter } from "@/components/demo/RiskScoreCounter";
 import { SignalCard } from "@/components/demo/SignalCard";

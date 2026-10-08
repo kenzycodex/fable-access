@@ -7,7 +7,7 @@ import { Bell, Moon, Sun } from "@phosphor-icons/react";
 import { CustomerSwitcher } from "@/components/demo/CustomerSwitcher";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { PowerConnect } from "@/components/demo/PowerConnect";
-import { IconButton } from "@/components/demo/kit";
+import { IconButton } from "@/components/app-kit";
 import { customerNotifications } from "@/lib/fable/api";
 
 /**

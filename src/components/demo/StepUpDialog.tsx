@@ -5,7 +5,7 @@ import { Fingerprint, EnvelopeSimple, DeviceMobile, CheckCircle } from "@phospho
 import { DemoSheet } from "@/components/demo/DemoSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { PinInput } from "@/components/demo/PinInput";
-import { Button, Notice, SuccessTick } from "@/components/demo/kit";
+import { Button, Notice, SuccessTick } from "@/components/app-kit";
 import {
   authenticatePasskey,
   sendOtp,

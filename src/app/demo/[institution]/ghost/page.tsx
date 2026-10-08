@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Ghost, HandPointing } from "@phosphor-icons/react";
 import { PageHeader } from "@/components/demo/PageHeader";
-import { Badge, Button, Card, CardHeader, DetailRow, Eyebrow, Notice, Screen } from "@/components/demo/kit";
+import { Badge, Button, Card, CardHeader, DetailRow, Eyebrow, Notice, Screen } from "@/components/app-kit";
 import { PageSpinner } from "@/components/demo/Spinner";
 import { GhostTimer } from "@/components/demo/GhostTimer";
 import { StepUpDialog } from "@/components/demo/StepUpDialog";

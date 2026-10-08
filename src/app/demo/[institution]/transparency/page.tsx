@@ -24,7 +24,7 @@ import {
   Skeleton,
   Toggle,
   inputClass,
-} from "@/components/demo/kit";
+} from "@/components/app-kit";
 import {
   newPinLengthOf,
   pinLengthOf,

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { Bank, CreditCard, WarningCircle } from "@phosphor-icons/react";
 import { PageHeader } from "@/components/demo/PageHeader";
-import { Button, Card, CardHeader, DetailRow, Eyebrow, Notice, Screen, SuccessTick } from "@/components/demo/kit";
+import { Button, Card, CardHeader, DetailRow, Eyebrow, Notice, Screen, SuccessTick } from "@/components/app-kit";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { accountBalance, topUp, TopUpRejectedError } from "@/lib/fable/api";
 import { formatNaira } from "@/lib/fable/format";
