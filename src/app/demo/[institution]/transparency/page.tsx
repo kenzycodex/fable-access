@@ -34,7 +34,7 @@ import {
   setTwoFactor as apiSetTwoFactor,
   type SecurityStatus,
 } from "@/lib/fable/api";
-import { registerPasskey, passkeySupported } from "@/lib/fable/webauthn";
+import { PasskeyError, registerPasskey, passkeySupported } from "@/lib/fable/webauthn";
 import { useCopilotBaseline } from "@/lib/fable/useBackend";
 
 const CHANNEL_NAMES: Record<string, string> = {
@@ -264,24 +264,45 @@ function useAction() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
-  const run = useCallback(async (fn: () => Promise<void>, okMsg: string) => {
+  // A message that is not a failure: something already fine, or a prompt the
+  // customer dismissed. Shown calmly, not in red.
+  const [note, setNote] = useState<{ tone: "success" | "neutral"; text: string } | null>(null);
+
+  /** Run an action. `onSoft` runs when it ends in a non-error PasskeyError, for
+   * example to refresh state when the device turns out to be added already. */
+  const run = useCallback(async (fn: () => Promise<void>, okMsg: string, onSoft?: () => void) => {
     setBusy(true);
     setError(null);
     setOk(null);
+    setNote(null);
     try {
       await fn();
       setOk(okMsg);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong.");
+      if (e instanceof PasskeyError && e.tone !== "error") {
+        setNote({ tone: e.tone, text: e.message });
+        onSoft?.();
+      } else {
+        setError(e instanceof Error ? e.message : "Something went wrong.");
+      }
     } finally {
       setBusy(false);
     }
   }, []);
-  return { busy, error, ok, run };
+  return { busy, error, ok, note, run };
 }
 
-function Feedback({ error, ok }: { error: string | null; ok: string | null }) {
+function Feedback({
+  error,
+  ok,
+  note,
+}: {
+  error: string | null;
+  ok: string | null;
+  note?: { tone: "success" | "neutral"; text: string } | null;
+}) {
   if (error) return <Notice tone="danger" className="mt-3">{error}</Notice>;
+  if (note) return <Notice tone={note.tone === "success" ? "success" : "neutral"} className="mt-3">{note.text}</Notice>;
   if (ok) return <Notice tone="success" className="mt-3">{ok}</Notice>;
   return null;
 }
@@ -469,7 +490,7 @@ function PasskeyRow({
 }) {
   const [open, setOpen] = useState(false);
   const [pin, setPin] = useState("");
-  const { busy, error, ok, run } = useAction();
+  const { busy, error, ok, note, run } = useAction();
   const count = status?.passkey_count ?? 0;
   const needsPin = !!status?.pin_set;
   const pinLength = pinLengthOf(status);
@@ -480,7 +501,12 @@ function PasskeyRow({
       setPin("");
       setOpen(false);
       onDone();
-    }, "Device added.");
+    }, "Device added.", () => {
+      // "Already added" means the list on screen was stale: refresh it.
+      setPin("");
+      setOpen(false);
+      onDone();
+    });
   }
 
   return (
@@ -514,7 +540,7 @@ function PasskeyRow({
           />
         </div>
       )}
-      <Feedback error={error} ok={ok} />
+      <Feedback error={error} ok={ok} note={note} />
     </RowShell>
   );
 }

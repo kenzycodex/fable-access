@@ -39,15 +39,27 @@ export async function passkeySupported(): Promise<boolean> {
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // fetch only rejects when the request never reached the server.
+    throw new Error("We couldn't reach the server. Check your connection and try again.");
+  }
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
+    // The server words its own refusals ("That PIN isn't right."); anything else
+    // is ours to explain, not a status code.
     throw new Error(
-      typeof detail?.detail === "string" ? detail.detail : `Request failed (${res.status})`,
+      typeof detail?.detail === "string"
+        ? detail.detail
+        : res.status >= 500
+          ? "Something went wrong on our side. Please try again in a moment."
+          : "We couldn't complete that. Please try again.",
     );
   }
   return (await res.json()) as T;
@@ -56,6 +68,69 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 interface RegistrationOptions {
   challenge_id: string;
   options: PublicKeyCredentialCreationOptionsJSON;
+}
+
+/**
+ * A device-unlock failure, already worded for a customer.
+ *
+ * The browser reports problems as DOMExceptions with messages written for
+ * developers ("The user attempted to register an authenticator that contains one
+ * of the credentials already registered with the relying party"). Showing that to
+ * a customer is no help to them, so every failure is translated here, once.
+ *
+ * `tone` says how the screen should treat it: "success" for something that is
+ * really fine (this device is already added), "neutral" for something the
+ * customer did on purpose (they dismissed the prompt), and "error" for a real
+ * problem.
+ */
+export class PasskeyError extends Error {
+  constructor(
+    message: string,
+    readonly tone: "success" | "neutral" | "error" = "error",
+  ) {
+    super(message);
+    this.name = "PasskeyError";
+  }
+}
+
+function explainPasskeyFailure(err: unknown, action: "add" | "verify"): PasskeyError {
+  const name = err instanceof DOMException || err instanceof Error ? err.name : "";
+
+  switch (name) {
+    case "InvalidStateError":
+      // Registering a device that is already registered: nothing is wrong.
+      return action === "add"
+        ? new PasskeyError(
+            "This device is already added. You can use its fingerprint or face to verify transfers.",
+            "success",
+          )
+        : new PasskeyError("Your device couldn't complete the check. Try again, or use your PIN instead.");
+    case "NotAllowedError":
+      // The prompt was dismissed, timed out, or the device wasn't unlocked.
+      return action === "add"
+        ? new PasskeyError(
+            "Nothing was added. Tap Add device and approve the fingerprint or face prompt when it appears.",
+            "neutral",
+          )
+        : new PasskeyError(
+            "We didn't get your fingerprint or face. Try again and approve the prompt, or use your PIN instead.",
+            "neutral",
+          );
+    case "NotSupportedError":
+      return new PasskeyError("This device or browser doesn't support fingerprint or face unlock.");
+    case "SecurityError":
+      return new PasskeyError(
+        "Fingerprint and face unlock isn't available on this web address. Open the app from its usual link and try again.",
+      );
+    case "AbortError":
+      return new PasskeyError("That was interrupted. Please try again.", "neutral");
+    default:
+      return new PasskeyError(
+        action === "add"
+          ? "We couldn't add this device. Please try again."
+          : "We couldn't check your device. Try again, or use your PIN instead.",
+      );
+  }
 }
 
 // Minimal shapes for the server's JSON option payloads.
@@ -92,19 +167,24 @@ export async function registerPasskey(
     { user_id: userId, display_name: displayName, institution_id: institutionId, current_pin: currentPin ?? null },
   );
 
-  const created = (await navigator.credentials.create({
-    publicKey: {
-      ...options,
-      challenge: b64urlToBuffer(options.challenge),
-      user: { ...options.user, id: b64urlToBuffer(options.user.id) },
-      excludeCredentials: (options.excludeCredentials ?? []).map((c) => ({
-        ...c,
-        id: b64urlToBuffer(c.id),
-      })),
-    } as PublicKeyCredentialCreationOptions,
-  })) as PublicKeyCredential | null;
+  let created: PublicKeyCredential | null;
+  try {
+    created = (await navigator.credentials.create({
+      publicKey: {
+        ...options,
+        challenge: b64urlToBuffer(options.challenge),
+        user: { ...options.user, id: b64urlToBuffer(options.user.id) },
+        excludeCredentials: (options.excludeCredentials ?? []).map((c) => ({
+          ...c,
+          id: b64urlToBuffer(c.id),
+        })),
+      } as PublicKeyCredentialCreationOptions,
+    })) as PublicKeyCredential | null;
+  } catch (err) {
+    throw explainPasskeyFailure(err, "add");
+  }
 
-  if (!created) throw new Error("No passkey was created.");
+  if (!created) throw new PasskeyError("Nothing was added. Please try again.", "neutral");
   const response = created.response as AuthenticatorAttestationResponse;
 
   // Enrolling device unlock also trusts this device for the fraud engine, so
@@ -154,18 +234,23 @@ export async function authenticatePasskey(
     reference,
   });
 
-  const assertion = (await navigator.credentials.get({
-    publicKey: {
-      ...options,
-      challenge: b64urlToBuffer(options.challenge),
-      allowCredentials: (options.allowCredentials ?? []).map((c) => ({
-        ...c,
-        id: b64urlToBuffer(c.id),
-      })),
-    } as PublicKeyCredentialRequestOptions,
-  })) as PublicKeyCredential | null;
+  let assertion: PublicKeyCredential | null;
+  try {
+    assertion = (await navigator.credentials.get({
+      publicKey: {
+        ...options,
+        challenge: b64urlToBuffer(options.challenge),
+        allowCredentials: (options.allowCredentials ?? []).map((c) => ({
+          ...c,
+          id: b64urlToBuffer(c.id),
+        })),
+      } as PublicKeyCredentialRequestOptions,
+    })) as PublicKeyCredential | null;
+  } catch (err) {
+    throw explainPasskeyFailure(err, "verify");
+  }
 
-  if (!assertion) throw new Error("Verification was cancelled.");
+  if (!assertion) throw new PasskeyError("That was cancelled. Try again, or use your PIN instead.", "neutral");
   const response = assertion.response as AuthenticatorAssertionResponse;
 
   return post("/v1/stepup/passkey/auth/complete", {
