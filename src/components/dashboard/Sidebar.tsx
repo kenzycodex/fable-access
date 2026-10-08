@@ -49,7 +49,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[272px] flex-col border-r border-d-border bg-d-surface transition-transform duration-200 lg:z-40 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[272px] print:hidden flex-col border-r border-d-border bg-d-surface transition-transform duration-200 lg:z-40 lg:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >

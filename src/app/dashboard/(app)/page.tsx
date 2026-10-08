@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Brain, Ghost, Lightning, ShieldCheck, ArrowSquareOut } from "@phosphor-icons/react";
+import { ArrowRight, ArrowSquareOut, Brain, Flag, Ghost, Lightning, ShieldCheck, Tray } from "@phosphor-icons/react";
 import { BarChart, DonutChart } from "@/components/dashboard/charts";
 import {
   Avatar,
@@ -23,6 +23,7 @@ import { LATENCY_BUDGET_MS } from "@/lib/fable/constants";
 import { formatNaira, formatNairaCompact, formatRelativeTime } from "@/lib/fable/format";
 import type { Transaction } from "@/lib/fable/types";
 import { useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
+import { useReviewCounts } from "@/lib/fable/useConsole";
 import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 
 const AGENTS = [
@@ -106,6 +107,7 @@ export default function OverviewPage() {
           delta={ready ? changeLabel(scored.current, scored.previous, true) : null}
           trend={ready ? (daySeries(txns, () => true) ?? undefined) : undefined}
           icon={<ShieldCheck size={17} weight="fill" />}
+          featured
         />
         <StatCard
           label="Threats blocked"
@@ -243,6 +245,8 @@ export default function OverviewPage() {
         </Card>
 
         <div className="flex flex-col gap-4">
+          <NeedsReview />
+
           <Card>
             <CardHeader title="Agents" subtitle="All running" />
             <ul className="flex flex-col gap-1">
@@ -280,5 +284,39 @@ export default function OverviewPage() {
         </div>
       </div>
     </>
+  );
+}
+
+/** The work waiting on people, so the Overview leads somewhere actionable. */
+function NeedsReview() {
+  const { data } = useReviewCounts();
+  const active = data?.active ?? 0;
+  return (
+    <Card>
+      <CardHeader title="Needs review" subtitle="Flagged and blocked transfers awaiting a decision" />
+      <div className="grid grid-cols-3 gap-2">
+        <Mini label="Open" value={data?.open} icon={<Tray size={15} weight="fill" />} />
+        <Mini label="In review" value={data?.in_review} />
+        <Mini label="Escalated" value={data?.escalated} icon={<Flag size={15} weight="fill" />} danger />
+      </div>
+      <Link
+        href="/dashboard/review"
+        className="mt-4 flex h-11 items-center justify-center gap-2 rounded-xl bg-brand text-[13px] font-semibold text-white transition-all hover:brightness-110"
+      >
+        {active ? `Work the queue (${active})` : "Open the review queue"} <ArrowRight size={15} weight="bold" />
+      </Link>
+    </Card>
+  );
+}
+
+function Mini({ label, value, icon, danger = false }: { label: string; value?: number; icon?: React.ReactNode; danger?: boolean }) {
+  return (
+    <div className="rounded-xl bg-d-surface-2 px-3 py-2.5">
+      <p className={`flex items-center gap-1 text-[11px] font-medium ${danger && value ? "text-red-600 dark:text-red-400" : "text-d-muted"}`}>
+        {icon}
+        {label}
+      </p>
+      <p className="text-[20px] font-bold tabular-nums text-d-text">{value ?? "-"}</p>
+    </div>
   );
 }

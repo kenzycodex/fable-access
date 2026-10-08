@@ -72,7 +72,10 @@ export interface Delta {
   tone: "good" | "bad" | "neutral";
 }
 
-/** A KPI tile: label, a figure, how it moved, and optionally its shape. */
+/** A KPI tile: label, a figure, how it moved, and optionally its shape.
+ *
+ * `featured` fills the tile with the brand colour. Use it for the one figure a
+ * page leads with, never for more than one tile in a row. */
 export function StatCard({
   label,
   value,
@@ -81,6 +84,7 @@ export function StatCard({
   delta,
   trend,
   tone = "brand",
+  featured = false,
 }: {
   label: string;
   value: string;
@@ -90,37 +94,52 @@ export function StatCard({
   /** History, oldest first. Shape only, not a readable chart. */
   trend?: number[];
   tone?: keyof typeof TREND_COLOR;
+  featured?: boolean;
 }) {
-  const deltaStyle =
-    delta?.tone === "good"
+  const deltaStyle = featured
+    ? "bg-white/20 text-white"
+    : delta?.tone === "good"
       ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
       : delta?.tone === "bad"
         ? "bg-red-500/12 text-red-600 dark:text-red-400"
         : "bg-d-surface-2 text-d-muted";
 
   return (
-    <div className="demo-card flex flex-col gap-3 rounded-[20px] border border-d-border bg-d-surface p-5 text-d-text">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[13px] font-semibold text-d-muted">{label}</span>
-        <span className={`flex size-9 items-center justify-center rounded-xl ${TONE_BUBBLE[tone]}`}>
+    <div
+      className={
+        featured
+          ? "relative flex flex-col gap-3 overflow-hidden rounded-[20px] bg-brand p-5 text-white shadow-[0_18px_40px_-18px_rgba(124,58,237,0.75)]"
+          : "demo-card flex flex-col gap-3 rounded-[20px] border border-d-border bg-d-surface p-5 text-d-text"
+      }
+    >
+      {featured && (
+        // A soft highlight in the corner, so the solid tile reads as a surface
+        // rather than a flat block of colour.
+        <span aria-hidden className="pointer-events-none absolute -right-10 -top-12 size-40 rounded-full bg-white/10" />
+      )}
+      <div className="relative flex items-center justify-between gap-3">
+        <span className={`text-[13px] font-semibold ${featured ? "text-white/85" : "text-d-muted"}`}>{label}</span>
+        <span className={`flex size-9 items-center justify-center rounded-xl ${featured ? "bg-white/18 text-white" : TONE_BUBBLE[tone]}`}>
           {icon ?? <span className="size-2.5 rounded-full bg-current" />}
         </span>
       </div>
 
-      <div className="flex items-end justify-between gap-3">
+      <div className="relative flex items-end justify-between gap-3">
         <span className="text-[30px] font-bold leading-none tracking-tight">{value}</span>
-        {trend && trend.length > 1 && <Sparkline points={trend} color={TREND_COLOR[tone]} className="mb-0.5 shrink-0" />}
+        {trend && trend.length > 1 && (
+          <Sparkline points={trend} color={featured ? "#ffffff" : TREND_COLOR[tone]} className="mb-0.5 shrink-0" />
+        )}
       </div>
 
       {(delta || sub) && (
-        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+        <div className="relative flex flex-wrap items-center gap-2 text-[12px]">
           {delta && (
             <span className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 font-semibold ${deltaStyle}`}>
               {delta.direction === "up" ? <ArrowUpRight size={12} weight="bold" /> : <ArrowDownRight size={12} weight="bold" />}
               {delta.text}
             </span>
           )}
-          {sub && <span className="text-d-muted">{sub}</span>}
+          {sub && <span className={featured ? "text-white/80" : "text-d-muted"}>{sub}</span>}
         </div>
       )}
     </div>
