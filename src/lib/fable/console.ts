@@ -293,3 +293,52 @@ export function parseUtc(value: string | null | undefined): number | null {
   const t = Date.parse(/Z|[+-]\d{2}:\d{2}$/.test(normalized) ? normalized : `${normalized}Z`);
   return Number.isNaN(t) ? null : t;
 }
+
+// ---------------------------------------------------------------------------
+// Board report
+// ---------------------------------------------------------------------------
+
+export interface BoardReport {
+  institution: { id: string; name: string };
+  period: { from: string | null; to: string | null };
+  generated_at: string;
+  volume: {
+    transactions: number;
+    value_ngn: number;
+    passed: number;
+    flagged: number;
+    blocked: number;
+    frictionless_rate: number | null;
+  };
+  protection: { kept_from_fraud_ngn: number; transfers_stopped: number; blocked_value_ngn: number };
+  review: {
+    open: number;
+    in_review: number;
+    escalated: number;
+    resolved: number;
+    fraud: number;
+    legitimate: number;
+    reviewed: number;
+    precision: number | null;
+  };
+  latency_ms: { p50: number; p95: number; p99: number } | null;
+  channels: { label: string; total: number; risky: number }[];
+  top_signals: { code: string; label: string; count: number }[];
+  controls: {
+    identity_checks_passed: number;
+    identity_checks_failed: number;
+    holds_created: number;
+    holds_cancelled: number;
+    policy_changes: number;
+    team_changes: number;
+    key_rotations: number;
+  };
+  policy: RiskPolicy;
+}
+
+export function boardReport(range: { from?: string; to?: string }) {
+  const q = new URLSearchParams();
+  if (range.from) q.set("from", range.from);
+  if (range.to) q.set("to", range.to);
+  return call<BoardReport>(`/v1/dashboard/report?${q.toString()}`);
+}

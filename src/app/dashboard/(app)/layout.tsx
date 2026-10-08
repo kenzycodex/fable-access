@@ -47,13 +47,15 @@ export default function DashboardAppLayout({ children }: Readonly<{ children: Re
   return (
     <div className="console-shell min-h-dvh bg-d-bg text-d-text transition-colors duration-300">
       <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
-      <div className="lg:pl-[272px]">
+      <div className="lg:pl-[272px] print:!pl-0">
         <TopBar onMenu={() => setMenuOpen(true)} />
         <main className="mx-auto flex w-full max-w-[1360px] flex-col gap-6 px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pb-12 lg:pt-8">
           {children}
         </main>
       </div>
-      <AskFable />
+      <div className="print:hidden">
+        <AskFable />
+      </div>
     </div>
   );
 }

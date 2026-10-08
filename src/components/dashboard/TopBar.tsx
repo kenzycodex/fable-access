@@ -43,7 +43,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   const current = DASHBOARD_NAV.find((i) => i.match(pathname))?.label ?? "Console";
 
   return (
-    <div className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-d-border bg-d-bg/80 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
+    <div className="sticky top-0 z-30 flex print:hidden items-center justify-between gap-3 border-b border-d-border bg-d-bg/80 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
       <div className="flex min-w-0 items-center gap-3">
         <IconButton label="Open menu" onClick={onMenu} className="lg:hidden">
           <List size={18} />

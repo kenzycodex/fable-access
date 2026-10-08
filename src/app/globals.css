@@ -539,3 +539,31 @@ html:has([data-surface="app"]) {
   --d-faint: #7a7596;
   --d-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 40px -22px rgba(0, 0, 0, 0.75);
 }
+
+/* Printing from the console (the board report): light palette whatever the
+   theme, white page, and colour bars kept as drawn. */
+@media print {
+  .console-shell,
+  .dark .console-shell {
+    --d-bg: #ffffff;
+    --d-surface: #ffffff;
+    --d-surface-2: #f4f2fa;
+    --d-border: rgba(30, 20, 60, 0.12);
+    --d-text: #17122b;
+    --d-muted: #4e4968;
+    --d-faint: #7d7896;
+    --d-shadow: none;
+    background: #ffffff !important;
+  }
+  .console-shell main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  @page {
+    margin: 14mm;
+  }
+}

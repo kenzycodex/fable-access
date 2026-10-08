@@ -7,6 +7,7 @@
 import useSWR from "swr";
 import { dashboardTransactionPage } from "./api";
 import {
+  boardReport,
   caseDetail,
   me,
   reviewCounts,
@@ -106,4 +107,12 @@ export function useTransactionRange(filters: { from?: string; to?: string; user?
     () => dashboardTransactionPage(filters.limit ?? 200, inst, filters),
     livePolling(CADENCE.standard),
   );
+}
+
+export function useBoardReport(range: { from?: string; to?: string }) {
+  const inst = useTenant();
+  return useSWR(inst ? ["console:report", inst, range.from, range.to] : null, () => boardReport(range), {
+    revalidateOnFocus: false,
+    keepPreviousData: true,
+  });
 }
