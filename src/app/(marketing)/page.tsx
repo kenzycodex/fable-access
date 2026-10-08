@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/Button";
 import { Container, Section } from "@/components/ui/Section";
 import { Reveal } from "@/components/ui/Reveal";
 import { HeroBadge } from "@/components/marketing/HeroBadge";
-import { HeroBlobPattern } from "@/components/sections/HeroBlobPattern";
 import { StatGrid } from "@/components/sections/StatBand";
 import { ZigZagBlock } from "@/components/sections/ZigZagBlock";
 import { demoCta } from "@/data/nav";
@@ -15,11 +14,23 @@ export default function HomePage() {
     <>
       {/* Hero */}
       <section
-        className="bg-gradient-to-b from-base to-black px-[var(--gutter)] text-white"
+        className="relative overflow-hidden bg-gradient-to-b from-base to-black px-[var(--gutter)] text-white"
         style={{ paddingTop: "calc(var(--header-height, 90px) + var(--spacing-m))" }}
       >
-        <Container>
-          <div className="grid grid-cols-1 items-center gap-[var(--spacing-xl)] pb-[var(--section-space-s)] lg:grid-cols-2">
+        {/* TEMPORARY: pricing-page hero image, replacing the blob pattern. Revert with git. */}
+        <div className="pointer-events-none absolute right-[-24px] top-0 hidden w-full max-w-[504px] text-right lg:block">
+          <Image
+            src="/images/services/hero-services.png"
+            alt=""
+            aria-hidden="true"
+            width={1134}
+            height={1390}
+            priority
+            className="ml-auto h-auto w-full"
+          />
+        </div>
+        <Container className="relative z-[1]">
+          <div className="grid grid-cols-1 items-center gap-[var(--spacing-xl)] pb-[var(--section-space-s)] lg:grid-cols-[1fr_minmax(0,0.8fr)]">
             <div className="flex flex-col items-start gap-[var(--spacing-m)]">
               {/* Fable-style floating badge */}
               <Reveal delay={0}>
@@ -45,11 +56,6 @@ export default function HomePage() {
                 </Button>
               </Reveal>
             </div>
-            <div className="hidden justify-self-end lg:block">
-              <Reveal delay={200}>
-                <HeroBlobPattern className="h-auto w-full max-w-[420px]" />
-              </Reveal>
-            </div>
           </div>
         </Container>
       </section>
@@ -67,7 +73,7 @@ export default function HomePage() {
               <p className="hidden md:block text-m max-w-[640px] text-white/80 pt-2">
                 Nigerian fraud losses jumped 603% between Q1 2024 and Q1 2025, with over a third of institutions 
                 still failing to report their total exposure. Fable is built to sit directly inside the transfer flow itself. 
-                By scoring every transaction across six signal layers in under 200 milliseconds, it stops fraudulent transfers 
+                By scoring every transaction across fourteen signal layers, inside a 200 millisecond budget, it stops fraudulent transfers 
                 instantly, without ever becoming a bottleneck for your legitimate users.
               </p>
               <p className="md:hidden text-m text-white/80 pt-2">
