@@ -10,8 +10,12 @@ export const metadata: Metadata = {
 export default function NotFound() {
   return (
     <section
-      className="flex min-h-dvh items-center bg-gradient-to-b from-base to-black px-[var(--gutter)] pb-[var(--section-space-m)] text-white"
-      style={{ paddingTop: "calc(var(--header-height, 90px) + var(--section-space-m))" }}
+      className="flex min-h-dvh items-center overflow-x-clip bg-gradient-to-b from-base to-black px-[var(--gutter)] pb-[var(--spacing-m)] text-white"
+      // The header floats over the page, so only its height is reserved above:
+      // the content is then centred in what is left, and the section is exactly
+      // one screen tall whenever it fits. On a very short window it grows rather
+      // than clipping, so nothing is ever cut off.
+      style={{ paddingTop: "var(--header-height, 90px)" }}
     >
       <Container>
         <div className="grid grid-cols-1 items-center gap-[var(--spacing-l)] lg:grid-cols-2">
@@ -31,7 +35,9 @@ export default function NotFound() {
           {/* Fable's ghost, lost with a map and a compass. Transparent, so it
               sits straight on the gradient; the slow float is decoration only
               and is switched off for anyone who prefers reduced motion. */}
-          <div className="relative mx-auto w-full max-w-[300px] sm:max-w-[420px] lg:max-w-[560px] lg:justify-self-end">
+          {/* Sized from the screen height as well as its width, so the picture
+              shrinks on a short window instead of pushing the page into a scroll. */}
+          <div className="relative mx-auto aspect-square w-[min(100%,34dvh)] sm:w-[min(100%,44dvh,420px)] lg:w-[min(100%,62dvh,560px)] lg:justify-self-end">
             <Image
               src="/images/brand/404-ghost.png"
               alt="A friendly Fable ghost holding a map and compass, looking lost"
@@ -39,7 +45,7 @@ export default function NotFound() {
               height={1254}
               priority
               sizes="(min-width: 1024px) 560px, (min-width: 640px) 420px, 300px"
-              className="animate-float-orb h-auto w-full drop-shadow-[0_30px_60px_rgba(123,96,253,0.35)]"
+              className="animate-float-orb size-full object-contain drop-shadow-[0_30px_60px_rgba(123,96,253,0.35)]"
             />
           </div>
         </div>
