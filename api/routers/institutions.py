@@ -3,6 +3,9 @@
 The demo bank calls this to validate the institution slug in its URL
 (/demo/{institution}) and to render the tenant's name and customer roster.
 """
+import re
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -159,3 +162,76 @@ def reset_customer_pin(institution_id: str, user_id: str, request: Request):
     audit.record(audit.SECURITY_CHANGED, user_id, institution_id=institution_id,
                  change="pin_reset", via="institution", admin=payload["sub"])
     return status
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class InstitutionPatch(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = None
+    contact_email: Optional[str] = None
+
+
+@router.patch("/{institution_id}")
+def update_institution(institution_id: str, patch: InstitutionPatch, request: Request):
+    """Edit the institution's own profile: name, type and contact address.
+
+    Needs a console session for this institution; another tenant's session gets
+    a 404 so the endpoint cannot be used to probe which institutions exist.
+
+    What it deliberately does not touch:
+
+    * `institution_id`. It is the tenant key every customer, transfer and API key
+      hangs off, and it is not derived from the name after provisioning, so
+      renaming never orphans anything.
+    * The console login email. `contact_email` is where the institution can be
+      reached; signing in is a separate credential (`admins.email`).
+    * The public demo URL. That is the branding slug, with its own cooling period.
+    """
+    try:
+        payload = sessions.verify(sessions.extract_token(request))
+    except sessions.SessionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+
+    if payload["inst"] != institution_id or not get_institution(institution_id):
+        raise HTTPException(status_code=404, detail="Institution not found")
+
+    updates: dict[str, str] = {}
+
+    if patch.name is not None:
+        name = " ".join(patch.name.split())
+        if not 2 <= len(name) <= 80:
+            raise HTTPException(status_code=400, detail="The institution name must be 2 to 80 characters.")
+        updates["name"] = name
+
+    if patch.type is not None:
+        kind = " ".join(patch.type.split())
+        if not 2 <= len(kind) <= 60:
+            raise HTTPException(status_code=400, detail="The type must be 2 to 60 characters.")
+        updates["type"] = kind
+
+    if patch.contact_email is not None:
+        email = patch.contact_email.strip().lower()
+        if not _EMAIL_RE.match(email) or len(email) > 120:
+            raise HTTPException(status_code=400, detail="That doesn't look like a valid email address.")
+        updates["contact_email"] = email
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to change.")
+
+    with cursor() as cur:
+        sets = ", ".join(f"{column} = ?" for column in updates)
+        cur.execute(f"UPDATE institutions SET {sets} WHERE institution_id = ?", (*updates.values(), institution_id))
+        # Keep the provisioning record's display name in step with the profile.
+        if "name" in updates:
+            cur.execute(
+                "UPDATE api_keys SET institution_name = ? WHERE institution_id = ?",
+                (updates["name"], institution_id),
+            )
+
+    audit.record(
+        audit.INSTITUTION_UPDATED, payload["sub"], institution_id=institution_id,
+        fields=sorted(updates), name=updates.get("name"), type=updates.get("type"),
+    )
+    return get_institution(institution_id)

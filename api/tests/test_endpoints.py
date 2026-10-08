@@ -203,3 +203,37 @@ def test_institution_can_clear_its_own_customers_pin_only(client):
     stranger = client.post("/v1/institutions/endpointbank/customers/nobody_here/pin/reset",
                            headers={"X-Fable-Session": own})
     assert stranger.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Institution profile
+# ---------------------------------------------------------------------------
+
+def test_institution_can_edit_its_own_profile_only(client):
+    import sessions
+
+    url = "/v1/institutions/endpointbank"
+    assert client.patch(url, json={"name": "New Name"}).status_code == 401
+
+    other = sessions.issue("risk@other.ng", "someotherbank")["token"]
+    assert client.patch(url, json={"name": "Hijack"}, headers={"X-Fable-Session": other}).status_code == 404
+
+    own = {"X-Fable-Session": sessions.issue("risk@endpoint.ng", "endpointbank")["token"]}
+    res = client.patch(url, json={"name": "  Endpoint   Bank Plc ", "type": "Commercial Bank",
+                                  "contact_email": "Ops@Endpoint.ng"}, headers=own)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["name"] == "Endpoint Bank Plc"          # whitespace tidied
+    assert body["type"] == "Commercial Bank"
+    assert body["contact_email"] == "ops@endpoint.ng"   # lower-cased
+    assert body["institution_id"] == "endpointbank"     # the tenant key never moves
+
+
+def test_institution_profile_rejects_bad_input(client):
+    import sessions
+
+    own = {"X-Fable-Session": sessions.issue("risk@endpoint.ng", "endpointbank")["token"]}
+    url = "/v1/institutions/endpointbank"
+    assert client.patch(url, json={"name": "x"}, headers=own).status_code == 400
+    assert client.patch(url, json={"contact_email": "not-an-email"}, headers=own).status_code == 400
+    assert client.patch(url, json={}, headers=own).status_code == 400

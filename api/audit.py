@@ -30,6 +30,7 @@ STEPUP_FAILED = "stepup.failed"
 TRANSFER_APPROVED = "transfer.approved"
 SECURITY_CHANGED = "security.changed"
 ACCOUNT_TOPUP = "account.topup"
+INSTITUTION_UPDATED = "institution.updated"
 ADMIN_LOGIN = "admin.login"
 INSTITUTION_PROVISIONED = "institution.provisioned"
 
