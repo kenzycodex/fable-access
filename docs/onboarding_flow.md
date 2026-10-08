@@ -4,7 +4,7 @@
 Fable is a **B2B finance infrastructure** product — there's no self-serve "Sign Up" button. Businesses (banks, fintechs, wallets) are provisioned by Fable, not by themselves. We need a clean flow for:
 1. Creating a business on the platform
 2. Giving them dashboard access
-3. Letting them test with the demo bank (critical for hackathon pitch day)
+3. Letting them test with the demo bank (critical for live demos)
 
 ---
 
@@ -52,7 +52,7 @@ The demo bank acts as a **sandbox environment** accessible directly from the Fab
 - Ability to make test transfers that flow through Fable's agents
 - The demo bank UI is accessible at `/demo`
 
-**Pitch day flow:**
+**Demo flow:**
 1. Show the marketing site → explain the problem
 2. Log into the dashboard → show the agent configs
 3. Click "Sandbox (Demo Bank)" in the sidebar → make a live transfer

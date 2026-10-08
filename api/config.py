@@ -30,7 +30,7 @@ SMTP_FROM = os.getenv("SMTP_FROM", "Fable Provisioning <no-reply@fable.ng>")
 # --- Security / ops (all optional; safe demo defaults) ---
 # Comma-separated API keys. If set, protected endpoints require
 # `Authorization: Bearer <key>` or `X-API-Key: <key>`. If empty, auth is off
-# (demo mode) so judges can call the API with no setup.
+# (demo mode) so evaluators can call the API with no setup.
 _raw_keys = os.getenv("FABLE_API_KEYS", "")
 API_KEYS = {k.strip() for k in _raw_keys.split(",") if k.strip()}
 

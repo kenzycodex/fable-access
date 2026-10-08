@@ -2,7 +2,7 @@
 
 When Shield flags a transfer HIGH risk but the user overrides, Ghost
 routes it through a disposable container with a cooling window. Cancel
-returns the funds; confirm releases them. For the hackathon MVP this is
+returns the funds; confirm releases them. In the demo build this is
 simulated in SQLite — production wires this to the Open Banking
 /accounts/{number}/holds endpoint.
 """

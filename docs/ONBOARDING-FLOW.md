@@ -4,7 +4,7 @@
 Fable is a **B2B finance infrastructure** product — there's no self-serve "Sign Up" button. Businesses (banks, fintechs, wallets) are provisioned by Fable, not by themselves. We need a clean flow for:
 1. Creating a business on the platform
 2. Giving them dashboard access
-3. Letting them test with the demo bank (critical for hackathon pitch day)
+3. Letting them test with the demo bank (critical for live demos)
 
 > [!IMPORTANT]
 > **Fable is invisible infrastructure.** The end-user (bank customer) never sees Fable branding, scoring UI, shield animations, or risk scores. The demo bank layer must be zero-friction — transfers simply get silently approved, flagged, or blocked. All monitoring, management, and visibility lives exclusively in the institution admin dashboard/console.
@@ -74,7 +74,7 @@ Business logs in → sees their institution dashboard:
 ### 4. Demo Bank Integration — **The Key Question**
 
 > [!IMPORTANT]
-> For hackathon pitch day, the judges need to SEE a live transfer get scored. How does a business connect to the demo bank to test?
+> For live demos, the audience needs to SEE a live transfer get scored. How does a business connect to the demo bank to test?
 
 Here are the options:
 
@@ -89,13 +89,13 @@ The demo bank is a **sandbox environment** built into every Fable dashboard. Whe
 - Ability to make test transfers that flow through their configured agents
 - The demo bank UI is accessible at `/dashboard/sandbox` or `/demo`
 
-**Pitch day flow:**
+**Demo flow:**
 1. Show the marketing site → explain the problem
 2. Log into the dashboard → show the agent configs
 3. Go to Sandbox → make a live transfer → watch it get scored in real-time
 4. Switch back to dashboard → show the transaction in the live stream
 
-**Pros:** Self-contained, no separate login, judges see everything in one flow
+**Pros:** Self-contained, no separate login, viewers see everything in one flow
 **Cons:** Demo bank is tied to the dashboard
 
 ---
@@ -107,7 +107,7 @@ Each business gets their own demo bank instance with its own login:
 - Each test customer gets credentials to log into the demo bank
 - Demo bank URL: `{APP_BASE_URL}/demo/{institution-slug}`
 
-**Pitch day flow:**
+**Demo flow:**
 1. Marketing site → explain problem
 2. Dashboard login → show configs
 3. Open demo bank in new tab → log in as test customer → make transfer
@@ -126,7 +126,7 @@ The dashboard has a "Test Accounts" section where the business can:
 - Use these accounts in the demo bank without a separate login
 - Demo bank is accessed via a direct link with a session token
 
-**Pitch day flow:**
+**Demo flow:**
 1. Dashboard → create 2 test accounts
 2. Click "Open Demo Bank" → auto-logged in
 3. Make a transfer → scored live
@@ -137,14 +137,14 @@ The dashboard has a "Test Accounts" section where the business can:
 
 ---
 
-## Recommendation for Hackathon
+## Recommendation for the Demo Build
 
 > [!TIP]
-> **Go with Option A (Demo Bank built into Dashboard)** for the hackathon. It's the simplest to build and demo. The sandbox is just another section in the dashboard — no extra logins, no extra URLs, no confusion for judges.
+> **Go with Option A (Demo Bank built into Dashboard)** for the demo build. It's the simplest to build and demo. The sandbox is just another section in the dashboard — no extra logins, no extra URLs, no confusion for viewers.
 
 **For the actual production product later**, Option B or C makes more sense for real customers who want to test with their own data.
 
-### Minimal Hackathon Flow:
+### Minimal Demo Flow:
 
 ```mermaid
 graph LR
@@ -162,4 +162,4 @@ graph LR
 
 1. **Which option do you prefer?** A, B, or C?
 2. **Should the provision script be a FastAPI admin endpoint** instead of a CLI script? (e.g., `POST /admin/provision`)
-3. **Do we need multiple user roles** per institution (admin vs. viewer) for the hackathon, or is single admin enough?
+3. **Do we need multiple user roles** per institution (admin vs. viewer) for the demo build, or is single admin enough?

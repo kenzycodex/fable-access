@@ -16,8 +16,7 @@
   <p>
     <img src="https://img.shields.io/badge/Next.js%2016-black?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js" />
     <img src="https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi" alt="FastAPI" />
-    <img src="https://img.shields.io/badge/Prisma-2D3748?style=for-the-badge&logo=prisma&logoColor=white" alt="Prisma" />
-    <img src="https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI" />
+    <img src="https://img.shields.io/badge/Claude-D97757?style=for-the-badge&logo=anthropic&logoColor=white" alt="Claude" />
     <img src="https://img.shields.io/badge/Python_3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
     <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
     <img src="https://img.shields.io/badge/React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React 19" />
@@ -30,7 +29,8 @@
     <a href="#-repository-architecture">Architecture</a> •
     <a href="#-local-setup-guide">Setup</a> •
     <a href="#-the-90-second-demo">Demo Guide</a> •
-    <a href="#-api-documentation">API Docs</a>
+    <a href="#-api-documentation">API</a> •
+    <a href="#-ownership--license">License</a>
   </p>
 </div>
 
@@ -75,7 +75,7 @@ It knows each user's genuine behavioral habits so deeply that safe transfers go 
 
 ## 🧠 The Three Fable Agents
 
-Fable doesn't use a monolithic risk engine. It relies on a multi-agent system executing in under `200ms` before the transaction clears the central switch (e.g., NIBSS).
+Fable doesn't use a monolithic risk engine. It relies on a multi-agent system that decides inside a `200ms` budget, before the transaction clears the central switch (e.g., NIBSS). Copilot, Shield and Ghost are live today; Watch is on the roadmap.
 
 <table>
   <tr>
@@ -99,7 +99,7 @@ Fable doesn't use a monolithic risk engine. It relies on a multi-agent system ex
     </td>
     <td valign="top">
       <b>Real-Time Interception.</b><br/>
-      Catches social engineering, deepfakes, and channel anomalies. Evaluates payload semantics (e.g., "urgent help abeg" in Pidgin). When it blocks a transaction, GPT-4o generates a plain-English explanation without blaming the user.
+      Catches social engineering, deepfakes, and channel anomalies. Evaluates payload semantics (e.g., "urgent help abeg" in Pidgin). When it flags or blocks a transaction, a plain-English explanation is generated (Claude, falling back to GPT-4o, then a local template) without blaming the user.
     </td>
     <td valign="top">
       <b>Blast-Radius Containment.</b><br/>
@@ -109,12 +109,18 @@ Fable doesn't use a monolithic risk engine. It relies on a multi-agent system ex
 </table>
 
 ### Agent Deep-Dive: Shield Signal Layers
-When a transaction is analyzed, Shield computes a risk score (0.0 to 1.0) using multiple concurrent signal layers:
-- **Transaction Anomalies:** Is this amount 10x higher than their 90-day average?
-- **Identity Signals:** Is the recipient a newly created account?
-- **Social Engineering Context:** Does the narration match our JSON-backed Nigerian Scam Pattern library?
-- **Network Intelligence:** Has this recipient been flagged across the Fable network?
-- **Channel Weights:** Was this initiated via a high-risk channel like USSD?
+Shield computes a risk score (0.0 to 1.0) from fourteen additive signal layers, then softens it slightly for customers with a long clean record:
+- **Amount anomaly:** how far above the customer's own baseline, with tiers past 10x, 25x and 50x.
+- **Recipient and timing:** new recipient, time of day on the device clock, timezone mismatch.
+- **Channel and rail:** NIBSS channel weights (USSD highest) and NIP response codes.
+- **Social engineering:** narration matched against the Nigerian scam-pattern library (deliberately a weak signal).
+- **Device, location and session:** unrecognised device, new city or country, a large transfer right after login.
+- **Behavioural biometrics:** pasted account numbers, near-zero hesitation.
+- **History and velocity:** Isolation Forest deviation, bursts of transfers, recent failed verifications.
+
+Decisions are `PASS`, `FLAG` or `BLOCK`. The cutoffs default to 0.5 and 0.8 and are tuned per channel. Shield never fails open: if scoring throws, it returns a conservative `FLAG`. Full weights are in the [scoring docs](src/content/docs/03-scoring.md).
+
+When a flagged transfer needs proof, the step-up engine picks the lightest factor that holds: PIN, device passkey, passkey plus emailed code, or an identity check. Releasing a Ghost container always costs one tier more than the transfer itself.
 
 <br />
 
@@ -125,39 +131,44 @@ Fable is structured as a powerful monorepo containing a high-performance Python 
 ```text
 fable/
 ├── api/                           # 🧠 FastAPI Python Backend (Intelligence Layer)
-│   ├── agents/                    # Core Agent Logic
-│   │   ├── copilot/               # Baseline profiling
-│   │   ├── ghost/                 # Account containment holds
-│   │   ├── shield/                # Real-time risk scoring
-│   │   └── watch/                 # Passive continuous monitoring
-│   ├── intelligence/              # Fraud graphs and scam pattern JSONs
-│   ├── middleware/                # Rate limiting, auth, latency tracking
+│   ├── agents/
+│   │   ├── copilot/               # Baseline profiling and the analyst assistant
+│   │   ├── shield/                # Scoring, step-up and assurance, explanations
+│   │   └── ghost/                 # Containment holds and release
+│   ├── intelligence/              # Scam patterns and fraud context
+│   ├── middleware/                # API-key auth, rate limiting, latency
+│   ├── routers/                   # /v1/shield, /v1/ghost, /v1/stepup, /auth, ...
+│   ├── tests/                     # Scoring and endpoint tests
 │   ├── main.py                    # Uvicorn entry point
-│   ├── db.py                      # SQLite database connector
-│   └── requirements.txt           # Python dependencies
+│   ├── db.py                      # SQLite schema and migrations
+│   ├── Dockerfile                 # Production image
+│   ├── docker-compose.yml
+│   └── requirements.txt
 │
-├── prisma/                        # 🗄️ Database ORM Layer (Next.js)
-│   ├── schema.prisma              # Data models (Institution, User, Transaction)
-│   └── seed.ts                    # DB seeding scripts
-│
-├── src/                           # 💻 Next.js 16 Frontend (Platform)
+├── src/                           # 💻 Next.js 16 Frontend
 │   ├── app/
-│   │   ├── (marketing)/           # Public landing site
-│   │   ├── dashboard/             # B2B Institution console
-│   │   └── demo/                  # Mobile-first banking app simulation
-│   ├── components/                # Reusable UI (Tailwind, Framer Motion)
-│   ├── lib/                       # Fable client SDKs and utils
-│   └── globals.css                # Global styling
+│   │   ├── (marketing)/           # Public site: home, platform, pricing, privacy, terms
+│   │   ├── dashboard/             # B2B institution console
+│   │   ├── demo/[institution]/    # Mobile-first demo bank, one per institution
+│   │   └── docs/                  # Public documentation
+│   ├── content/docs/              # The documentation source (Markdown)
+│   ├── components/                # UI (Tailwind)
+│   ├── lib/fable/                 # Fable client SDK: fingerprint, geolocation, scoring fallback
+│   └── middleware.ts              # Console route guard
 │
-└── public/                        # Static assets & Brand Logos
+├── docs/                          # Internal guides: deployment, system guide, plans
+├── public/                        # Static assets and brand logos
+└── LICENSE                        # Proprietary, all rights reserved
 ```
 
 ### The Technology Stack
 - **Backend API:** Python 3.12, FastAPI, SQLite
-- **AI Integration:** OpenAI GPT-4o (Explainability), Scikit-learn (Isolation Forests), Gemini Vision (Document Analysis)
-- **Frontend App:** Next.js 16 (App Router), React 19, TailwindCSS v4
-- **UI Components:** Phosphor Icons, Radix UI primitives, Framer Motion, Sonner
-- **Database (Frontend):** Prisma ORM with `better-sqlite3` native bindings
+- **AI Integration:** Anthropic Claude then OpenAI GPT-4o for plain-language explanations and the analyst assistant, both optional with a deterministic fallback; scikit-learn Isolation Forest for anomaly scoring
+- **Identity:** WebAuthn passkeys (`py_webauthn`), hashed PINs, emailed one-time codes
+- **Frontend App:** Next.js 16 (App Router), React 19, Tailwind CSS v4
+- **UI Components:** Phosphor Icons, Sonner, react-markdown
+- **Third-party services:** Paystack (account-name resolution), ipapi.co, OpenStreetMap Nominatim and BigDataCloud (location), SMTP (verification and provisioning email)
+- **Hosting:** Vercel (frontend), a Docker Compose deployment on a VPS (backend). See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 
 <br />
 
@@ -166,177 +177,152 @@ fable/
 Spin up the entire Fable ecosystem locally with just a few commands. The system is designed to run locally with minimal friction for development and testing.
 
 ### Prerequisites
-- Node.js 20+
+- Node.js 20+ and `pnpm` (or `npm`)
 - Python 3.12+
-- `pnpm` or `npm`
-- An OpenAI API Key (Required for Shield explanations)
+- Optional: an Anthropic or OpenAI key for AI-written explanations. With no key set, Shield still returns full scores and signals and falls back to a local template.
 
 ### 1. Start the Intelligence API (Backend)
-The backend runs on port `8010` and handles all AI logic.
+The backend runs on port `8010` and handles all scoring logic.
 
 ```bash
-# Navigate to the API directory
 cd api
 
 # Create and activate a virtual environment
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install dependencies
 pip install -r requirements.txt
 
-# Setup Environment Variables
+# Environment (every key is optional for local use)
 cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY
 
-# Run the server
 uvicorn main:app --port 8010 --reload
 ```
-*📚 Interactive API Documentation is automatically generated and available at: `http://localhost:8010/docs`*
+*📚 Interactive API documentation is generated at `http://localhost:8010/docs`.*
 
 ### 2. Start the Fable Platform (Frontend)
-The Next.js frontend runs on port `3000` and hosts the Demo Bank and Dashboard.
+The Next.js frontend runs on port `3000` and hosts the marketing site, the console and the demo bank.
 
 ```bash
-# In a new terminal window at the repository root
-npm install
+# In a new terminal at the repository root
+pnpm install
 
-# Initialize the Prisma SQLite database
-npm run db:setup
+# Point the frontend at the API (default is http://127.0.0.1:8010)
+echo "NEXT_PUBLIC_FABLE_API_URL=http://127.0.0.1:8010" > .env.local
+# Optional: add PAYSTACK_SECRET_KEY=sk_test_... for real account-name resolution
 
-# Setup Environment Variables
-cp .env.local.example .env.local
-# Edit .env.local if you changed the backend port, default is http://localhost:8010
-
-# Start the development server
-npm run dev
+pnpm dev
 ```
-*🌐 The Platform is now available at: `http://localhost:3000`*
+*🌐 The platform is now at `http://localhost:3000`. Data lives in `api/fable.db` (SQLite), created on first run.*
+
+If the API is unreachable, the demo bank falls back to a local scoring engine and queues transfers for sync, so a healthy-looking screen does not prove the backend is up. Check `http://localhost:8010/health`.
 
 <br />
 
 ## 🎮 The 90-Second Demo
 
-Want to see Fable in action? We built a simulated mobile-first banking app right into the platform. Open `http://localhost:3000/demo` and follow these precise cheat codes:
+Fable ships a simulated mobile banking app. Each institution gets its own at `/demo/{institution}`, pre-loaded with three customers and 90 days of history. Try the seeded `meridian` institution, or provision your own (see the [quickstart](src/content/docs/02-quickstart.md)).
 
-### ✅ Scenario 1: Normal Transfer (PASS)
-*Testing Fable Copilot's ability to remove friction for genuine transactions.*
-1. On the demo app home screen, tap **Transfer**.
-2. **Select Recipient:** Choose a known contact like `Mum`, `Landlord`, or `Chioma`.
-3. **Amount:** Keep it typical (e.g., `₦10,000`).
-4. **Narration:** `food money`
-5. **Tap:** `Analyze & Send`
-6. **Result:** Copilot clears it silently. You will see an instant green flash. The risk score is extremely low (e.g., `0.04`). Security disappears when you're safe.
+### ✅ Scenario 1: Same amount, different customers
+*Per-customer baselines in action.*
+1. Open `http://localhost:3000/demo/meridian` and pick **Tunde** (a trader) from the customer switcher.
+2. Send **₦250,000** to a new 10-digit account. Result: **PASS**, silently.
+3. Switch to **Chioma** (a student) and send the same ₦250,000. Result: **FLAG**, because it is far outside her normal.
 
-### 🚨 Scenario 2: Suspicious Transfer (BLOCK)
-*Testing Fable Shield's ability to intercept social engineering in real-time.*
-1. Go back and initiate a new **Transfer**.
-2. **Select Recipient:** Choose `Unknown Contact`.
-3. **Amount:** Make it anomalous (e.g., `₦500,000`).
-4. **Narration:** Enter the exact phrase: `urgent help abeg` (This triggers the Pidgin scam pattern detection).
-5. **Channel:** Change to `USSD`.
-6. **Tap:** `Analyze & Send`
-7. **Result:** Shield intercepts the transaction instantly. The risk score spikes to `0.94`. An interactive UI appears explaining *exactly* why it was blocked using GPT-4o (amount anomaly, new recipient, urgency keyword detected).
+### 🚨 Scenario 2: Suspicious transfer (BLOCK)
+*Shield catching a social-engineering shape.*
+1. As Chioma, send **₦500,000** to a new account over **USSD**.
+2. Narration: `urgent help abeg` (matches the Pidgin urgency script).
+3. Result: Shield intercepts it and explains, in plain language, why.
 
-### 🛡️ Scenario 3: User Overrides (GHOST)
-*Testing Fable Ghost's containment layer when users ignore warnings.*
-1. On the blocked screen from Scenario 2, locate the secondary button.
-2. **Tap:** `Send Anyway → Ghost Protection`
-3. **Result:** The funds are not sent to the scammer. Instead, they are routed to an isolated `GhostContainer` in the database. A 15-minute real-time countdown begins.
-4. During this window, you can safely tap **Cancel & Get Money Back**.
+### 🛡️ Scenario 3: Override and contain (GHOST)
+*Containment when the user ignores the warning.*
+1. On the blocked screen, choose to send anyway.
+2. The money is not released to the recipient. Ghost holds it in a cooling window and notifies the customer out-of-band.
+3. **Cancel** returns the money instantly. **Release** demands a stronger factor than the transfer did.
+
+### 🖥️ Scenario 4: The console
+Sign in at `/dashboard/login` and see the same transfers from the institution's side, scoped to that institution only.
 
 <br />
 
-## 📖 API Documentation (Overview)
+## 📖 API Documentation
 
-Fable is built API-first. Institutions integrate Fable by calling our REST endpoints before allowing a transaction to process.
+Fable is built API-first. Institutions call one endpoint before letting a transfer process. Full reference: the public docs at `/docs` on the site (source in [src/content/docs](src/content/docs)) and the OpenAPI spec at `/docs` on the API host.
 
 ### `POST /v1/shield/analyze`
-The core interception endpoint. Evaluates a transaction payload and returns an action.
+Authenticate with `X-API-Key: fbl_live_...`.
 
-**Request Payload:**
+**Request:**
 ```json
 {
-  "user_id": "usr_12345",
+  "user_id": "usr_44210",
   "transaction": {
-    "amount": 500000,
+    "amount": 150000,
     "currency": "NGN",
     "recipient_account": "0123456789",
-    "recipient_bank": "Zenith",
-    "narration": "urgent help abeg",
-    "channel": "mobile_app"
+    "recipient_bank_code": "058",
+    "recipient_name": "ADEOLA MUSA",
+    "channel": "mobile_app",
+    "narration": "urgent help abeg"
   },
-  "device": {
-    "fingerprint": "fp_abc123"
-  }
+  "device": { "fingerprint_id": "fp_9c1e4b7a", "timezone": "Africa/Lagos" },
+  "context": { "session_duration_seconds": 14, "paste_detected": true },
+  "client_reference": "txn_8f2ac1"
 }
 ```
 
-**Response Payload:**
+**Response:**
 ```json
 {
-  "risk_score": 0.94,
-  "risk_level": "HIGH",
-  "action": "BLOCK",
+  "risk_score": 0.64,
+  "risk_level": "MEDIUM",
+  "action": "FLAG",
   "signals": [
-    "amount_anomaly: 8x above user baseline",
-    "new_recipient: first transaction to this account",
-    "scam_pattern: urgency keyword detected"
+    "amount_anomaly: 12x above your baseline (+0.28)",
+    "new_recipient: first transfer to this account (+0.2)",
+    "scam_pattern: urgency script (+0.13)"
   ],
-  "explanation": "This transfer was flagged because the amount is 8 times larger than your usual transfers, the recipient is someone you have never paid before, and the note matches patterns common in Nigerian social engineering scams.",
-  "agent": "fable-shield-v1"
+  "explanation": "This is much larger than your usual transfers, to someone you have never paid before...",
+  "decision_ms": 48.2,
+  "latency_ms": 51.7,
+  "explanation_source": "template",
+  "transaction_id": "txn_a1b2c3d4e5f6"
 }
 ```
 
-### Other Key Endpoints
-- `POST /v1/ghost/create` - Initializes a ghost container for a blocked transaction.
-- `POST /v1/ghost/{id}/cancel` - Refunds the held money back to the user.
-- `POST /v1/ghost/{id}/confirm` - Releases the held money to the recipient.
-- `GET /v1/copilot/transparency/{user_id}` - Returns everything Fable knows about the user's baseline.
+### Other key endpoints
+- `POST /v1/ghost/create` - Hold an overridden transfer in a cooling window.
+- `POST /v1/ghost/{id}/cancel` - Return the held money. No proof needed.
+- `POST /v1/ghost/{id}/confirm` - Release the money. Requires a step-up token.
+- `POST /v1/stepup/requirement` - Which factor does this decision need?
+- `GET /v1/copilot/transparency/{user_id}` - Everything Fable has learned about a customer's baseline.
 
 <br />
 
-## 📊 Database Schema (Prisma)
+## 📚 Documentation
 
-The Next.js application uses Prisma to model the institution data, customers, and transactions. 
-
-```prisma
-model Transaction {
-  id               String   @id @default(cuid())
-  amount           Float
-  currency         String   @default("NGN")
-  direction        String   @default("debit")
-  channel          String   @default("app")
-  narration        String   @default("")
-  customerName     String
-  recipientName    String
-  recipientBank    String
-  recipientAccount String
-  status           String   @default("completed") // completed | blocked | cancelled | held | released
-  live             Boolean  @default(false)
-  createdAt        DateTime @default(now())
-
-  institution   Institution @relation(fields: [institutionId], references: [id])
-  institutionId String
-  user          User?       @relation(fields: [userId], references: [id])
-  userId        String?
-
-  evaluation RiskEvaluation?
-  ghost      GhostContainer?
-}
-```
-Every transaction is inherently tied to a `RiskEvaluation` (if analyzed by Shield) and optionally a `GhostContainer` (if overridden).
+| Guide | What it covers |
+|---|---|
+| [Public docs](src/content/docs) | Overview, quickstart, scoring, identity assurance, API reference |
+| [docs/SYSTEM-GUIDE.md](docs/SYSTEM-GUIDE.md) | How the whole system fits together, and its honest limits |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Vercel plus a Docker Compose backend on a VPS |
 
 <br />
 
-## 🤝 Contribution Guidelines
+## 🗄️ Data Model
 
-We welcome contributions to Fable! If you're interested in improving the African Fintech Security landscape:
-1. Fork the repository.
-2. Create a feature branch: `git checkout -b feature/new-scam-pattern`.
-3. Add tests for your logic (especially for API agents).
-4. Ensure the Next.js build passes: `npm run build`.
-5. Submit a Pull Request.
+The backend stores everything in SQLite (`api/fable.db`), with the schema and in-place migrations in [api/db.py](api/db.py). Core tables: `transactions`, `ghost_containers`, `fable_users`, `institutions`, `accounts` and `ledger_entries`, `user_security` and `user_credentials` (PIN hash and passkey public keys), `stepup_challenges`, `device_profiles`, `user_locations`, `notifications` and `audit_log`. Every row is scoped to an institution.
+
+<br />
+
+## 📜 Ownership & License
+
+Fable is proprietary software. Copyright (c) 2026 Fable. All rights reserved.
+
+The source is visible for review and evaluation only. Copying, forking for reuse, redistributing, or using any part of it (code, scam-pattern data, designs, or branding) in another project, product, or submission is not permitted without written permission. See [LICENSE](LICENSE) for the full terms. How the hosted platform itself is governed is in the site's Terms and Privacy pages.
+
+Contributions are accepted from invited collaborators only. To request permission to use anything here, contact the owner at [github.com/kenzycodex](https://github.com/kenzycodex).
 
 <br />
 
