@@ -7,7 +7,7 @@ import { Button, Field, Notice, TextInput } from "@/components/app-kit";
 import { AuthShell } from "@/components/dashboard/AuthShell";
 import { API_BASE } from "@/lib/fable/api";
 
-function ResetPasswordForm() {
+function ResetPasswordForm({ invited = false }: { invited?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
@@ -63,7 +63,7 @@ function ResetPasswordForm() {
   if (success) {
     return (
       <Notice tone="success">
-        Your password has been reset. Taking you to sign in...
+        {invited ? "You're in. Taking you to sign in..." : "Your password has been reset. Taking you to sign in..."}
       </Notice>
     );
   }
@@ -78,7 +78,7 @@ function ResetPasswordForm() {
         <TextInput type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" required />
       </Field>
       <Button type="submit" size="lg" full loading={submitting}>
-        {submitting ? "Saving" : "Set new password"}
+        {submitting ? "Saving" : invited ? "Accept invitation" : "Set new password"}
       </Button>
     </form>
   );
@@ -86,18 +86,26 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
+    <Suspense fallback={null}>
+      <ResetPasswordScreen />
+    </Suspense>
+  );
+}
+
+/** The same screen sets a first password for an invited teammate, so it says so. */
+function ResetPasswordScreen() {
+  const invited = useSearchParams().get("invite") === "1";
+  return (
     <AuthShell
-      title="Create a new password"
-      description="Choose a new password for your console access."
+      title={invited ? "Join your team on Fable" : "Create a new password"}
+      description={invited ? "Choose a password to accept your invitation to the console." : "Choose a new password for your console access."}
       footer={
         <Link href="/dashboard/login" className="font-semibold text-brand hover:underline">
           Back to sign in
         </Link>
       }
     >
-      <Suspense fallback={<p className="text-center text-[13px] text-d-muted">Loading...</p>}>
-        <ResetPasswordForm />
-      </Suspense>
+      <ResetPasswordForm invited={invited} />
     </AuthShell>
   );
 }
