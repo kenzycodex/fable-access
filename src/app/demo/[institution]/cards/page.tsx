@@ -1,68 +1,73 @@
 "use client";
 
 import { useState } from "react";
-import { CreditCard, Eye, EyeClosed, Nut } from "@phosphor-icons/react";
-import { Screen, ScreenHeader, Card } from "@/components/demo/kit";
-import { DEMO_USER } from "@/lib/fable/seed";
+import useSWR from "swr";
+import { Eye, EyeSlash } from "@phosphor-icons/react";
+import { BankCard } from "@/components/demo/BankCard";
+import { useInstitution } from "@/components/demo/InstitutionProvider";
+import { PageHeader } from "@/components/demo/PageHeader";
+import { Badge, Button, Card, CardHeader, DetailRow, Notice, Screen, Skeleton } from "@/components/demo/kit";
+import { summarizeCustomer } from "@/lib/fable/analytics";
+import { customerOverview } from "@/lib/fable/api";
+import { accountNumberFor, cardFor, formatNaira, groupDigits } from "@/lib/fable/format";
 
 export default function CardsPage() {
-  const [showDetails, setShowDetails] = useState(false);
+  const { customer, institutionId, name: bankName } = useInstitution();
+  const [reveal, setReveal] = useState(false);
+
+  const { data: overview } = useSWR(
+    customer ? ["demo:overview", customer.user_id, institutionId] : null,
+    () => customerOverview(customer!.user_id, institutionId),
+    { refreshInterval: 15_000, keepPreviousData: true },
+  );
+
+  const card = customer ? cardFor(customer.user_id) : null;
+  const spent = overview ? summarizeCustomer(overview.transactions, 0).spent : null;
 
   return (
     <Screen>
-      <ScreenHeader title="My Cards" />
-      
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        <div className="w-full lg:w-[380px] shrink-0 h-48 rounded-2xl bg-gradient-to-br from-[#1a1a1a] to-[#222] border border-white/[0.05] p-6 flex flex-col justify-between shadow-xl">
-          <div className="flex justify-between items-center">
-            <span className="text-[16px] font-bold text-white tracking-tight">Meridian</span>
-            <CreditCard size={28} className="text-white/40" />
-          </div>
-          <div>
-            <p className="text-[20px] font-mono tracking-widest text-white/90 mb-3">
-              {showDetails ? "4532 1109 8765 4092" : "**** **** **** 4092"}
-            </p>
-            <div className="flex justify-between text-[12px] text-white/50 uppercase tracking-wider font-semibold">
-              <span className="text-white/80">{DEMO_USER.name}</span>
-              <span className="flex gap-4">
-                <span>12/28</span>
-                {showDetails && <span className="animate-in fade-in duration-300">CVV 812</span>}
-              </span>
-            </div>
-          </div>
+      <PageHeader title="My cards" subtitle="Your debit card and linked account" back />
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+        <div className="flex flex-col gap-4 lg:col-span-6">
+          {card && customer ? (
+            <BankCard holder={customer.name} number={card.number} expiry={card.expiry} reveal={reveal} className="max-w-[480px]" />
+          ) : (
+            <Skeleton className="aspect-[1.586/1] w-full max-w-[480px] rounded-[22px]" />
+          )}
+          <Button
+            variant="secondary"
+            size="lg"
+            className="w-full max-w-[480px]"
+            icon={reveal ? <EyeSlash size={18} /> : <Eye size={18} />}
+            onClick={() => setReveal((r) => !r)}
+          >
+            {reveal ? "Hide card details" : "Show card details"}
+          </Button>
         </div>
 
-        <div className="flex flex-1 flex-col gap-4 w-full">
-          <div className="grid grid-cols-2 gap-3 lg:h-24">
-            <button 
-              onClick={() => setShowDetails(!showDetails)}
-              className="flex h-full flex-col items-center justify-center gap-2 rounded-2xl bg-gray-100 dark:bg-white/[0.04] py-4 px-2 text-gray-600 dark:text-white/60 transition-colors hover:bg-gray-200 dark:hover:bg-white/[0.08]"
-            >
-              {showDetails ? <EyeClosed size={20} /> : <Eye size={20} />}
-              <span className="text-[12px] font-semibold text-gray-900 dark:text-white">
-                {showDetails ? "Hide Details" : "Show Details"}
-              </span>
-            </button>
-            <button 
-              disabled
-              className="flex h-full flex-col items-center justify-center gap-2 rounded-2xl bg-gray-50 dark:bg-white/[0.02] py-4 px-2 text-gray-400 dark:text-white/30 cursor-default"
-            >
-              <Nut size={20} className="opacity-50" />
-              <div className="flex items-center gap-2">
-                <span className="text-[12px] font-semibold text-gray-500 dark:text-white/40">Settings</span>
-                <span className="rounded bg-gray-200 dark:bg-white/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Soon</span>
-              </div>
-            </button>
-          </div>
-
+        <div className="flex flex-col gap-5 lg:col-span-6">
           <Card>
-            <div className="flex flex-col gap-1.5">
-              <h3 className="text-[14px] font-bold text-gray-900 dark:text-white">Secured by Fable</h3>
-              <p className="text-[13px] text-gray-600 dark:text-white/50 leading-relaxed">
-                Your virtual card uses Fable Dynamic CVV. Every online transaction is actively scored, and the CVV rotates automatically to prevent card-not-present fraud.
-              </p>
+            <CardHeader title="Card details" action={<Badge tone="success">Active</Badge>} />
+            <div className="divide-y divide-d-border">
+              <DetailRow label="Card holder">{customer?.name ?? "—"}</DetailRow>
+              <DetailRow label="Card number">
+                <span className="font-mono tabular-nums">
+                  {card ? (reveal ? groupDigits(card.number) : `•••• •••• •••• ${card.last4}`) : "—"}
+                </span>
+              </DetailRow>
+              <DetailRow label="Valid thru">{card?.expiry ?? "—"}</DetailRow>
+              <DetailRow label="Linked account">
+                <span className="font-mono tabular-nums">{customer ? accountNumberFor(customer.user_id) : "—"}</span>
+              </DetailRow>
+              <DetailRow label="Spent this month">{spent === null ? "—" : formatNaira(spent)}</DetailRow>
             </div>
           </Card>
+
+          <Notice>
+            This is a demo card issued by {bankName}. It has no card network behind it, so it can&apos;t be used to
+            pay anywhere. Transfers from the account are checked by Fable like any other.
+          </Notice>
         </div>
       </div>
     </Screen>

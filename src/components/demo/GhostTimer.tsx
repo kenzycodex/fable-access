@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { formatCountdown } from "@/lib/fable/format";
 
 /**
- * Real-time cooling-window countdown. Ticks every second; the color shifts
- * cyan -> amber -> red as time runs out, with a progress bar depleting in sync.
+ * The cooling-window countdown. Ticks every quarter second; the colour moves
+ * from the brand colour to amber to red as time runs out, with a bar depleting
+ * in step.
  */
 export function GhostTimer({
   expiresAt,
@@ -30,22 +31,18 @@ export function GhostTimer({
     return () => clearInterval(id);
   }, [expiresAt, onExpire]);
 
-  // cyan by default, amber under 5 minutes, red under 60 seconds.
-  const color = remaining <= 60 ? "#ff3b5c" : remaining <= 300 ? "#ffb547" : "var(--brand-accent)";
+  const color = remaining <= 60 ? "#ef4444" : remaining <= 300 ? "#f59e0b" : "var(--brand-primary, #7c3aed)";
   const pct = Math.max(0, Math.min(100, (remaining / windowSeconds) * 100));
 
   return (
-    <div className="flex flex-col items-center gap-3">
-      <span
-        className="font-heading text-[52px] font-bold leading-none tabular-nums"
-        style={{ color, fontVariantNumeric: "tabular-nums" }}
-      >
+    <div className="flex flex-col items-center gap-4">
+      <span className="text-[56px] font-bold leading-none tabular-nums" style={{ color }}>
         {formatCountdown(remaining)}
       </span>
-      <div className="h-2 w-full overflow-hidden rounded-pill bg-white/10">
-        <div className="h-full rounded-pill transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: color }} />
+      <div className="h-2.5 w-full overflow-hidden rounded-full bg-d-surface-2">
+        <div className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
-      <span className="text-xs text-white/40">Time remaining to cancel</span>
+      <span className="text-[12px] text-d-muted">Time left to cancel</span>
     </div>
   );
 }

@@ -2,16 +2,17 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { CheckCircle, ShieldWarning, Ghost, ShareNetwork } from "@phosphor-icons/react";
+import { Ghost, ShareNetwork, ShieldWarning } from "@phosphor-icons/react";
 import { toast } from "sonner";
-import { Card, Screen, ScreenHeader } from "@/components/demo/kit";
+import { PageHeader } from "@/components/demo/PageHeader";
+import { Button, Card, CardHeader, DetailRow, Eyebrow, Notice, Screen, SuccessTick } from "@/components/demo/kit";
 import { PageSpinner } from "@/components/demo/Spinner";
 import { RiskScoreCounter } from "@/components/demo/RiskScoreCounter";
 import { SignalCard } from "@/components/demo/SignalCard";
-import { shieldExplanation, StepUpRequiredError } from "@/lib/fable/api";
-import { stepUpRequirement, type StepUpRequirement } from "@/lib/fable/webauthn";
 import { StepUpDialog } from "@/components/demo/StepUpDialog";
-import { formatNaira, formatRiskScore } from "@/lib/fable/format";
+import { useInstitution } from "@/components/demo/InstitutionProvider";
+import { shieldExplanation, StepUpRequiredError } from "@/lib/fable/api";
+import { formatDateTime, formatNaira, formatRiskScore } from "@/lib/fable/format";
 import {
   approvePending,
   commitPass,
@@ -20,7 +21,7 @@ import {
   upgradePendingExplanation,
   useFableStore,
 } from "@/lib/fable/store";
-import { useInstitution } from "@/components/demo/InstitutionProvider";
+import { stepUpRequirement, type StepUpRequirement } from "@/lib/fable/webauthn";
 
 /** Collect the fuller write-up Shield is generating off the request path.
  *
@@ -41,7 +42,7 @@ function usePolishedExplanation(transactionId: string | undefined, isPending: bo
     let attempts = 0;
 
     async function poll() {
-      // ~18s ceiling. Past that the template is the final answer.
+      // About an 18s ceiling. Past that the template is the final answer.
       if (cancelled) return;
       if (attempts >= 12) {
         setResolvedId(transactionId!);
@@ -76,36 +77,40 @@ export default function ResultPage() {
 
   useEffect(() => {
     if (store !== null && !pending) router.replace(href());
-  }, [store, pending, router]);
+  }, [store, pending, router, href]);
 
-  if (!pending) {
-    return <PageSpinner />;
+  if (!pending) return <PageSpinner />;
+
+  if (pending.action === "PASS") {
+    return <PassResult amount={pending.amount} recipient={pending.recipientName} bank={pending.recipientBank} score={pending.riskScore} />;
   }
-
-  if (pending.action === "PASS")
-    return <PassResult amount={pending.amount} recipient={pending.recipientName} score={pending.riskScore} />;
-
   return <FlagBlockResult />;
 }
 
-function PassResult({ amount, recipient, score }: { amount: number; recipient: string; score: number }) {
+function PassResult({
+  amount,
+  recipient,
+  bank,
+  score,
+}: {
+  amount: number;
+  recipient: string;
+  bank: string;
+  score: number;
+}) {
   const router = useRouter();
   const { href, name } = useInstitution();
+  // The moment this transfer cleared, fixed for the life of the screen.
+  const [sentAt] = useState(() => Date.now());
 
-  /** Share the receipt. This button had no onClick at all: it sat on the
-   *  transfer-success screen, the happiest path in the product, and did
-   *  nothing when pressed. Uses the Web Share sheet where the browser has one
-   *  (every mobile browser this demo targets), and falls back to the clipboard
-   *  on desktop. */
+  /** Share the receipt with the Web Share sheet where the browser has one, and
+   * fall back to the clipboard on desktop. */
   async function shareReceipt() {
     const text =
-      `${name} transfer receipt
-` +
-      `${formatNaira(amount)} to ${recipient}
-` +
-      `${new Date().toLocaleString()}
-` +
-      `Checked by Fable · risk score ${formatRiskScore(score)}`;
+      `${name} transfer receipt\n` +
+      `${formatNaira(amount)} to ${recipient}\n` +
+      `${new Date().toLocaleString()}\n` +
+      `Checked by Fable, risk score ${formatRiskScore(score)}`;
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
         await navigator.share({ title: "Transfer receipt", text });
@@ -125,45 +130,35 @@ function PassResult({ amount, recipient, score }: { amount: number; recipient: s
   }
 
   return (
-    <Screen>
-      <div className="relative mx-auto flex min-h-[70vh] max-w-sm flex-col items-center justify-center gap-5 text-center">
-        {/* Animated checkmark */}
-        <div className="relative flex items-center justify-center animate-fade-in-up">
-          <div className="absolute inset-0 animate-[pulse_2s_ease-in-out_infinite] rounded-full bg-emerald-500/20 blur-xl" />
-          <CheckCircle size={80} weight="fill" className="text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.4)]" />
+    <Screen className="flex min-h-[calc(100dvh-8rem)] items-center justify-center">
+      <Card className="w-full max-w-[440px] animate-fade-in-up text-center">
+        <div className="flex justify-center pt-2">
+          <SuccessTick size={84} />
         </div>
-        
-        <div className="flex flex-col gap-1 animate-fade-in-up [animation-delay:0.1s]">
-          <h1 className="text-[20px] font-bold text-white">Transfer sent</h1>
-          <p className="text-[36px] font-bold tabular-nums text-white">{formatNaira(amount)}</p>
-        </div>
-        
-        <p className="text-[13px] text-white/50 animate-fade-in-up [animation-delay:0.2s] max-w-[280px]">
-          Fable recognized this as your regular payment to <span className="font-semibold text-white">{recipient}</span>. Cleared instantly, no friction.
+        <h1 className="mt-3 text-[20px] font-bold text-d-text">Transfer sent</h1>
+        <p className="mt-1 text-[40px] font-bold tabular-nums leading-tight text-d-text">{formatNaira(amount)}</p>
+        <p className="mx-auto mt-2 max-w-[320px] text-[13px] leading-relaxed text-d-muted">
+          This matched how you normally bank, so it went through with no extra steps.
         </p>
 
-        <span className="rounded-full bg-[#1a1a1a] border border-white/[0.04] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/45 animate-fade-in-up [animation-delay:0.3s]">
-          Risk score {formatRiskScore(score)} · Normal
-        </span>
-
-        <div className="mt-4 flex w-full flex-col gap-2.5 animate-fade-in-up [animation-delay:0.4s]">
-          <button
-            type="button"
-            onClick={shareReceipt}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1a1a1a] py-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#222]"
-          >
-            <ShareNetwork size={16} />
-            Share Receipt
-          </button>
-          <button
-            type="button"
-            onClick={done}
-            className="w-full rounded-xl bg-[var(--brand-primary)] py-3.5 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
-          >
-            Done
-          </button>
+        <div className="mt-6 divide-y divide-d-border rounded-2xl bg-d-surface-2 px-4 text-left">
+          <DetailRow label="To">{recipient}</DetailRow>
+          <DetailRow label="Bank">{bank}</DetailRow>
+          <DetailRow label="Date">{formatDateTime(sentAt)}</DetailRow>
+          <DetailRow label="Risk">
+            <span className="text-emerald-600 dark:text-emerald-400">Low ({formatRiskScore(score)})</span>
+          </DetailRow>
         </div>
-      </div>
+
+        <div className="mt-6 flex flex-col gap-2.5 sm:flex-row">
+          <Button variant="secondary" size="lg" full icon={<ShareNetwork size={18} />} onClick={shareReceipt}>
+            Share receipt
+          </Button>
+          <Button size="lg" full onClick={done}>
+            Done
+          </Button>
+        </div>
+      </Card>
     </Screen>
   );
 }
@@ -173,10 +168,7 @@ function FlagBlockResult() {
   const { href, customer, institutionId } = useInstitution();
   const store = useFableStore();
   const pending = store?.pending ?? null;
-  const writing = usePolishedExplanation(
-    pending?.transactionId,
-    pending?.explanationSource === "pending",
-  );
+  const writing = usePolishedExplanation(pending?.transactionId, pending?.explanationSource === "pending");
 
   // A flag is verified and sent directly; only a block is contained.
   const [stepUpOpen, setStepUpOpen] = useState(false);
@@ -193,7 +185,8 @@ function FlagBlockResult() {
     router.push(href());
   }
 
-  // BLOCK → containment. FLAG → verify, then complete with no cooling window.
+  // BLOCK goes to containment. FLAG goes through verification, then completes
+  // with no cooling window.
   async function sendAnyway(token?: string) {
     if (isBlock) {
       await createGhost();
@@ -231,80 +224,84 @@ function FlagBlockResult() {
 
   return (
     <Screen>
-      <ScreenHeader title="Fable Shield" subtitle="Real-time review" />
+      <PageHeader
+        title={isBlock ? "Transfer paused" : "Please confirm this transfer"}
+        subtitle="Reviewed by Fable Shield in real time"
+      />
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
-        <div className="flex flex-col gap-5 lg:col-span-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+        <div className="flex flex-col gap-5 lg:col-span-7">
           <Card className="animate-fade-in-up">
-            <div className="mb-4 flex items-start gap-3">
+            <div className="mb-5 flex items-center gap-3.5">
               <span
                 className={`flex size-12 shrink-0 items-center justify-center rounded-2xl ${
-                  isBlock ? "bg-red-500/15 text-red-400" : "bg-amber-500/15 text-amber-400"
+                  isBlock ? "bg-red-500/12 text-red-500" : "bg-amber-500/14 text-amber-500"
                 }`}
               >
-                <ShieldWarning size={24} weight="fill" />
+                <ShieldWarning size={26} weight="fill" />
               </span>
-              <div>
-                <h2 className="text-[16px] font-bold text-white">{isBlock ? "Transfer blocked" : "Transfer flagged"}</h2>
-                <p className="text-[13px] text-white/50 mt-0.5">
+              <div className="min-w-0">
+                <p className="text-[16px] font-bold text-d-text">
                   {formatNaira(pending.amount)} to {pending.recipientName}
                 </p>
+                <p className="text-[13px] text-d-muted">{pending.recipientBank}</p>
               </div>
             </div>
             <RiskScoreCounter score={pending.riskScore} action={pending.action} />
           </Card>
 
           <Card className="animate-fade-in-up [animation-delay:0.1s]">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-white/35">Fable explains</span>
-              {writing && (
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--brand-primary)]">
-                  <span className="size-1.5 animate-pulse rounded-full bg-[var(--brand-primary)]" />
-                  Adding detail
-                </span>
-              )}
-            </div>
-            <p className="mt-2 text-[13px] leading-relaxed text-white/65">{pending.explanation}</p>
+            <CardHeader
+              title="Why this was stopped"
+              action={
+                writing ? (
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-brand">
+                    <span className="size-1.5 animate-pulse rounded-full bg-brand" />
+                    Adding detail
+                  </span>
+                ) : undefined
+              }
+            />
+            <p className="text-[14px] leading-relaxed text-d-muted">{pending.explanation}</p>
           </Card>
         </div>
 
-        <div className="flex flex-col gap-5 lg:col-span-2">
+        <div className="flex flex-col gap-5 lg:col-span-5">
           <Card className="animate-fade-in-up [animation-delay:0.2s]">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-white/35">Signals detected</span>
-            <div className="mt-3 flex flex-col gap-2">
-              {pending.signals.map((s, i) => (
-                <SignalCard key={s.code + i} signal={s} index={i} />
-              ))}
+            <CardHeader title="What Shield noticed" />
+            <div className="flex flex-col gap-2.5">
+              {pending.signals.length === 0 ? (
+                <p className="text-[13px] text-d-muted">No individual signal stood out.</p>
+              ) : (
+                pending.signals.map((s, i) => <SignalCard key={s.code + i} signal={s} index={i} />)
+              )}
             </div>
           </Card>
 
-          <div className="flex flex-col gap-2.5 animate-fade-in-up [animation-delay:0.3s]">
-            <button
-              type="button"
-              onClick={cancel}
-              className="rounded-xl bg-emerald-500/10 py-3.5 text-[13px] font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/20"
-            >
-              Cancel transfer — I&rsquo;m safe
-            </button>
-            <button
-              type="button"
-              onClick={() => sendAnyway()}
-              disabled={proceeding}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1a1a1a] py-3 text-[13px] font-medium text-white/50 transition-colors hover:bg-[#222] hover:text-white/70 disabled:opacity-50"
-            >
-              <Ghost size={16} />
-              {isBlock
-                ? "Send anyway → Ghost protection"
-                : proceeding
-                  ? "Verifying…"
-                  : "Send anyway → verify it's you"}
-            </button>
-            {proceedError && (
-              <p className="rounded-xl bg-red-500/10 px-3.5 py-2.5 text-[12px] leading-relaxed text-red-400">
-                {proceedError}
+          <Card className="animate-fade-in-up [animation-delay:0.3s]">
+            <Eyebrow className="mb-3">Your options</Eyebrow>
+            <div className="flex flex-col gap-3">
+              <Button variant="success" size="lg" full onClick={cancel}>
+                Cancel transfer, I&apos;m safe
+              </Button>
+              <Button
+                variant="secondary"
+                size="lg"
+                full
+                loading={proceeding}
+                onClick={() => sendAnyway()}
+                icon={!proceeding ? <Ghost size={18} /> : undefined}
+              >
+                {isBlock ? "Send anyway, with protection" : "Send anyway, verify it's me"}
+              </Button>
+              <p className="text-[12px] leading-relaxed text-d-muted">
+                {isBlock
+                  ? "If you go ahead, the money is held safely for a short cooling window instead of being sent. You can cancel and get it back."
+                  : "You'll confirm it's really you first, then the transfer goes through."}
               </p>
-            )}
-          </div>
+              {proceedError && <Notice tone="danger">{proceedError}</Notice>}
+            </div>
+          </Card>
         </div>
       </div>
 

@@ -2,24 +2,17 @@
 
 import { useRouter, useParams } from "next/navigation";
 import useSWR from "swr";
-import { ArrowLeft, Ghost as GhostIcon, ShieldCheck } from "@phosphor-icons/react";
-import { Card, Screen, ScreenHeader, Avatar } from "@/components/demo/kit";
+import { Ghost as GhostIcon, ShieldCheck } from "@phosphor-icons/react";
+import { PageHeader } from "@/components/demo/PageHeader";
+import { Avatar, Button, ButtonLink, Card, CardHeader, DetailRow, Eyebrow, Screen } from "@/components/demo/kit";
 import { PageSpinner } from "@/components/demo/Spinner";
 import { SignalCard } from "@/components/demo/SignalCard";
 import { customerTransactions } from "@/lib/fable/api";
-import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
+import { formatDateTime, formatNaira } from "@/lib/fable/format";
 import { useFableStore } from "@/lib/fable/store";
-import type { Transaction, TransactionStatus } from "@/lib/fable/types";
+import type { Transaction } from "@/lib/fable/types";
+import { statusTone } from "@/lib/fable/ui";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
-
-const STATUS_META: Record<TransactionStatus, { label: string; chip: string }> = {
-  completed: { label: "Sent", chip: "bg-emerald-500/15 text-emerald-500" },
-  flagged: { label: "Flagged", chip: "bg-amber-500/15 text-amber-500" },
-  blocked: { label: "Blocked", chip: "bg-red-500/15 text-red-500" },
-  cancelled: { label: "Cancelled", chip: "bg-gray-400/15 text-gray-400" },
-  held: { label: "In containment", chip: "bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]" },
-  released: { label: "Released", chip: "bg-emerald-500/15 text-emerald-500" },
-};
 
 export default function TransactionDetailPage() {
   const router = useRouter();
@@ -47,12 +40,12 @@ export default function TransactionDetailPage() {
   if (store !== null && !txn) {
     return (
       <Screen>
-        <ScreenHeader title="Transfer" />
+        <PageHeader title="Transfer" back={href("/history")} />
         <Card>
-          <p className="text-[13px] text-gray-500 dark:text-white/40">This transfer isn&apos;t in your history.</p>
-          <button type="button" onClick={() => router.push(href("/history"))} className="mt-3 text-[13px] font-semibold text-[var(--brand-primary)]">
+          <p className="text-[14px] text-d-muted">This transfer isn&apos;t in your history.</p>
+          <ButtonLink href={href("/history")} variant="secondary" size="sm" className="mt-4">
             Back to activity
-          </button>
+          </ButtonLink>
         </Card>
       </Screen>
     );
@@ -66,97 +59,85 @@ export default function TransactionDetailPage() {
     );
   }
 
-  const status = STATUS_META[txn.status] ?? STATUS_META.completed;
+  const tone = statusTone(txn.status);
   const credit = txn.direction === "credit";
   const flagged = txn.action !== "PASS";
 
   return (
     <Screen>
-      <button
-        type="button"
-        onClick={() => router.back()}
-        className="mb-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-gray-500 hover:text-gray-900 dark:text-white/40 dark:hover:text-white"
-      >
-        <ArrowLeft size={16} /> Back
-      </button>
+      <PageHeader title="Transfer details" subtitle={formatDateTime(txn.timestamp)} back={href("/history")} />
 
-      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-5 lg:gap-5">
-        <div className="flex flex-col gap-4 lg:col-span-3">
-          {/* Summary */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+        <div className="flex flex-col gap-5 lg:col-span-7">
           <Card>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3.5">
               <Avatar name={txn.recipientName} size="lg" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[15px] font-bold text-gray-900 dark:text-white">{txn.recipientName}</p>
-                <p className="text-[12px] text-gray-500 dark:text-white/40">{txn.recipientBank}</p>
+                <p className="truncate text-[16px] font-bold text-d-text">{txn.recipientName}</p>
+                <p className="text-[13px] text-d-muted">{txn.recipientBank}</p>
               </div>
-              <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${status.chip}`}>
-                {status.label}
-              </span>
+              <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${tone.chip}`}>{tone.label}</span>
             </div>
-            <div className="mt-4 border-t border-gray-100 dark:border-white/[0.05] pt-4">
-              <p className={`text-[28px] font-bold tabular-nums ${credit ? "text-emerald-600 dark:text-emerald-400" : "text-gray-900 dark:text-white"}`}>
-                {credit ? "+" : "-"}
-                {formatNaira(txn.amount)}
-              </p>
-              <p className="mt-1 text-[12px] text-gray-500 dark:text-white/40">
-                {formatRelativeTime(txn.timestamp)}
-                {txn.narration ? ` · ${txn.narration}` : ""}
-              </p>
+            <p
+              className={`mt-5 text-[36px] font-bold tabular-nums ${
+                credit ? "text-emerald-600 dark:text-emerald-400" : "text-d-text"
+              }`}
+            >
+              {credit ? "+" : "-"}
+              {formatNaira(txn.amount)}
+            </p>
+            <div className="mt-4 divide-y divide-d-border border-t border-d-border">
+              <DetailRow label="Date">{formatDateTime(txn.timestamp)}</DetailRow>
+              {txn.narration && <DetailRow label="Narration">{txn.narration}</DetailRow>}
+              <DetailRow label="Account">
+                <span className="font-mono tabular-nums">{txn.recipientAccount || "-"}</span>
+              </DetailRow>
             </div>
           </Card>
 
           {/* Live containment access */}
           {heldGhost && (
-            <Card className="border-[var(--brand-primary)]/25 bg-[var(--brand-primary)]/[0.04]">
-              <div className="flex items-center gap-3">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-[var(--brand-primary)]/15 text-[var(--brand-primary)]">
-                  <GhostIcon size={20} weight="fill" />
+            <Card className="border-brand/30 bg-brand/[0.05]">
+              <div className="flex items-center gap-3.5">
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand/15 text-brand">
+                  <GhostIcon size={22} weight="fill" />
                 </span>
-                <div className="flex-1">
-                  <p className="text-[13px] font-semibold text-gray-900 dark:text-white">Held in containment</p>
-                  <p className="text-[11px] text-gray-500 dark:text-white/40">The cooling window is still open. You can cancel or release it.</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[14px] font-semibold text-d-text">Held in containment</p>
+                  <p className="text-[12px] text-d-muted">The cooling window is still open. You can cancel or release it.</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => router.push(href("/ghost"))}
-                  className="rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-[12px] font-bold text-white transition-opacity hover:opacity-90"
-                >
+                <Button size="sm" onClick={() => router.push(href("/ghost"))}>
                   Open
-                </button>
+                </Button>
               </div>
             </Card>
           )}
 
-          {/* Fable's explanation */}
           {txn.explanation && (
             <Card>
-              <span className="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-white/35">Fable explains</span>
-              <p className="mt-2 text-[13px] leading-relaxed text-gray-600 dark:text-white/60">{txn.explanation}</p>
+              <CardHeader title="Why Fable stepped in" />
+              <p className="text-[14px] leading-relaxed text-d-muted">{txn.explanation}</p>
             </Card>
           )}
         </div>
 
-        {/* Decision */}
-        <div className="flex flex-col gap-4 lg:col-span-2">
+        <div className="flex flex-col gap-5 lg:col-span-5">
           <Card>
-            <div className="flex items-center gap-2 mb-3">
-              <ShieldCheck size={16} weight="fill" className="text-[var(--brand-primary)]" />
-              <span className="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-white/35">Fable decision</span>
+            <div className="mb-3 flex items-center gap-2">
+              <ShieldCheck size={18} weight="fill" className="text-brand" />
+              <Eyebrow>Fable decision</Eyebrow>
             </div>
-            <div className="flex items-center justify-between text-[13px]">
-              <span className="text-gray-500 dark:text-white/45">Risk score</span>
-              <span className="font-bold tabular-nums text-gray-900 dark:text-white">{txn.riskScore.toFixed(2)}</span>
-            </div>
-            {flagged && txn.signals.length > 0 && (
-              <div className="mt-3 flex flex-col gap-2">
+            <DetailRow label="Risk score">
+              <span className="font-bold tabular-nums">{txn.riskScore.toFixed(2)}</span>
+            </DetailRow>
+            {flagged && txn.signals.length > 0 ? (
+              <div className="mt-3 flex flex-col gap-2.5">
                 {txn.signals.map((s, i) => (
                   <SignalCard key={s.code + i} signal={s} index={0} />
                 ))}
               </div>
-            )}
-            {!flagged && (
-              <p className="mt-2 text-[12px] text-gray-500 dark:text-white/40">Cleared with no risk signals.</p>
+            ) : (
+              !flagged && <p className="mt-2 text-[13px] text-d-muted">Cleared with no risk signals.</p>
             )}
           </Card>
         </div>

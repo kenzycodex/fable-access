@@ -2,8 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Ghost, ShieldWarning, HandPointing } from "@phosphor-icons/react";
-import { Card, Screen, ScreenHeader } from "@/components/demo/kit";
+import { Ghost, HandPointing } from "@phosphor-icons/react";
+import { PageHeader } from "@/components/demo/PageHeader";
+import { Badge, Button, Card, CardHeader, DetailRow, Eyebrow, Notice, Screen } from "@/components/demo/kit";
 import { PageSpinner } from "@/components/demo/Spinner";
 import { GhostTimer } from "@/components/demo/GhostTimer";
 import { StepUpDialog } from "@/components/demo/StepUpDialog";
@@ -14,10 +15,10 @@ import { cancelGhost, confirmGhost, useFableStore } from "@/lib/fable/store";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 
 const STEPS = [
-  "Money frozen, not sent",
-  "Recipient sees nothing",
-  "Cancel to get it back",
-  "Confirm only if sure",
+  "The money is held, not sent",
+  "The recipient sees nothing",
+  "Cancel to get it back instantly",
+  "Release only if you're certain",
 ];
 
 export default function GhostPage() {
@@ -35,7 +36,7 @@ export default function GhostPage() {
 
   useEffect(() => {
     if (store !== null && !ghost) router.replace(href());
-  }, [store, ghost, router]);
+  }, [store, ghost, router, href]);
 
   if (!ghost) {
     return <PageSpinner />;
@@ -102,41 +103,42 @@ export default function GhostPage() {
 
   return (
     <Screen>
-      <ScreenHeader title="Containment" subtitle="Transfer on hold" />
+      <PageHeader title="Funds on hold" subtitle="Your transfer is paused, not sent" back />
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
-        <div className="flex flex-col gap-5 lg:col-span-3">
-          {/* Hero */}
-          <div className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#1a1a1a] to-[#222] p-6 text-center text-white border border-white/[0.04]">
-            <span className="relative mx-auto flex size-16 items-center justify-center rounded-full bg-white/5 text-white/80">
-              <Ghost size={36} weight="fill" />
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+        <div className="flex flex-col gap-5 lg:col-span-7">
+          <Card className="text-center">
+            <span className="mx-auto flex size-16 items-center justify-center rounded-full bg-brand/12 text-brand">
+              <Ghost size={34} weight="fill" />
             </span>
-            <p className="relative mt-4 text-[24px] font-bold tabular-nums">{formatNaira(ghost.amount)} held safely</p>
-            <p className="relative mx-auto mt-1 max-w-[22rem] text-[13px] text-white/50">
-              If this is a scam, the scammer gets nothing.
+            <p className="mt-4 text-[30px] font-bold tabular-nums text-d-text">{formatNaira(ghost.amount)}</p>
+            <p className="mx-auto mt-1 max-w-[340px] text-[14px] text-d-muted">
+              is being held safely. If this was a scam, the scammer gets nothing.
             </p>
-          </div>
+          </Card>
 
-          {/* Countdown */}
           <Card>
-            <p className="mb-4 text-center text-[11px] font-bold uppercase tracking-wider text-white/35">Cooling window</p>
+            <CardHeader title="Cooling window" subtitle="Cancel any time before it ends" />
             <GhostTimer expiresAt={ghost.expiresAt} windowSeconds={ghost.windowSeconds} />
           </Card>
         </div>
 
-        <div className="flex flex-col gap-5 lg:col-span-2">
-          <Card className="flex flex-col gap-2.5">
-            <Row label="Status" value={<span className="font-bold text-amber-400">HELD</span>} />
-            <Row label="Recipient" value={`${ghost.recipientName}`} />
-            <Row label="Bank" value={ghost.recipientBank} />
+        <div className="flex flex-col gap-5 lg:col-span-5">
+          <Card>
+            <CardHeader title="Transfer" action={<Badge tone="warning">On hold</Badge>} />
+            <div className="divide-y divide-d-border">
+              <DetailRow label="Recipient">{ghost.recipientName}</DetailRow>
+              <DetailRow label="Bank">{ghost.recipientBank}</DetailRow>
+              <DetailRow label="Amount">{formatNaira(ghost.amount)}</DetailRow>
+            </div>
           </Card>
 
           <Card>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-white/35">How it works</span>
-            <ol className="mt-3 flex flex-col gap-2.5">
+            <Eyebrow className="mb-3">How it works</Eyebrow>
+            <ol className="flex flex-col gap-3">
               {STEPS.map((s, i) => (
-                <li key={s} className="flex items-center gap-3 text-[13px] text-white/60">
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-white/5 text-[11px] font-bold text-white/50">
+                <li key={s} className="flex items-center gap-3 text-[13px] text-d-muted">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand/12 text-[11px] font-bold text-brand">
                     {i + 1}
                   </span>
                   {s}
@@ -145,36 +147,27 @@ export default function GhostPage() {
             </ol>
           </Card>
 
-          <div className="flex flex-col gap-2.5">
-            <button
-              type="button"
-              onClick={cancel}
-              disabled={releasing}
-              className="rounded-xl bg-red-500 py-3.5 text-[13px] font-bold text-white transition-opacity hover:opacity-90 shadow-lg shadow-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Cancel &amp; get money back
-            </button>
-            <button
-              type="button"
+          <Card className="flex flex-col gap-3">
+            <Button variant="danger" size="lg" full disabled={releasing} onClick={cancel}>
+              Cancel and get my money back
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              full
+              loading={releasing}
               onClick={() => confirm()}
-              disabled={releasing}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1a1a1a] py-3 text-[13px] font-semibold text-white/40 transition-colors hover:bg-[#222] hover:text-white/60 disabled:opacity-50 disabled:cursor-not-allowed"
+              icon={!releasing ? <HandPointing size={18} /> : undefined}
             >
-              <HandPointing size={16} />
-              {releasing ? "Verifying…" : "I’m sure — release transfer"}
-            </button>
-
-            {/* A refused release has to be visible. Failing quietly here would
-                read as the button being broken, when the money is in fact
-                being held on purpose. */}
-            {releaseError && (
-              <p className="rounded-xl bg-red-500/10 px-3.5 py-2.5 text-[12px] leading-relaxed text-red-400">
-                {releaseError}
-              </p>
-            )}
-          </div>
+              I&apos;m sure, release the transfer
+            </Button>
+            {/* A refused release has to be visible. Failing quietly would read as
+                a broken button, when the money is in fact being held on purpose. */}
+            {releaseError && <Notice tone="danger">{releaseError}</Notice>}
+          </Card>
         </div>
       </div>
+
       <StepUpDialog
         open={stepUpOpen}
         onClose={() => setStepUpOpen(false)}
@@ -189,14 +182,5 @@ export default function GhostPage() {
         reference={ghost.id}
       />
     </Screen>
-  );
-}
-
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between text-[13px]">
-      <span className="text-white/40">{label}</span>
-      <span className="font-medium text-white">{value}</span>
-    </div>
   );
 }
