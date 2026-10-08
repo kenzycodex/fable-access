@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { Branding, DemoCustomer } from "@/app/demo/[institution]/layout";
 import {
@@ -42,6 +43,23 @@ export function InstitutionProvider({
   children: React.ReactNode;
 }) {
   const [customerId, setCustomerId] = useState<string | null>(null);
+  const pathname = usePathname();
+  const router = useRouter();
+
+  // The URL a bank chose in Settings, falling back to its id. Every in-app link
+  // and the address bar use it, so renaming the URL actually changes what people
+  // see. Links built from the id alone kept showing the old name after a rename.
+  const urlSegment = branding.slug || institutionId;
+
+  // Someone arriving on the old id-based address is moved to the bank's own URL.
+  // Both keep working, so links already handed out do not break.
+  useEffect(() => {
+    if (urlSegment === institutionId) return;
+    const current = pathname.split("/")[2];
+    if (current === institutionId) {
+      router.replace(`/demo/${urlSegment}${pathname.slice(`/demo/${current}`.length)}`);
+    }
+  }, [pathname, urlSegment, institutionId, router]);
 
   useEffect(() => {
     setInstitution(institutionId);
@@ -70,9 +88,9 @@ export function InstitutionProvider({
       branding,
       customer,
       selectCustomer: (c) => setTenantCustomer(c.user_id, c.name, institutionId),
-      href: (path = "") => `/demo/${institutionId}${path}`,
+      href: (path = "") => `/demo/${urlSegment}${path}`,
     };
-  }, [institutionId, name, customers, offline, branding, customerId]);
+  }, [institutionId, name, customers, offline, branding, customerId, urlSegment]);
 
   return <InstitutionContext.Provider value={value}>{children}</InstitutionContext.Provider>;
 }
