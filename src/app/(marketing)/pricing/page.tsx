@@ -18,7 +18,7 @@ export default function PricingPage() {
     <>
       {/* Hero (navy) */}
       <section
-        className="relative overflow-hidden bg-base px-[var(--gutter)] pb-[var(--section-space-m)] text-white"
+        className="relative overflow-hidden bg-base px-[var(--gutter)] pb-[var(--section-space-m)] text-white lg:min-h-[680px]"
         style={{ paddingTop: "calc(var(--header-height, 90px) + var(--spacing-m))" }}
       >
         <div className="pointer-events-none absolute right-[-24px] top-0 hidden w-full max-w-[504px] text-right lg:block">
