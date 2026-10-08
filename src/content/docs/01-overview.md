@@ -22,17 +22,17 @@ flag for a student.
 | Agent | Responsibility |
 |---|---|
 | **Copilot** | Learns each customer's genuine habits |
-| **Shield** | Scores every transfer through 12 signal layers |
+| **Shield** | Scores every transfer through 14 signal layers |
 | **Ghost** | Holds risky transfers in a recoverable cooling window |
 | **Watch** | Continuous monitoring between transactions *(not built)* |
 
 ## Architecture
 
-```
+```text
 Bank's app ──► Fable SDK ──► POST /v1/shield/analyze
                                     │
                           ┌─────────┴─────────┐
-                     Copilot baseline    12 signal layers
+                     Copilot baseline    14 signal layers
                                     │
                      PASS ──── FLAG ──── BLOCK
                                           │
@@ -51,9 +51,9 @@ Being precise about this matters more than a longer feature list.
 
 **Real:** device fingerprinting, GPS/IP geolocation, behavioural biometrics,
 Paystack NUBAN resolution, WebAuthn passkeys with verified signatures, the
-12-layer scoring pipeline, multi-tenant isolation, offline sync.
+14-layer scoring pipeline, multi-tenant isolation, offline sync.
 
-**Not built:** Watch (marked "coming soon" rather than faked), and the
-liveness/face-check tier, which returns `501` with its provider contract rather
-than a fake pass. Making the strongest tier the least trustworthy would defeat
+**Not built:** Watch (marked "coming soon" rather than faked), SMS delivery of
+verification codes (email only today), and the liveness/face-check tier, which
+returns `501` with its provider contract rather than a fake pass. Making the strongest tier the least trustworthy would defeat
 its purpose.

@@ -1,15 +1,29 @@
 # API Reference
 
-Base URL: `https://api.fablehq.app` · Interactive OpenAPI spec at `/docs`
+Base URL: your Fable API host (`$FABLE_API_URL` in the examples) · Interactive
+OpenAPI spec at `/docs` on that host
 
 ## Authentication
 
-```
+Server-to-server calls carry the institution API key in either header:
+
+```http
 X-API-Key: fbl_live_...
+Authorization: Bearer fbl_live_...
 ```
 
 The key decides which institution a write belongs to. It outranks any
-institution the client claims — the key is authenticated, the claim is not.
+institution the client claims, because the key is authenticated and the claim
+is not.
+
+| Caller | Credential |
+|---|---|
+| Your backend or app | Institution API key (`X-API-Key`) |
+| Console operators | Signed session from `POST /auth/login`, sent as the `fable_auth` cookie |
+| Provisioning (Fable operators only) | `X-Fable-Operator-Key` |
+
+`/`, `/health`, `/docs` and `/openapi.json` are always public. Requests are rate
+limited per client (default 180 per 60 seconds), and exceeding it returns `429`.
 
 ## Shield
 
@@ -18,30 +32,66 @@ institution the client claims — the key is authenticated, the claim is not.
 | Field | Type | Notes |
 |---|---|---|
 | `user_id` | string | **Required.** Unique per customer |
-| `transaction.amount` | number | **Required** |
+| `transaction.amount` | number | **Required.** Greater than 0 |
 | `transaction.recipient_account` | string | **Required** |
+| `transaction.currency` | enum | `NGN` only today |
+| `transaction.recipient_bank_code` | string | NIP bank code, e.g. `058` |
 | `transaction.recipient_name` | string | As resolved by NUBAN lookup |
-| `transaction.channel` | enum | `mobile_app`, `ussd`, `pos`, `internet`, `atm` |
-| `device` | object | Fingerprint from the SDK |
-| `context` | object | Location, session, behavioural signals |
-| `client_reference` | string | Stable id; makes replay idempotent |
+| `transaction.narration` | string | Up to 500 characters |
+| `transaction.channel` | enum | `mobile_app`, `ussd`, `pos`, `internet`, `atm`, `qr`, `branch`, `unknown` |
+| `device` | object | Fingerprint and traits from the SDK. All optional |
+| `context` | object | Location, session and behavioural signals. All optional |
+| `client_reference` | string | Stable id. Makes an offline replay idempotent |
 
-Returns `risk_score`, `action`, `signals[]`, `explanation`, `transaction_id`.
+Returns:
+
+| Field | Meaning |
+|---|---|
+| `risk_score` | 0 to 1 |
+| `risk_level` | `LOW`, `MEDIUM` or `HIGH`, against the channel's own cutoffs |
+| `action` | `PASS`, `FLAG` or `BLOCK` |
+| `signals[]` | Plain strings, each with its contribution, e.g. `new_recipient: ... (+0.2)` |
+| `explanation` | Plain-language reason |
+| `explanation_source` | `cache`, `template`, `llm` or `pending` |
+| `decision_ms` | Time to the verdict. What the 200ms budget governs |
+| `latency_ms` | Total handler time, explanation bookkeeping included |
+| `transaction_id` | Use it for status updates, feedback and explanations |
+
+A transfer above the available balance returns `422` with
+`error: "insufficient_funds"` and the shortfall.
+
+### `GET /v1/shield/explanation/{transaction_id}`
+
+Collects the richer write-up when `explanation_source` was `pending`. Returns
+`ready: true` once it exists.
 
 ### `POST /v1/shield/feedback`
 
-Confirm whether a decision was correct. Feeds the baseline.
+`{ "user_id", "transaction_id", "was_fraud" }`. Confirms whether a decision was
+correct. Feeds the baseline.
+
+## Transactions
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /v1/transactions/{id}/status` | Record a lifecycle outcome (`completed`, `cancelled`, `released`...). Moves no money. Confirming a transfer teaches Copilot |
+| `POST /v1/transactions/{id}/approve` | Approve a flagged transfer once its factor is proven |
 
 ## Ghost
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/ghost/create` | Open a cooling window |
+| `POST /v1/ghost/create` | Open a cooling window (15, 10 or 5 minutes by risk) |
 | `GET /v1/ghost/{id}` | Container state |
-| `POST /v1/ghost/{id}/cancel` | Return the money — no verification needed |
-| `POST /v1/ghost/{id}/confirm` | Release — **requires a step-up token** |
+| `POST /v1/ghost/{id}/cancel` | Return the money. No verification needed |
+| `POST /v1/ghost/{id}/confirm` | Release. **Requires a step-up token** |
 
-A release without sufficient proof returns `401` naming the level required:
+| Status | Meaning |
+|---|---|
+| `401` | `step_up_required`, naming the level needed |
+| `403` | The caller is not the container's owner |
+| `409` | Already resolved, or Ghost is switched off for this institution |
+| `410` | The window expired. Cancel is still available |
 
 ```json
 { "detail": { "error": "step_up_required", "level": "passkey" } }
@@ -51,47 +101,94 @@ A release without sufficient proof returns `401` naming the level required:
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/stepup/requirement` | Which factor does this decision need? |
+| `POST /v1/stepup/requirement` | Which level does this decision need? Body: `user_id`, `risk_score`, `signals`, `action`, `purpose` (`transfer` or `ghost_release`) |
+| `POST /v1/stepup/pin/verify` | Verify the transaction PIN |
 | `POST /v1/stepup/passkey/register/begin` | Start passkey enrolment |
 | `POST /v1/stepup/passkey/register/complete` | Finish enrolment |
+| `GET /v1/stepup/passkey/{user_id}` | Registered passkeys |
 | `POST /v1/stepup/passkey/auth/begin` | Start verification |
-| `POST /v1/stepup/passkey/auth/complete` | Finish verification |
-| `POST /v1/stepup/otp/send` | Send an out-of-band code |
-| `POST /v1/stepup/otp/verify` | Verify a code |
-| `POST /v1/stepup/identity-check` | Liveness — `501`, provider contract |
+| `POST /v1/stepup/passkey/auth/complete` | Finish verification, returns a token |
+| `POST /v1/stepup/otp/send` | Send an out-of-band code by email |
+| `POST /v1/stepup/otp/verify` | Verify a code, returns a token |
+| `POST /v1/stepup/identity-check` | Composed tier. Liveness itself returns `501`, a provider contract |
+
+Tokens last 10 minutes, are single-use, and are bound to one user, purpose and
+reference.
+
+## Accounts and security
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/accounts/{user_id}` | Balance |
+| `GET /v1/accounts/{user_id}/statement` | Ledger entries |
+| `POST /v1/accounts/{user_id}/topup` | Sandbox top-up, with per-transfer and daily limits |
+| `GET /v1/accounts/{user_id}/security` | PIN, 2FA preference and contact status |
+| `POST /v1/accounts/{user_id}/security/pin` | Set or change the PIN |
+| `POST /v1/accounts/{user_id}/security/two-factor` | Toggle "always ask" |
+| `POST /v1/accounts/{user_id}/security/contact` | Where the customer's own codes are sent |
+
+## Notifications and Copilot
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/notifications/{user_id}` | Customer alerts (containment, blocked, flagged) and whether they were delivered |
+| `POST /v1/notifications/{user_id}/read` | Mark read |
+| `GET /v1/copilot/transparency/{user_id}` | Everything Fable has learned about this customer's baseline |
+| `POST /v1/assistant/chat` | Analyst assistant for the console. Answers only from the institution's own numbers |
 
 ## Institutions
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /admin/provision` | Create a tenant, seed it, email credentials |
-| `GET /v1/institutions/{id}` | Detail and customer roster |
+| `POST /admin/provision` | Create a tenant, seed it, email credentials. Operator key required |
+| `GET /v1/institutions/{id}` | Detail and customer roster. Never returns credentials |
+| `GET /v1/institutions/{id}/credentials` | The institution's own API key. Needs that institution's session |
 | `POST /v1/institutions/resolve-key` | API key to institution |
 | `GET /v1/branding/{id}` | Logo, palette, vanity URL |
-| `PATCH /v1/branding/{id}` | Update branding |
+| `GET /v1/branding/resolve/{slug}` | Vanity slug to institution |
+| `PATCH /v1/branding/{id}` | Update branding. A slug change locks for a cooling period |
+| `POST` / `DELETE /v1/branding/{id}/logo` | Upload or remove the logo |
+
+## Console auth
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /auth/login` | Email and password, returns the signed session |
+| `POST /auth/forgot-password` | Email a reset link |
+| `POST /auth/reset-password` | Complete a reset |
+| `POST /auth/change-password` | Change password |
 
 ## Dashboard
 
-All reads take `?institution=` and are strictly tenant-scoped.
+Reads are scoped to the institution on the caller's session, never to a value
+the client supplies.
 
 | Endpoint | Returns |
 |---|---|
 | `GET /v1/dashboard/stats` | Headline metrics |
-| `GET /v1/dashboard/transactions` | Log; `?user=` filters to one customer |
+| `GET /v1/dashboard/transactions` | Log. `?user=` filters to one customer |
 | `GET /v1/dashboard/alerts` | Flagged and blocked |
 | `GET /v1/dashboard/intelligence` | Scam patterns, channel risk, signals |
+| `GET /v1/dashboard/compliance` | Audit-oriented view |
 | `GET /v1/agents/overview` | Per-agent stats |
+| `GET /v1/agents/copilot/customers` | Customer baselines |
+| `GET /v1/agents/shield/decisions` | Recent decisions |
+| `GET /v1/agents/ghost/containers` | Containment activity |
 
 ## Errors
 
 | Code | Meaning |
 |---|---|
-| `400` | Invalid input |
-| `401` | Bad API key, or step-up required |
-| `404` | Unknown institution or container |
-| `409` | Container already resolved |
+| `400` | Invalid input, or a wrong PIN or code |
+| `401` | Bad or missing credential, or step-up required |
+| `403` | Not the owner of the resource |
+| `404` | Unknown institution, transaction or container |
+| `409` | Already resolved, name collision, or agent switched off |
+| `410` | Ghost container expired |
+| `422` | Failed validation, or insufficient funds |
 | `429` | Rate limited |
-| `501` | Needs a provider not configured |
+| `501` | Needs a provider that is not configured |
+| `503` | Provisioning disabled: no operator key set |
 
 Shield never fails open: if scoring throws, it returns a conservative `FLAG`
 rather than passing the transfer.
