@@ -444,3 +444,49 @@ html:has([data-surface="app"]) {
     animation-delay: 0s;
   }
 }
+
+/*
+ * Demo bank design tokens.
+ *
+ * One semantic palette for every demo screen, so a page never hand-picks a gray
+ * and then forgets its dark-mode twin. The institution's own colour arrives as
+ * --brand-primary on the shell (set from its branding), and `bg-brand`,
+ * `text-brand` and friends read it, so a bank's palette reaches every control
+ * without prop-drilling.
+ */
+@theme inline {
+  --color-d-bg: var(--d-bg);
+  --color-d-surface: var(--d-surface);
+  --color-d-surface-2: var(--d-surface-2);
+  --color-d-border: var(--d-border);
+  --color-d-text: var(--d-text);
+  --color-d-muted: var(--d-muted);
+  --color-d-faint: var(--d-faint);
+  --color-brand: var(--brand-primary, #7c3aed);
+}
+
+.demo-shell {
+  --d-bg: #eef2f7;
+  --d-surface: #ffffff;
+  --d-surface-2: #f4f6fb;
+  --d-border: rgba(15, 23, 42, 0.08);
+  --d-text: #0f172a;
+  --d-muted: #5b6678;
+  --d-faint: #94a0b4;
+  --d-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 30px -14px rgba(15, 23, 42, 0.14);
+}
+
+.dark .demo-shell {
+  --d-bg: #090b10;
+  --d-surface: #12151c;
+  --d-surface-2: #1a1e28;
+  --d-border: rgba(255, 255, 255, 0.07);
+  --d-text: #f1f5f9;
+  --d-muted: #9aa5b8;
+  --d-faint: #667086;
+  --d-shadow: 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.demo-card {
+  box-shadow: var(--d-shadow);
+}

@@ -2,124 +2,228 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { House, ClockCounterClockwise, PaperPlaneTilt, ShieldCheck, ArrowLeft } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
+import useSWR from "swr";
+import {
+  ArrowLeft,
+  Bell,
+  ClockCounterClockwise,
+  CreditCard,
+  House,
+  PaperPlaneTilt,
+  Plus,
+  ShieldCheck,
+} from "@phosphor-icons/react";
+import type { Icon } from "@phosphor-icons/react";
+import { HeaderActions } from "@/components/demo/HeaderActions";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
+import { customerNotifications } from "@/lib/fable/api";
 
 // Paths are relative to the institution root; the provider's href() prefixes
 // them with /demo/{institution}.
-const NAV = [
-  { path: "", label: "Home", icon: House },
-  { path: "/history", label: "Activity", icon: ClockCounterClockwise },
+interface NavItem {
+  path: string;
+  label: string;
+  icon: Icon;
+}
+
+const MAIN: NavItem[] = [
+  { path: "", label: "Dashboard", icon: House },
   { path: "/transfer", label: "Transfer", icon: PaperPlaneTilt },
+  { path: "/add-money", label: "Add money", icon: Plus },
+  { path: "/history", label: "Activity", icon: ClockCounterClockwise },
+  { path: "/cards", label: "Cards", icon: CreditCard },
+];
+
+const OTHERS: NavItem[] = [
+  { path: "/notifications", label: "Notifications", icon: Bell },
   { path: "/transparency", label: "Security", icon: ShieldCheck },
 ];
 
-function useNavItems() {
+function useActive() {
   const { href } = useInstitution();
   const pathname = usePathname();
-  return NAV.map((item) => {
+  return (item: NavItem) => {
     const target = href(item.path);
-    return {
-      ...item,
-      href: target,
-      active: item.path === "" ? pathname === target : pathname.startsWith(target),
-    };
-  });
+    return item.path === "" ? pathname === target : pathname.startsWith(target);
+  };
 }
 
-export function DemoSidebar() {
-  const { name, href, branding } = useInstitution();
-  const items = useNavItems();
+function BrandMark({ size = "md" }: { size?: "sm" | "md" }) {
+  const { name, branding } = useInstitution();
+  const dim = size === "sm" ? "size-8" : "size-9";
+  return branding.logo_url ? (
+    // A logo is whatever shape its owner uploaded, so it is contained, not
+    // cropped. The space it leaves above and below takes the bank's accent
+    // colour rather than white, so a wide wordmark sits in a filled badge.
+    <span
+      className={`flex ${dim} shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/10`}
+      style={{ backgroundColor: "var(--brand-accent, #00d4ff)" }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader needed */}
+      <img src={branding.logo_url} alt={name} className="size-full object-contain" />
+    </span>
+  ) : (
+    <span
+      className={`flex ${dim} shrink-0 items-center justify-center rounded-xl text-[15px] font-bold text-white shadow-sm`}
+      style={{
+        background:
+          "linear-gradient(135deg, var(--brand-primary, #7c3aed), color-mix(in srgb, var(--brand-primary, #7c3aed) 60%, #000))",
+      }}
+    >
+      {name.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+function Sidebar() {
+  const { name, href, customer } = useInstitution();
+  const isActive = useActive();
+
+  const { data } = useSWR(
+    customer ? ["demo:notifications", customer.user_id] : null,
+    () => customerNotifications(customer!.user_id, 30),
+    { refreshInterval: 10_000, keepPreviousData: true },
+  );
+  const unread = data?.unread ?? 0;
+
+  const group = (label: string, items: NavItem[]) => (
+    <div>
+      <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-d-faint">{label}</p>
+      <nav className="flex flex-col gap-1">
+        {items.map((item) => {
+          const active = isActive(item);
+          const Icon = item.icon;
+          const badge = item.path === "/notifications" ? unread : 0;
+          return (
+            <Link
+              key={item.path}
+              href={href(item.path)}
+              aria-current={active ? "page" : undefined}
+              className={`flex h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-medium transition-colors ${
+                active ? "bg-brand/10 text-brand" : "text-d-muted hover:bg-d-surface-2 hover:text-d-text"
+              }`}
+            >
+              <Icon size={19} weight={active ? "fill" : "regular"} />
+              <span className="flex-1">{item.label}</span>
+              {badge > 0 && (
+                <span className="rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-[18px] text-white">
+                  {badge > 9 ? "9+" : badge}
+                </span>
+              )}
+            </Link>
+          );
+        })}
+      </nav>
+    </div>
+  );
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[220px] flex-col justify-between border-r border-gray-200 dark:border-white/[0.06] bg-white dark:bg-black px-4 py-6 lg:flex transition-colors duration-300">
+    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[256px] flex-col justify-between border-r border-d-border bg-d-surface px-4 py-6 lg:flex">
       <div className="flex flex-col gap-8">
-        <Link href={href()} className="flex items-center gap-3 px-2 mb-2">
-          {branding.logo_url ? (
-            /* Circular, like every avatar in this UI, and sized to actually be
-               legible. A bank's logo is whatever aspect ratio they uploaded, so
-               it is contained rather than cropped: a wide wordmark letterboxes
-               instead of losing its ends. The white plate is deliberate, since
-               most logos are dark artwork on transparency and would otherwise
-               disappear against the dark sidebar. */
-            <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white ring-1 ring-black/10 dark:ring-white/15">
-              {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader needed */}
-              <img
-                src={branding.logo_url}
-                alt={name}
-                className="size-full rounded-full object-contain p-0.5"
-              />
-            </span>
-          ) : (
-            <div
-              className="relative flex size-8 items-center justify-center rounded-xl shadow-lg"
-              style={{
-                background: `linear-gradient(135deg, var(--brand-primary, #7C3AED), color-mix(in srgb, var(--brand-primary, #7C3AED) 60%, black))`,
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2L2 12l10 10 10-10L12 2z" fill="currentColor" className="text-white/20"/>
-                <path d="M12 6L6 12l6 6 6-6-6-6z" fill="currentColor" className="text-white"/>
-              </svg>
-            </div>
-          )}
-          <span className="truncate text-[18px] font-bold tracking-tight text-gray-900 dark:text-white">{name}</span>
+        <Link href={href()} className="flex items-center gap-3 px-2">
+          <BrandMark />
+          <span className="truncate text-[17px] font-bold tracking-tight text-d-text">{name}</span>
         </Link>
-        <nav className="flex flex-col gap-0.5">
-          {items.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                style={item.active ? { backgroundColor: "var(--brand-primary, #7C3AED)" } : undefined}
-                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium transition-colors ${
-                  item.active ? "text-white" : "text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-white/45 dark:hover:bg-white/[0.04] dark:hover:text-white/70"
-                }`}
-              >
-                <Icon size={18} weight={item.active ? "fill" : "regular"} />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
+        {group("Main menu", MAIN)}
+        {group("Others", OTHERS)}
       </div>
-      <div className="flex flex-col gap-2 px-2 pb-1">
+
+      <div className="flex flex-col gap-3">
         <Link
           href="/"
-          className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13px] font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-white/45 dark:hover:bg-white/[0.04] dark:hover:text-white/80"
+          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-medium text-d-muted transition-colors hover:bg-d-surface-2 hover:text-d-text"
         >
-          <ArrowLeft size={18} weight="bold" />
-          Exit
+          <ArrowLeft size={19} />
+          Exit demo
         </Link>
-        <p className="px-3 text-[10px] text-gray-400 dark:text-white/15">{name} · Demo</p>
+        <p className="px-3 text-[11px] leading-relaxed text-d-faint">
+          Demo environment. Balances are simulated and no real money moves.
+        </p>
       </div>
     </aside>
   );
 }
 
-export function DemoBottomNav() {
-  const items = useNavItems();
+/** Phone top bar: who the bank is, and the shared controls. */
+function MobileTopBar() {
+  const { name, href } = useInstitution();
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 lg:hidden">
-      <div className="flex items-center justify-around border-t border-gray-200 dark:border-white/[0.06] bg-white/95 dark:bg-black/95 px-2 pb-[max(6px,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-xl transition-colors duration-300">
-        {items.map((item) => {
+    <div className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-d-border bg-d-surface/90 px-4 py-2.5 backdrop-blur-xl lg:hidden">
+      <Link href={href()} className="flex min-w-0 items-center gap-2.5">
+        <BrandMark size="sm" />
+        <span className="truncate text-[15px] font-bold tracking-tight text-d-text">{name}</span>
+      </Link>
+      <HeaderActions />
+    </div>
+  );
+}
+
+const TAB_ITEMS: NavItem[] = [
+  { path: "", label: "Home", icon: House },
+  { path: "/history", label: "Activity", icon: ClockCounterClockwise },
+  { path: "/transfer", label: "Transfer", icon: PaperPlaneTilt },
+  { path: "/cards", label: "Cards", icon: CreditCard },
+  { path: "/transparency", label: "Security", icon: ShieldCheck },
+];
+
+function BottomNav() {
+  const { href } = useInstitution();
+  const isActive = useActive();
+
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-d-border bg-d-surface/95 backdrop-blur-xl lg:hidden">
+      <div className="mx-auto flex max-w-md items-end justify-around px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-2">
+        {TAB_ITEMS.map((item) => {
+          const active = isActive(item);
           const Icon = item.icon;
+          const primary = item.path === "/transfer";
+
+          if (primary) {
+            return (
+              <Link
+                key={item.path}
+                href={href(item.path)}
+                aria-label="Transfer"
+                className="-mt-6 flex flex-col items-center gap-1"
+              >
+                <span className="flex size-14 items-center justify-center rounded-full bg-brand text-white shadow-[0_10px_24px_-8px_var(--brand-primary,#7c3aed)] ring-4 ring-d-surface">
+                  <Icon size={24} weight="fill" />
+                </span>
+                <span className={`text-[11px] font-semibold ${active ? "text-brand" : "text-d-muted"}`}>{item.label}</span>
+              </Link>
+            );
+          }
+
           return (
             <Link
-              key={item.href}
-              href={item.href}
-              style={item.active ? { color: "var(--brand-primary, #7C3AED)" } : undefined}
-              className={`flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] font-medium transition-colors ${
-                item.active ? "" : "text-gray-400 dark:text-white/30"
+              key={item.path}
+              href={href(item.path)}
+              aria-current={active ? "page" : undefined}
+              className={`flex min-w-[56px] flex-col items-center gap-1 py-1 text-[11px] font-semibold transition-colors ${
+                active ? "text-brand" : "text-d-faint"
               }`}
             >
-              <Icon size={22} weight={item.active ? "fill" : "regular"} />
+              <Icon size={22} weight={active ? "fill" : "regular"} />
               {item.label}
             </Link>
           );
         })}
       </div>
     </nav>
+  );
+}
+
+/** The demo bank's frame: sidebar on desktop, top bar and tab bar on a phone. */
+export function DemoShell({ children }: { children: ReactNode }) {
+  return (
+    <>
+      <Sidebar />
+      <div className="min-h-dvh lg:pl-[256px]">
+        <MobileTopBar />
+        <main className="pb-28 lg:pb-8">{children}</main>
+      </div>
+      <BottomNav />
+    </>
   );
 }

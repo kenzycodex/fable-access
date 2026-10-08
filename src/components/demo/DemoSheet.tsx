@@ -43,31 +43,31 @@ export function DemoSheet({
         type="button"
         aria-label="Close"
         onClick={onClose}
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fade-in-up"
+        className="absolute inset-0 bg-black/55 backdrop-blur-sm animate-fade-in-up"
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="animate-sheet relative z-10 flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl border border-gray-200 bg-white shadow-2xl dark:border-white/[0.08] dark:bg-[#0b0b0b] sm:max-w-md sm:rounded-3xl"
+        className="demo-shell animate-sheet relative z-10 flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-[28px] border border-d-border bg-d-surface text-d-text shadow-2xl sm:max-w-[440px] sm:rounded-[28px]"
       >
         {/* Grab handle — mobile affordance only */}
         <div className="flex justify-center pt-2.5 sm:hidden">
-          <span className="h-1 w-9 rounded-full bg-gray-300 dark:bg-white/15" />
+          <span className="h-1 w-9 rounded-full bg-d-border" />
         </div>
 
         <header className="flex items-start justify-between gap-3 px-5 pb-3 pt-4">
           <div className="min-w-0">
-            <h2 className="text-[15px] font-bold text-gray-900 dark:text-white">{title}</h2>
+            <h2 className="text-[16px] font-bold text-d-text">{title}</h2>
             {subtitle && (
-              <p className="mt-0.5 text-[12px] text-gray-500 dark:text-white/40">{subtitle}</p>
+              <p className="mt-0.5 text-[12px] text-d-muted">{subtitle}</p>
             )}
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-white/30 dark:hover:bg-white/[0.06] dark:hover:text-white/70"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-d-faint transition-colors hover:bg-d-surface-2 hover:text-d-text"
           >
             <X size={16} weight="bold" />
           </button>

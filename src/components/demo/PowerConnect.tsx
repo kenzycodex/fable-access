@@ -122,10 +122,10 @@ export function PowerConnect() {
         title={connected ? `Connected to ${name}` : "Connect to an institution"}
         className={`group relative flex size-10 items-center justify-center rounded-xl border transition-all ${
           state === "on"
-            ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-500 dark:border-emerald-400/30 dark:text-emerald-400"
+            ? "border-emerald-400/40 bg-emerald-500/12 text-emerald-500 dark:text-emerald-400"
             : state === "off"
-              ? "border-red-400/40 bg-red-500/12 text-red-500 dark:border-red-400/25 dark:text-red-400"
-              : "border-gray-200 bg-gray-200 text-gray-400 dark:border-white/[0.06] dark:bg-white/[0.04] dark:text-white/30"
+              ? "border-red-400/40 bg-red-500/10 text-red-500 dark:text-red-400"
+              : "border-d-border bg-d-surface text-d-faint"
         }`}
       >
         {state === "on" && (
@@ -147,7 +147,7 @@ export function PowerConnect() {
 
         {/* Status pip, so state survives colour-blindness and glare */}
         <span
-          className={`absolute -right-0.5 -top-0.5 z-10 size-2.5 rounded-full border-2 border-white dark:border-[#111] ${
+          className={`absolute -right-0.5 -top-0.5 z-10 size-2.5 rounded-full border-2 border-d-surface ${
             state === "on" ? "bg-emerald-500" : state === "off" ? "bg-red-500" : "bg-gray-400"
           }`}
         />
@@ -162,8 +162,8 @@ export function PowerConnect() {
         {justConnected ? (
           <div className="flex flex-col items-center gap-3 py-10 animate-check-pop">
             <SuccessTick />
-            <p className="text-[15px] font-bold text-gray-900 dark:text-white">Connected</p>
-            <p className="text-[12px] text-gray-500 dark:text-white/40">
+            <p className="text-[15px] font-bold text-d-text">Connected</p>
+            <p className="text-[12px] text-d-muted">
               Transfers now authenticate as {connectedTo ?? name}.
             </p>
           </div>
@@ -197,22 +197,22 @@ export function PowerConnect() {
                 >
                   {connected ? "Connected" : "Not connected"}
                 </p>
-                <p className="text-[12px] text-gray-600 dark:text-white/50">
+                <p className="text-[12px] text-d-muted">
                   {connected ? "Authenticated by API key." : "Using the institution in the URL."}
                 </p>
               </div>
             </div>
 
             {/* Tenant */}
-            <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3.5 py-2.5 dark:bg-[#141414]">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-white/25">
+            <div className="flex items-center justify-between rounded-xl bg-d-surface-2 px-3.5 py-2.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-d-faint">
                 Institution
               </span>
               <span className="min-w-0 text-right">
-                <span className="block truncate text-[13px] font-semibold text-gray-900 dark:text-white">
+                <span className="block truncate text-[13px] font-semibold text-d-text">
                   {name}
                 </span>
-                <span className="block font-mono text-[10px] text-gray-400 dark:text-white/25">
+                <span className="block font-mono text-[10px] text-d-faint">
                   {institutionId}
                 </span>
               </span>
@@ -222,7 +222,7 @@ export function PowerConnect() {
             <div>
               <label
                 htmlFor="fable-api-key"
-                className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-white/25"
+                className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-d-faint"
               >
                 Institution API key
               </label>
@@ -234,9 +234,9 @@ export function PowerConnect() {
                 placeholder={connected ? "Replace the connected key…" : "fbl_live_..."}
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 font-mono text-[12px] text-gray-900 outline-none transition-shadow focus:ring-2 focus:ring-[var(--brand-primary)]/40 dark:border-white/[0.06] dark:bg-[#111] dark:text-white"
+                className="h-12 w-full rounded-xl border border-d-border bg-d-surface-2 px-3.5 font-mono text-[12px] text-d-text outline-none transition-shadow placeholder:text-d-faint focus:border-brand/50 focus:ring-4 focus:ring-brand/10"
               />
-              <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-white/35">
+              <p className="mt-2 text-[11px] leading-relaxed text-d-muted">
                 From your provisioning email. The key, not the URL, decides the institution —
                 connecting a different bank&apos;s key switches this app to that bank.
               </p>
@@ -252,7 +252,7 @@ export function PowerConnect() {
                 type="button"
                 onClick={save}
                 disabled={!keyInput.trim() || verifying}
-                className="flex-1 rounded-xl bg-[var(--brand-primary)] py-3 text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 dark:disabled:bg-white/[0.05] dark:disabled:text-white/20"
+                className="flex-1 h-11 rounded-xl bg-brand text-[13px] font-semibold text-white transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 {verifying ? "Verifying…" : "Connect"}
               </button>
@@ -260,7 +260,7 @@ export function PowerConnect() {
                 <button
                   type="button"
                   onClick={disconnect}
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-[13px] font-bold text-gray-600 transition-colors hover:bg-gray-50 dark:border-white/[0.08] dark:text-white/50 dark:hover:bg-white/[0.04]"
+                  className="h-11 rounded-xl border border-d-border px-4 text-[13px] font-semibold text-d-muted transition-colors hover:bg-d-surface-2 hover:text-d-text"
                 >
                   Disconnect
                 </button>

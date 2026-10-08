@@ -68,6 +68,12 @@ const STATUS_TONES: Record<string, StatusTone> = {
     dot: "bg-emerald-500",
     amount: "text-gray-900 dark:text-white/70",
   },
+  flagged: {
+    label: "Flagged",
+    chip: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20",
+    dot: "bg-amber-500",
+    amount: "text-amber-600 dark:text-amber-400",
+  },
   released: {
     label: "Released",
     chip: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20",

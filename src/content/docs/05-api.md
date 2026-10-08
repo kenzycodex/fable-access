@@ -123,7 +123,8 @@ reference.
 | `GET /v1/accounts/{user_id}/statement` | Ledger entries |
 | `POST /v1/accounts/{user_id}/topup` | Sandbox top-up, with per-transfer and daily limits |
 | `GET /v1/accounts/{user_id}/security` | PIN, 2FA preference and contact status |
-| `POST /v1/accounts/{user_id}/security/pin` | Set or change the PIN |
+| `POST /v1/accounts/{user_id}/security/pin` | Set or change the PIN. Any 4 or 6 digits; changing it needs the current one |
+| `POST /v1/accounts/{user_id}/security/pin/reset` | Forgotten PIN: choose a new one with a token from a code sent to the customer's registered contact (`purpose: "pin_reset"`) |
 | `POST /v1/accounts/{user_id}/security/two-factor` | Toggle "always ask" |
 | `POST /v1/accounts/{user_id}/security/contact` | Where the customer's own codes are sent |
 
@@ -143,6 +144,7 @@ reference.
 | `POST /admin/provision` | Create a tenant, seed it, email credentials. Operator key required |
 | `GET /v1/institutions/{id}` | Detail and customer roster. Never returns credentials |
 | `GET /v1/institutions/{id}/credentials` | The institution's own API key. Needs that institution's session |
+| `POST /v1/institutions/{id}/customers/{user_id}/pin/reset` | Clear a customer's PIN so they choose a new one. Needs that institution's session. Audited |
 | `POST /v1/institutions/resolve-key` | API key to institution |
 | `GET /v1/branding/{id}` | Logo, palette, vanity URL |
 | `GET /v1/branding/resolve/{slug}` | Vanity slug to institution |
@@ -169,9 +171,9 @@ the client supplies.
 | `GET /v1/dashboard/transactions` | Log. `?user=` filters to one customer |
 | `GET /v1/dashboard/alerts` | Flagged and blocked |
 | `GET /v1/dashboard/intelligence` | Scam patterns, channel risk, signals |
-| `GET /v1/dashboard/compliance` | Audit-oriented view |
+| `GET /v1/dashboard/compliance` | Audit counts, incidents and the recorded audit events: containment, step-up passes and failures, PIN changes and resets, top-ups |
 | `GET /v1/agents/overview` | Per-agent stats |
-| `GET /v1/agents/copilot/customers` | Customer baselines |
+| `GET /v1/agents/copilot/customers` | Customer baselines, plus balance and verification status (PIN set or locked, passkeys, code contact) |
 | `GET /v1/agents/shield/decisions` | Recent decisions |
 | `GET /v1/agents/ghost/containers` | Containment activity |
 

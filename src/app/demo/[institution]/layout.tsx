@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { DemoBottomNav, DemoSidebar } from "@/components/demo/DemoNav";
+import { DemoShell } from "@/components/demo/DemoNav";
 import { InstitutionProvider } from "@/components/demo/InstitutionProvider";
 import { API_BASE } from "@/lib/fable/api";
 
@@ -40,7 +40,7 @@ export interface Branding {
 const DEFAULT_BRANDING: Branding = {
   display_name: null,
   logo_url: null,
-  primary_color: "var(--brand-primary)",
+  primary_color: "#7C3AED",
   accent_color: "#00D4FF",
   slug: "",
   tagline: null,
@@ -151,11 +151,9 @@ export default async function DemoInstitutionLayout({
             "--brand-accent": branding.accent_color,
           } as React.CSSProperties
         }
-        className="min-h-dvh bg-gray-50 text-gray-900 dark:bg-[#111111] dark:text-white transition-colors duration-300"
+        className="demo-shell min-h-dvh bg-d-bg text-d-text transition-colors duration-300"
       >
-        <DemoSidebar />
-        <main className="min-h-dvh pb-20 lg:pl-[220px] lg:pb-6">{children}</main>
-        <DemoBottomNav />
+        <DemoShell>{children}</DemoShell>
       </div>
     </InstitutionProvider>
   );
