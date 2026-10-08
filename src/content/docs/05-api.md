@@ -143,6 +143,7 @@ reference.
 |---|---|
 | `POST /admin/provision` | Create a tenant, seed it, email credentials. Operator key required |
 | `GET /v1/institutions/{id}` | Detail and customer roster. Never returns credentials |
+| `PATCH /v1/institutions/{id}` | Edit the institution's name, type and contact email. Needs that institution's session. The id, sign-in email and demo URL do not change |
 | `GET /v1/institutions/{id}/credentials` | The institution's own API key. Needs that institution's session |
 | `POST /v1/institutions/{id}/customers/{user_id}/pin/reset` | Clear a customer's PIN so they choose a new one. Needs that institution's session. Audited |
 | `POST /v1/institutions/resolve-key` | API key to institution |

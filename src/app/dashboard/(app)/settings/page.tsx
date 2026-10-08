@@ -7,7 +7,8 @@ import { useTheme } from "next-themes";
 import { BrainIcon, EyeIcon, GhostIcon, ShieldIcon } from "@/components/app-icons";
 import { BrandingSettings } from "@/components/dashboard/BrandingSettings";
 import { Card, PageHeader } from "@/components/dashboard/primitives";
-import { institutionCredentials, type InstitutionCredentials } from "@/lib/fable/api";
+import { institutionCredentials, updateInstitutionProfile, type InstitutionCredentials } from "@/lib/fable/api";
+import { mutate as swrMutate } from "swr";
 import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 import { login, resetDemo, useFableStore } from "@/lib/fable/store";
 
@@ -101,15 +102,11 @@ export default function SettingsPage() {
       <PageHeader title="Settings" description="Institution profile, agent configuration, API access, and billing." />
 
       {/* Profile */}
-      <Card>
-        <h2 className="mb-4 text-[16px] font-bold text-gray-900 dark:text-white">Institution profile</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Institution name" value={institution?.name ?? "—"} />
-          <Field label="Type" value={institution?.type ?? "—"} />
-          <Field label="Contact email" value={institution?.contact_email ?? "—"} />
-          <Field label="Environment" value="Demo / sandbox" />
-        </div>
-      </Card>
+      <ProfileCard
+        key={institution ? `${institution.name}|${institution.type}|${institution.contact_email}` : "loading"}
+        institutionId={institutionId}
+        profile={institution}
+      />
 
       {/* Theme */}
       <Card>
@@ -321,5 +318,112 @@ function LightToggle({
         }`}
       />
     </button>
+  );
+}
+
+const INSTITUTION_TYPES = [
+  "Microfinance Bank",
+  "Commercial Bank",
+  "Fintech",
+  "Payment Service Provider",
+  "Wallet Provider",
+  "Payment Gateway",
+];
+
+const fieldInput =
+  "w-full rounded-lg border border-gray-200 dark:border-white/[0.06] bg-gray-50 dark:bg-white/[0.03] px-4 py-2.5 text-[13px] font-medium text-gray-800 dark:text-white/80 outline-none focus:ring-2 focus:ring-[#7C3AED]/30";
+
+/** The institution's editable profile.
+ *
+ * Remounted (via `key`) whenever the saved profile changes, so the inputs reset
+ * to what was stored instead of syncing state inside an effect.
+ *
+ * Name, type and contact address are safe to change: the tenant id every
+ * customer and API key hangs off is not derived from them. The sign-in email and
+ * the public demo URL are separate settings, and the environment is a property
+ * of the deployment, so it is shown but not editable. */
+function ProfileCard({
+  institutionId,
+  profile,
+}: {
+  institutionId: string | null;
+  profile: { name: string; type: string; contact_email: string | null } | null;
+}) {
+  const [name, setName] = useState(profile?.name ?? "");
+  const [type, setType] = useState(profile?.type ?? "");
+  const [email, setEmail] = useState(profile?.contact_email ?? "");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+
+  const dirty =
+    !!profile && (name.trim() !== profile.name || type.trim() !== profile.type || email.trim() !== (profile.contact_email ?? ""));
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!institutionId || !profile) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const next = await updateInstitutionProfile(institutionId, {
+        name: name.trim(),
+        type: type.trim(),
+        contact_email: email.trim(),
+      });
+      await swrMutate(["institution:profile", institutionId], next, { revalidate: false });
+      setMsg({ type: "ok", text: "Profile saved." });
+    } catch (err) {
+      setMsg({ type: "error", text: err instanceof Error ? err.message : "Could not save the profile." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <form onSubmit={save}>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-[16px] font-bold text-gray-900 dark:text-white">Institution profile</h2>
+          <button
+            type="submit"
+            disabled={!dirty || busy}
+            className="rounded-full bg-[#7C3AED] px-5 py-2 text-[12px] font-bold uppercase tracking-wide text-white transition-colors hover:bg-[#6D28D9] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {busy ? "Saving…" : "Save changes"}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Institution name</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} disabled={!profile} className={fieldInput} />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Type</span>
+            <input value={type} onChange={(e) => setType(e.target.value)} list="institution-types" maxLength={60} disabled={!profile} className={fieldInput} />
+            <datalist id="institution-types">
+              {INSTITUTION_TYPES.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Contact email</span>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" disabled={!profile} className={fieldInput} />
+          </label>
+          <Field label="Environment" value="Demo / sandbox" />
+        </div>
+
+        <p className="mt-4 text-[12px] leading-relaxed text-gray-500 dark:text-white/40">
+          The contact email is where your institution can be reached. It is not your sign-in email, and changing it does not
+          change how you log in. Your institution id and API key stay the same when you rename.
+        </p>
+
+        {msg && (
+          <p className={`mt-3 text-[12px] font-semibold ${msg.type === "ok" ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"}`}>
+            {msg.text}
+          </p>
+        )}
+      </form>
+    </Card>
   );
 }

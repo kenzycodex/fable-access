@@ -890,6 +890,25 @@ export async function institutionProfile(institutionId: string): Promise<Institu
   return fetchJson<InstitutionProfile>(`/v1/institutions/${encodeURIComponent(institutionId)}`);
 }
 
+/** PATCH /v1/institutions/{id} — edit the institution's own name, type and
+ * contact address. Needs a console session for that institution. The tenant id,
+ * the sign-in email and the public demo URL are deliberately not editable here. */
+export async function updateInstitutionProfile(
+  institutionId: string,
+  patch: { name?: string; type?: string; contact_email?: string },
+): Promise<InstitutionProfile> {
+  const res = await fetch(`${API_BASE}/v1/institutions/${encodeURIComponent(institutionId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.detail === "string" ? body.detail : "Could not save the profile.");
+  }
+  return (await res.json()) as InstitutionProfile;
+}
+
 /** GET /v1/institutions/{id}/credentials — the tenant's own live API key. */
 export function institutionCredentials(institutionId: string): Promise<InstitutionCredentials> {
   return fetchJson<InstitutionCredentials>(
