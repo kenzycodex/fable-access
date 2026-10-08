@@ -267,8 +267,8 @@ def _deterministic(message: str, institution_id: str | None = None) -> str:
 
     if topic == "money":
         return (
-            f"Fable has prevented roughly ₦{s['fraud_prevented_ngn']:,.0f} in fraud so far — "
-            f"money customers reached for after a scam, held in Ghost and cancelled before it left. "
+            f"Fable has kept roughly ₦{s['fraud_prevented_ngn']:,.0f} out of fraud so far: transfers that were "
+            f"blocked, cancelled by the customer, or are still held in Ghost. "
             f"{s['blocked']} transfers were blocked outright and {s['flagged']} more flagged for review."
         )
     if topic == "patterns":
@@ -299,8 +299,8 @@ def _deterministic(message: str, institution_id: str | None = None) -> str:
     if topic == "ghost":
         return (
             f"Ghost holds a risky transfer in a cooling window sized by risk (15/10/5 minutes). "
-            f"So far it has protected ₦{s['fraud_prevented_ngn']:,.0f} — transfers customers cancelled once the "
-            "pressure lifted. Cancel returns the money; confirm releases it."
+            f"So far Fable has kept ₦{s['fraud_prevented_ngn']:,.0f} out of fraud across blocked, cancelled and held "
+            "transfers. In Ghost, cancel returns the money; confirm releases it."
         )
     if topic == "customers":
         return (

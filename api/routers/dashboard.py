@@ -17,6 +17,7 @@ from db import cursor, row_to_dict, loads
 from tenancy import tenant_for_console
 from intelligence.context import (
     channel_breakdown,
+    fraud_prevented as fraud_prevented_for,
     institution_summary,
     scam_pattern_breakdown,
     signal_frequency,
@@ -112,7 +113,8 @@ def stats(request: Request, institution: str | None = Query(None)):
 
     threats_blocked = by_action.get("BLOCK", 0)
     flagged = by_action.get("FLAG", 0)
-    fraud_prevented = ghost_rows.get("CANCELLED", {}).get("amount", 0)
+    # The same figure as the Overview, Intelligence, Compliance and Copilot.
+    fraud_prevented = fraud_prevented_for(institution)
 
     risk_distribution = [
         {"label": "LOW", "value": by_level.get("LOW", 0), "color": "#12B76A"},

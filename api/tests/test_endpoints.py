@@ -308,3 +308,45 @@ def test_renaming_refuses_unsafe_requests(client):
             continue
         raise AssertionError(f"{old} -> {new} should have been refused")
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# One definition of "fraud prevented"
+# ---------------------------------------------------------------------------
+
+def test_fraud_prevented_is_one_figure_on_every_screen(client):
+    """Overview, Intelligence, Compliance and Copilot must quote the same number.
+    Blocked, cancelled and held transfers count; a released one, a flag that went
+    through and a plain pass do not."""
+    import sessions
+    from db import cursor
+
+    rows = [
+        # id, action, status, amount, counts?
+        ("pv1", "BLOCK", "blocked", 100_000, True),
+        ("pv2", "BLOCK", None, 50_000, True),         # older row: a block reads as blocked
+        ("pv3", "FLAG", "cancelled", 30_000, True),
+        ("pv4", "FLAG", "held", 20_000, True),
+        ("pv5", "FLAG", "completed", 70_000, False),  # the customer verified and it went through
+        ("pv6", "BLOCK", "released", 90_000, False),  # contained, then released: the money left
+        ("pv7", "PASS", "completed", 40_000, False),
+    ]
+    with cursor() as cur:
+        for tid, action, status, amount, _ in rows:
+            cur.execute(
+                """INSERT INTO transactions (id, user_id, amount, action_taken, status, institution_id)
+                   VALUES (?, 'protectbank_ada', ?, ?, ?, 'protectbank')""",
+                (tid, amount, action, status),
+            )
+    expected = sum(r[3] for r in rows if r[4])
+    assert expected == 200_000
+
+    from intelligence.context import fraud_prevented, institution_summary
+    assert fraud_prevented("protectbank") == expected
+    assert institution_summary("protectbank")["fraud_prevented_ngn"] == expected
+
+    session = {"X-Fable-Session": sessions.issue("risk@protect.ng", "protectbank")["token"]}
+    stats = client.get("/v1/dashboard/stats", headers=session).json()
+    compliance = client.get("/v1/dashboard/compliance", headers=session).json()
+    assert stats["fraud_prevented_ngn"] == expected
+    assert compliance["fraud_prevented_ngn"] == expected

@@ -61,6 +61,34 @@ def tenant_clause(institution_id: str | None, prefix: str = "WHERE") -> tuple[st
     return f" {prefix} institution_id = ?", [institution_id]
 
 
+def fraud_prevented(institution_id: str | None) -> float:
+    """Money kept out of fraud for one institution: the single figure every
+    screen and the Copilot assistant quote.
+
+    A transfer counts when Shield did not pass it and it ended up stopped: blocked
+    outright, cancelled by the customer, or still held in a Ghost cooling window.
+    A flagged transfer that went through, or a held one that was released, does
+    not count, because that money did leave.
+
+    This used to be only the amount in cancelled Ghost holds, so a blocked
+    transfer the customer simply abandoned was never counted, and the Overview
+    and Compliance pages reported different numbers under the same label. Rows
+    written before the lifecycle status was recorded have none, so it is derived
+    from the decision the same way the console derives it: a block reads as
+    blocked.
+    """
+    where, params = tenant_clause(institution_id, prefix="AND")
+    with cursor() as cur:
+        cur.execute(
+            f"""SELECT COALESCE(SUM(amount), 0) AS amt FROM transactions
+                WHERE action_taken IN ('BLOCK', 'FLAG')
+                  AND COALESCE(status, CASE action_taken WHEN 'BLOCK' THEN 'blocked' ELSE 'flagged' END)
+                      IN ('blocked', 'cancelled', 'held'){where}""",
+            params,
+        )
+        return cur.fetchone()["amt"] or 0
+
+
 def institution_summary(institution_id: str | None = None) -> dict:
     """Headline counts + money-protected for one institution."""
     where, params = tenant_clause(institution_id)
@@ -77,13 +105,7 @@ def institution_summary(institution_id: str | None = None) -> dict:
         cur.execute(f"SELECT AVG(risk_score) AS s FROM transactions{where}", params)
         avg_score = cur.fetchone()["s"] or 0.0
 
-        ghost_where, ghost_params = tenant_clause(institution_id, prefix="AND")
-        cur.execute(
-            "SELECT COALESCE(SUM(amount),0) AS amt FROM ghost_containers "
-            f"WHERE status = 'CANCELLED'{ghost_where}",
-            ghost_params,
-        )
-        fraud_prevented = cur.fetchone()["amt"] or 0
+    prevented = fraud_prevented(institution_id)
 
     return {
         "transactions_analyzed": total,
@@ -91,7 +113,7 @@ def institution_summary(institution_id: str | None = None) -> dict:
         "flagged": by_action.get("FLAG", 0),
         "passed": by_action.get("PASS", 0),
         "avg_risk_score": round(avg_score, 3),
-        "fraud_prevented_ngn": fraud_prevented,
+        "fraud_prevented_ngn": prevented,
     }
 
 
@@ -185,7 +207,7 @@ def grounding_text(institution_id: str | None = None) -> str:
         f"Transactions analyzed: {s['transactions_analyzed']}",
         f"Blocked (high risk): {s['blocked']} | Flagged (medium): {s['flagged']} | Passed: {s['passed']}",
         f"Average risk score: {s['avg_risk_score']}",
-        f"Fraud prevented (Ghost cancellations): NGN {s['fraud_prevented_ngn']:,.0f}",
+        f"Fraud prevented (blocked, cancelled or held transfers): NGN {s['fraud_prevented_ngn']:,.0f}",
     ]
     if patterns:
         lines.append("Top scam patterns: " + ", ".join(f"{p['label']} ({p['count']})" for p in patterns))
