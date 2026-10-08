@@ -978,10 +978,11 @@ export async function customerTransactions(
   institution: string | null,
   limit = 60,
 ): Promise<Transaction[]> {
-  const res = await fetchJson<{ transactions: ApiTransactionRow[] }>(
-    `/v1/dashboard/transactions?limit=${limit}&user=${encodeURIComponent(userId)}${tenantParam(institution)}`,
-  );
-  return res.transactions.map(mapApiRow);
+  // The demo bank is a public page, so it reads through the public demo endpoint.
+  // This used to call /v1/dashboard/transactions, which is the console's feed and
+  // needs a console session, so once the API enforced that the Activity screen
+  // and every transaction detail page got a 401 and sat on their loading state.
+  return (await customerOverview(userId, institution, limit)).transactions;
 }
 
 export interface FableNotification {
