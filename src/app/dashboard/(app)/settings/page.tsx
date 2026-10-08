@@ -1,88 +1,107 @@
 "use client";
 
-import { API_BASE } from "@/lib/fable/api";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
-import { BrainIcon, EyeIcon, GhostIcon, ShieldIcon } from "@/components/app-icons";
-import { BrandingSettings } from "@/components/dashboard/BrandingSettings";
-import { Card, PageHeader } from "@/components/dashboard/primitives";
-import { INSTITUTION_TYPE_GROUPS, ALL_INSTITUTION_TYPES, OTHER_TYPE } from "@/data/institution-types";
-import { institutionCredentials, updateInstitutionProfile, type InstitutionCredentials } from "@/lib/fable/api";
 import { mutate as swrMutate } from "swr";
+import { Check, Copy, Desktop, Moon, Sun } from "@phosphor-icons/react";
+import { BrandingSettings } from "@/components/dashboard/BrandingSettings";
+import {
+  Badge,
+  Button,
+  ButtonLink,
+  Card,
+  CardHeader,
+  Field,
+  Notice,
+  PageHeader,
+  TextInput,
+  inputClass,
+} from "@/components/dashboard/primitives";
+import { ALL_INSTITUTION_TYPES, INSTITUTION_TYPE_GROUPS, OTHER_TYPE } from "@/data/institution-types";
+import { API_BASE, institutionCredentials, updateInstitutionProfile, type InstitutionCredentials } from "@/lib/fable/api";
+import { useFableStore } from "@/lib/fable/store";
 import { useSignedInInstitution } from "@/lib/fable/useInstitution";
-import { login, resetDemo, useFableStore } from "@/lib/fable/store";
 
-const AGENTS = [
-  { name: "Copilot", role: "Behavioral baseline. Always on.", icon: BrainIcon, locked: true },
-  { name: "Shield", role: "Real-time scam & deepfake defense.", icon: ShieldIcon, locked: false },
-  { name: "Ghost", role: "Cooling-window containment.", icon: GhostIcon, locked: false },
-  // Not built. Rendering it as a live, toggleable agent claimed a capability
-  // the system does not have; the docs already mark it "coming soon".
-  { name: "Watch", role: "Passive between-session monitoring.", icon: EyeIcon, locked: false, comingSoon: true },
-];
+type ThemeChoice = "light" | "dark" | "system";
 
 export default function SettingsPage() {
   const { institution } = useSignedInInstitution();
-  const router = useRouter();
-  const { theme, setTheme } = useTheme();
-  const [agents, setAgents] = useState({ Shield: true, Ghost: true, Watch: true });
-  const [copied, setCopied] = useState(false);
-
-  // The signed-in institution's real API key, not a placeholder. Falls back to
-  // a clear "unavailable" state when the API is down rather than inventing one.
   const store = useFableStore();
   const institutionId = store?.session.institutionId ?? null;
+
+  return (
+    <>
+      <PageHeader title="Settings" description="Your institution profile, appearance, branding, API access and sign-in security." />
+
+      <ProfileCard
+        key={institution ? `${institution.name}|${institution.type}|${institution.contact_email}` : "loading"}
+        institutionId={institutionId}
+        profile={institution}
+      />
+
+      <BrandingSettings institutionId={institutionId} />
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <ApiAccessCard institutionId={institutionId} />
+        <AppearanceCard />
+      </div>
+
+      <PasswordCard />
+    </>
+  );
+}
+
+function AppearanceCard() {
+  const { theme, setTheme } = useTheme();
+  const options: { value: ThemeChoice; label: string; icon: React.ReactNode }[] = [
+    { value: "light", label: "Light", icon: <Sun size={16} /> },
+    { value: "dark", label: "Dark", icon: <Moon size={16} /> },
+    { value: "system", label: "System", icon: <Desktop size={16} /> },
+  ];
+
+  return (
+    <Card>
+      <CardHeader title="Appearance" subtitle="System follows your device setting." />
+      <div className="grid grid-cols-3 gap-2">
+        {options.map((o) => {
+          const active = theme === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => setTheme(o.value)}
+              aria-pressed={active}
+              className={`flex h-12 items-center justify-center gap-2 rounded-xl border text-[13px] font-semibold transition-colors ${
+                active ? "border-brand/40 bg-brand/10 text-brand" : "border-d-border bg-d-surface-2 text-d-muted hover:text-d-text"
+              }`}
+            >
+              {o.icon}
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+/** The signed-in institution's real API key, never a placeholder. When the API
+ * is down it says so instead of inventing one. */
+function ApiAccessCard({ institutionId }: { institutionId: string | null }) {
   const [creds, setCreds] = useState<InstitutionCredentials | null>(null);
-  const [credsError, setCredsError] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!institutionId) return;
     let cancelled = false;
     institutionCredentials(institutionId)
       .then((c) => !cancelled && setCreds(c))
-      .catch(() => !cancelled && setCredsError(true));
+      .catch(() => !cancelled && setFailed(true));
     return () => {
       cancelled = true;
     };
   }, [institutionId]);
-
-  // Change password state
-  const [cpEmail, setCpEmail] = useState("");
-  const [cpOld, setCpOld] = useState("");
-  const [cpNew, setCpNew] = useState("");
-  const [cpConfirm, setCpConfirm] = useState("");
-  const [cpSubmitting, setCpSubmitting] = useState(false);
-  const [cpMsg, setCpMsg] = useState({ type: "", text: "" });
-
-  async function handleChangePassword(e: React.FormEvent) {
-    e.preventDefault();
-    if (cpNew !== cpConfirm) {
-      setCpMsg({ type: "error", text: "New passwords do not match." });
-      return;
-    }
-    if (cpNew.length < 8) {
-      setCpMsg({ type: "error", text: "Password must be at least 8 characters." });
-      return;
-    }
-    setCpSubmitting(true);
-    setCpMsg({ type: "", text: "" });
-    try {
-      const res = await fetch(`${API_BASE}/auth/change-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: cpEmail, old_password: cpOld, new_password: cpNew })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to change password");
-      setCpMsg({ type: "success", text: "Password changed successfully." });
-      setCpOld(""); setCpNew(""); setCpConfirm("");
-    } catch (err) {
-      setCpMsg({ type: "error", text: err instanceof Error ? err.message : "Failed to change password" });
-    } finally {
-      setCpSubmitting(false);
-    }
-  }
 
   function copyKey() {
     if (!creds?.api_key) return;
@@ -92,238 +111,96 @@ export default function SettingsPage() {
     });
   }
 
-  function reset() {
-    resetDemo();
-    login(); // keep the session signed in after wiping data back to seed
-    router.refresh();
+  return (
+    <Card>
+      <CardHeader title="API access" subtitle="Authenticate server-to-server calls with this key." />
+      <p className="mb-1.5 text-[12px] font-semibold text-d-muted">Live secret key</p>
+      <div className="flex items-center gap-2 rounded-xl bg-d-surface-2 py-2 pl-4 pr-2">
+        <code className="flex-1 truncate text-[13px] text-d-text">
+          {creds?.masked_key ?? (failed ? "Unavailable, the API is offline" : "Loading...")}
+        </code>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={copyKey}
+          disabled={!creds?.api_key}
+          icon={copied ? <Check size={14} weight="bold" /> : <Copy size={14} />}
+        >
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+      <p className="mt-3 text-[12px] leading-relaxed text-d-muted">Keep it on your servers. Never ship it in a mobile app or a web page.</p>
+      <div className="mt-4">
+        <ButtonLink href="/docs" variant="secondary" size="sm">
+          Read the API reference
+        </ButtonLink>
+      </div>
+    </Card>
+  );
+}
+
+function PasswordCard() {
+  const [email, setEmail] = useState("");
+  const [oldPw, setOldPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (newPw !== confirm) return setMsg({ tone: "danger", text: "The new passwords do not match." });
+    if (newPw.length < 8) return setMsg({ tone: "danger", text: "Use at least 8 characters." });
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/change-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, old_password: oldPw, new_password: newPw }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Could not change the password.");
+      setMsg({ tone: "success", text: "Password changed." });
+      setOldPw("");
+      setNewPw("");
+      setConfirm("");
+    } catch (err) {
+      setMsg({ tone: "danger", text: err instanceof Error ? err.message : "Could not change the password." });
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <>
-      <PageHeader title="Settings" description="Institution profile, agent configuration, API access, and billing." />
-
-      {/* Profile */}
-      <ProfileCard
-        key={institution ? `${institution.name}|${institution.type}|${institution.contact_email}` : "loading"}
-        institutionId={institutionId}
-        profile={institution}
-      />
-
-      {/* Theme */}
-      <Card>
-        <h2 className="mb-1 text-[16px] font-bold text-gray-900 dark:text-white">Theme Configuration</h2>
-        <p className="mb-4 text-[13px] text-gray-500 dark:text-white/50">Choose how the dashboard looks. System mode will match your OS settings.</p>
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => setTheme("dark")}
-            className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-bold transition-all ${
-              theme === "dark" ? "bg-[#7C3AED]/10 border-[#7C3AED]/30 text-[#7C3AED]" : "bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100 dark:bg-white/[0.02] dark:border-white/[0.05] dark:text-white/60 dark:hover:bg-white/[0.05]"
-            }`}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-            Dark Mode
-          </button>
-          <button
-            onClick={() => setTheme("light")}
-            className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-bold transition-all ${
-              theme === "light" ? "bg-[#7C3AED]/10 border-[#7C3AED]/30 text-[#7C3AED]" : "bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100 dark:bg-white/[0.02] dark:border-white/[0.05] dark:text-white/60 dark:hover:bg-white/[0.05]"
-            }`}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72 1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-            Light Mode
-          </button>
-          <button
-            onClick={() => setTheme("system")}
-            className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-bold transition-all ${
-              theme === "system" ? "bg-[#7C3AED]/10 border-[#7C3AED]/30 text-[#7C3AED]" : "bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100 dark:bg-white/[0.02] dark:border-white/[0.05] dark:text-white/60 dark:hover:bg-white/[0.05]"
-            }`}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-            System
-          </button>
+    <Card>
+      <CardHeader title="Sign-in security" subtitle="Change the administrator password." />
+      {msg && <Notice tone={msg.tone} className="mb-4">{msg.text}</Notice>}
+      <form onSubmit={submit} className="grid max-w-2xl grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <Field label="Admin email">
+            <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />
+          </Field>
         </div>
-      </Card>
-
-      {/* Agents */}
-      <Card>
-        <h2 className="mb-1 text-[16px] font-bold text-gray-900 dark:text-white">Agents</h2>
-        <p className="mb-4 text-[13px] text-gray-500 dark:text-white/50">Turn add-on agents on or off. Copilot is included on every plan.</p>
-        <div className="flex flex-col divide-y divide-gray-100 dark:divide-white/[0.04]">
-          {AGENTS.map((a) => {
-            const Icon = a.icon;
-            const on = a.locked ? true : agents[a.name as keyof typeof agents];
-            return (
-              <div key={a.name} className="flex items-center gap-4 py-3">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-[#7C3AED]/10 text-[#7C3AED] border border-[#7C3AED]/20">
-                  <Icon className="size-5" />
-                </span>
-                <div className="flex flex-col">
-                  <span className="flex items-center gap-2 text-[14px] font-bold text-gray-900 dark:text-white">
-                    {a.name}
-                    {a.comingSoon && (
-                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:bg-white/[0.06] dark:text-white/40">
-                        Coming soon
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-[12px] text-gray-500 dark:text-white/50">{a.role}</span>
-                </div>
-                {/* An unbuilt agent gets no toggle. Rendering one implied it
-                    could be turned on, and that it was doing something when it
-                    appeared on. */}
-                <LightToggle
-                  checked={a.comingSoon ? false : on}
-                  disabled={a.locked || Boolean(a.comingSoon)}
-                  onChange={(next) =>
-                    !a.locked && !a.comingSoon && setAgents((s) => ({ ...s, [a.name]: next }))
-                  }
-                />
-              </div>
-            );
-          })}
+        <Field label="Current password">
+          <TextInput type="password" value={oldPw} onChange={(e) => setOldPw(e.target.value)} required autoComplete="current-password" />
+        </Field>
+        <span className="hidden sm:block" />
+        <Field label="New password">
+          <TextInput type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} required autoComplete="new-password" />
+        </Field>
+        <Field label="Confirm new password">
+          <TextInput type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required autoComplete="new-password" />
+        </Field>
+        <div className="sm:col-span-2">
+          <Button type="submit" loading={busy}>
+            Update password
+          </Button>
         </div>
-      </Card>
-
-      <BrandingSettings institutionId={institutionId} />
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* API access */}
-        <Card>
-          <h2 className="mb-4 text-[16px] font-bold text-gray-900 dark:text-white">API access</h2>
-          <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Live secret key</label>
-          <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/[0.04] bg-gray-50 dark:bg-white/[0.02] px-4 py-3">
-            <code className="flex-1 truncate text-[13px] text-gray-700 dark:text-white/70">
-              {creds?.masked_key ?? (credsError ? "Unavailable — API offline" : "Loading…")}
-            </code>
-            <button
-              type="button"
-              onClick={copyKey}
-              disabled={!creds?.api_key}
-              className="rounded-md bg-gray-200 dark:bg-white/[0.04] px-3 py-1.5 text-[12px] font-bold text-gray-600 dark:text-white/70 transition-colors hover:bg-gray-300 dark:hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
-          </div>
-          <p className="mt-4 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Webhook endpoint</p>
-          <code className="mt-1.5 block truncate rounded-lg bg-gray-50 dark:bg-white/[0.02] px-4 py-3 text-[13px] text-gray-600 dark:text-white/60 border border-gray-200 dark:border-white/[0.04]">
-            {institutionId ? `https://risk.${institutionId.replace(/_/g, "-")}.ng/hooks/fable` : "Not configured"}
-          </code>
-        </Card>
-
-        {/* Billing */}
-        <Card>
-          <h2 className="mb-4 text-[16px] font-bold text-gray-900 dark:text-white">Billing</h2>
-          <div className="flex items-baseline gap-2">
-            <span className="text-[24px] font-bold text-gray-900 dark:text-white tracking-tight">₦100,000</span>
-            <span className="text-[13px] text-gray-500 dark:text-white/50 font-medium">/ month</span>
-          </div>
-          <p className="mt-1 text-[13px] text-gray-600 dark:text-white/60 font-medium">Copilot + Shield, up to 50,000 transactions.</p>
-          <ul className="mt-4 flex flex-col gap-2 text-[13px] text-gray-600 dark:text-white/70">
-            <li>· Ghost billed separately on hold volume</li>
-            <li>· Overage at ₦2 per additional transaction</li>
-            <li>· Shared fraud-intelligence graph included</li>
-          </ul>
-        </Card>
-      </div>
-
-      {/* Security & Password */}
-      <Card>
-        <h2 className="mb-1 text-[16px] font-bold text-gray-900 dark:text-white">Security & Authentication</h2>
-        <p className="mb-4 text-[13px] text-gray-500 dark:text-white/50">Update your administrator credentials.</p>
-        
-        {cpMsg.text && (
-          <div className={`mb-4 rounded-lg border p-3 text-[13px] ${cpMsg.type === 'error' ? 'border-red-200 bg-red-50 text-red-600 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400' : 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400'}`}>
-            {cpMsg.text}
-          </div>
-        )}
-
-        <form onSubmit={handleChangePassword} className="flex flex-col gap-4 max-w-sm">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Admin Email</label>
-            <input type="email" value={cpEmail} onChange={e => setCpEmail(e.target.value)} required className="rounded-lg border border-gray-200 dark:border-white/[0.04] bg-white dark:bg-white/[0.02] px-3 py-2 text-[13px] text-gray-800 dark:text-white outline-none focus:border-[#7C3AED]" />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Current Password</label>
-            <input type="password" value={cpOld} onChange={e => setCpOld(e.target.value)} required className="rounded-lg border border-gray-200 dark:border-white/[0.04] bg-white dark:bg-white/[0.02] px-3 py-2 text-[13px] text-gray-800 dark:text-white outline-none focus:border-[#7C3AED]" />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">New Password</label>
-            <input type="password" value={cpNew} onChange={e => setCpNew(e.target.value)} required className="rounded-lg border border-gray-200 dark:border-white/[0.04] bg-white dark:bg-white/[0.02] px-3 py-2 text-[13px] text-gray-800 dark:text-white outline-none focus:border-[#7C3AED]" />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Confirm New Password</label>
-            <input type="password" value={cpConfirm} onChange={e => setCpConfirm(e.target.value)} required className="rounded-lg border border-gray-200 dark:border-white/[0.04] bg-white dark:bg-white/[0.02] px-3 py-2 text-[13px] text-gray-800 dark:text-white outline-none focus:border-[#7C3AED]" />
-          </div>
-          <button type="submit" disabled={cpSubmitting} className="mt-2 w-fit rounded-lg bg-[#7C3AED] px-5 py-2.5 text-[13px] font-bold text-white transition-colors hover:bg-[#6d28d9] disabled:opacity-50">
-            {cpSubmitting ? "Updating..." : "Update Password"}
-          </button>
-        </form>
-      </Card>
-
-      {/* Danger zone */}
-      <Card className="border-red-200 bg-red-50 dark:border-red-500/20 dark:bg-red-500/[0.02]">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-[16px] font-bold text-red-600 dark:text-white">Reset demo data</h2>
-            <p className="text-[13px] text-red-500/80 dark:text-white/50 mt-1">
-              Wipe every transfer back to the seeded state, including anything made in the demo bank.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={reset}
-            className="shrink-0 rounded-full border border-red-500/50 bg-red-500/10 px-5 py-2 text-[12px] font-bold uppercase tracking-wider text-red-400 transition-colors hover:bg-red-500/20 shadow-sm"
-          >
-            Reset demo
-          </button>
-        </div>
-      </Card>
-    </>
+      </form>
+    </Card>
   );
 }
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">{label}</span>
-      <span className="rounded-lg border border-gray-200 dark:border-white/[0.04] bg-gray-50 dark:bg-white/[0.02] px-4 py-2.5 text-[13px] font-medium text-gray-800 dark:text-white/80">
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function LightToggle({
-  checked,
-  disabled,
-  onChange,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (next: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`relative ml-auto h-6 w-11 shrink-0 rounded-full transition-colors ${
-        checked ? "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]" : "bg-gray-200 dark:bg-white/10"
-      } ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
-    >
-      <span
-        className={`absolute left-0 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-          checked ? "translate-x-[22px]" : "translate-x-0.5 border border-gray-200 dark:border-transparent"
-        }`}
-      />
-    </button>
-  );
-}
-
-const fieldInput =
-  "w-full rounded-lg border border-gray-200 dark:border-white/[0.06] bg-gray-50 dark:bg-white/[0.03] px-4 py-2.5 text-[13px] font-medium text-gray-800 dark:text-white/80 outline-none focus:ring-2 focus:ring-[#7C3AED]/30";
 
 /** The institution's editable profile.
  *
@@ -352,7 +229,7 @@ function ProfileCard({
   const type = typeChoice === OTHER_TYPE ? customType : typeChoice;
   const [email, setEmail] = useState(profile?.contact_email ?? "");
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ type: "ok" | "error"; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
 
   const dirty =
     !!profile && (name.trim() !== profile.name || type.trim() !== profile.type || email.trim() !== (profile.contact_email ?? ""));
@@ -369,9 +246,9 @@ function ProfileCard({
         contact_email: email.trim(),
       });
       await swrMutate(["institution:profile", institutionId], next, { revalidate: false });
-      setMsg({ type: "ok", text: "Profile saved." });
+      setMsg({ tone: "success", text: "Profile saved." });
     } catch (err) {
-      setMsg({ type: "error", text: err instanceof Error ? err.message : "Could not save the profile." });
+      setMsg({ tone: "danger", text: err instanceof Error ? err.message : "Could not save the profile." });
     } finally {
       setBusy(false);
     }
@@ -380,30 +257,19 @@ function ProfileCard({
   return (
     <Card>
       <form onSubmit={save}>
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-[16px] font-bold text-gray-900 dark:text-white">Institution profile</h2>
-          <button
-            type="submit"
-            disabled={!dirty || busy}
-            className="rounded-full bg-[#7C3AED] px-5 py-2 text-[12px] font-bold uppercase tracking-wide text-white transition-colors hover:bg-[#6D28D9] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {busy ? "Saving…" : "Save changes"}
-          </button>
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <CardHeader title="Institution profile" subtitle="How your institution appears across Fable." />
+          <Button type="submit" disabled={!dirty} loading={busy}>
+            Save changes
+          </Button>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Institution name</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} disabled={!profile} className={fieldInput} />
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Type</span>
-            <select
-              value={typeChoice}
-              onChange={(e) => setTypeChoice(e.target.value)}
-              disabled={!profile}
-              className={fieldInput}
-            >
+          <Field label="Institution name">
+            <TextInput value={name} onChange={(e) => setName(e.target.value)} maxLength={80} disabled={!profile} />
+          </Field>
+          <Field label="Type">
+            <select value={typeChoice} onChange={(e) => setTypeChoice(e.target.value)} disabled={!profile} className={inputClass}>
               {!typeChoice && (
                 <option value="" disabled>
                   Choose a type
@@ -421,33 +287,32 @@ function ProfileCard({
               <option value={OTHER_TYPE}>Other (type your own)</option>
             </select>
             {typeChoice === OTHER_TYPE && (
-              <input
+              <TextInput
                 value={customType}
                 onChange={(e) => setCustomType(e.target.value)}
                 maxLength={60}
                 placeholder="Describe your institution"
                 aria-label="Describe your institution"
-                className={`${fieldInput} mt-1`}
+                className="mt-1.5"
               />
             )}
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Contact email</span>
-            <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" disabled={!profile} className={fieldInput} />
-          </label>
-          <Field label="Environment" value="Demo / sandbox" />
+          </Field>
+          <Field label="Contact email">
+            <TextInput value={email} onChange={(e) => setEmail(e.target.value)} type="email" disabled={!profile} />
+          </Field>
+          <Field label="Environment">
+            <div className="flex h-12 items-center">
+              <Badge tone="warning">Demo / sandbox</Badge>
+            </div>
+          </Field>
         </div>
 
-        <p className="mt-4 text-[12px] leading-relaxed text-gray-500 dark:text-white/40">
+        <p className="mt-4 text-[12px] leading-relaxed text-d-muted">
           The contact email is where your institution can be reached. It is not your sign-in email, and changing it does not
           change how you log in. Your institution id and API key stay the same when you rename.
         </p>
 
-        {msg && (
-          <p className={`mt-3 text-[12px] font-semibold ${msg.type === "ok" ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"}`}>
-            {msg.text}
-          </p>
-        )}
+        {msg && <Notice tone={msg.tone} className="mt-4">{msg.text}</Notice>}
       </form>
     </Card>
   );
