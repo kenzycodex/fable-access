@@ -77,9 +77,10 @@ export default function HistoryPage() {
       <PageHeader title="Activity" subtitle="Everything that has moved in or out of your account" back />
 
       <Card padded={false}>
-        {/* Toolbar */}
-        <div className="flex flex-col gap-3 border-b border-d-border p-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative lg:w-[320px]">
+        {/* Toolbar: search takes whatever room the filters leave, and the
+            filters wrap as a group, so there is never a stranded chip or a gap. */}
+        <div className="flex flex-wrap items-center gap-3 border-b border-d-border p-4">
+          <div className="relative min-w-[220px] flex-1">
             <MagnifyingGlass size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-d-faint" />
             <input
               type="text"
@@ -115,7 +116,7 @@ export default function HistoryPage() {
               type="button"
               onClick={() => setRiskOnly((r) => !r)}
               aria-pressed={riskOnly}
-              className={`h-10 rounded-xl px-3.5 text-[12px] font-semibold transition-colors ${
+              className={`h-10 whitespace-nowrap rounded-xl px-3.5 text-[12px] font-semibold transition-colors ${
                 riskOnly ? "bg-amber-500/16 text-amber-700 dark:text-amber-300" : "bg-d-surface-2 text-d-muted hover:text-d-text"
               }`}
             >

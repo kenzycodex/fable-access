@@ -18,8 +18,61 @@ import { useInstitution } from "@/components/demo/InstitutionProvider";
  * saved choice from sessionStorage. Doing it here too raced ahead of that
  * restore and snapped every reload back to the first customer.
  */
-export function CustomerSwitcher() {
+/** The customer picker as a sheet, so it can be opened from the header or from
+ * the sidebar's account menu. */
+export function SwitchCustomerSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { customers, customer, selectCustomer, name } = useInstitution();
+
+  return (
+    <DemoSheet open={open} onClose={onClose} title="Switch customer" subtitle={`${name} - each customer has their own baseline`}>
+      <div className="flex flex-col gap-2">
+        {customers.map((c) => {
+          const active = customer?.user_id === c.user_id;
+          return (
+            <button
+              key={c.user_id}
+              type="button"
+              onClick={() => {
+                selectCustomer(c);
+                onClose();
+              }}
+              className={`flex items-start gap-3 rounded-2xl border p-3.5 text-left transition-colors ${
+                active ? "border-brand/40 bg-brand/[0.07]" : "border-d-border hover:bg-d-surface-2"
+              }`}
+            >
+              <Avatar name={c.name} size="lg" />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[14px] font-semibold text-d-text">{c.name}</span>
+                  {active && <CheckCircle size={18} weight="fill" className="shrink-0 text-brand" />}
+                </span>
+                <span className="mt-0.5 block text-[12px] leading-relaxed text-d-muted">{c.description}</span>
+                <span className="mt-2 inline-flex rounded-md bg-d-surface-2 px-2 py-0.5 text-[11px] font-semibold text-d-muted">
+                  {c.persona} - typically {c.typical_range}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="mt-3 text-[12px] leading-relaxed text-d-muted">
+        Send the same amount as different customers and compare: Shield judges each against their own history.
+      </p>
+
+      <Link
+        href="/"
+        className="mt-4 flex h-11 items-center justify-center gap-2 rounded-xl border border-d-border text-[13px] font-semibold text-d-muted transition-colors hover:bg-d-surface-2 hover:text-d-text"
+      >
+        <ArrowLeft size={15} weight="bold" />
+        Exit demo
+      </Link>
+    </DemoSheet>
+  );
+}
+
+export function CustomerSwitcher() {
+  const { customers, customer, name } = useInstitution();
   const [open, setOpen] = useState(false);
 
   const displayName = customer?.name ?? name;
@@ -48,55 +101,7 @@ export function CustomerSwitcher() {
         {switchable && <CaretDown size={12} weight="bold" className="hidden shrink-0 text-d-faint sm:block" />}
       </button>
 
-      <DemoSheet
-        open={open}
-        onClose={() => setOpen(false)}
-        title="Switch customer"
-        subtitle={`${name} · each customer has their own baseline`}
-      >
-        <div className="flex flex-col gap-2">
-          {customers.map((c) => {
-            const active = customer?.user_id === c.user_id;
-            return (
-              <button
-                key={c.user_id}
-                type="button"
-                onClick={() => {
-                  selectCustomer(c);
-                  setOpen(false);
-                }}
-                className={`flex items-start gap-3 rounded-2xl border p-3.5 text-left transition-colors ${
-                  active ? "border-brand/40 bg-brand/[0.07]" : "border-d-border hover:bg-d-surface-2"
-                }`}
-              >
-                <Avatar name={c.name} size="lg" />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate text-[14px] font-semibold text-d-text">{c.name}</span>
-                    {active && <CheckCircle size={18} weight="fill" className="shrink-0 text-brand" />}
-                  </span>
-                  <span className="mt-0.5 block text-[12px] leading-relaxed text-d-muted">{c.description}</span>
-                  <span className="mt-2 inline-flex rounded-md bg-d-surface-2 px-2 py-0.5 text-[11px] font-semibold text-d-muted">
-                    {c.persona} · typically {c.typical_range}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        <p className="mt-3 text-[12px] leading-relaxed text-d-muted">
-          Send the same amount as different customers and compare: Shield judges each against their own history.
-        </p>
-
-        <Link
-          href="/"
-          className="mt-4 flex h-11 items-center justify-center gap-2 rounded-xl border border-d-border text-[13px] font-semibold text-d-muted transition-colors hover:bg-d-surface-2 hover:text-d-text"
-        >
-          <ArrowLeft size={15} weight="bold" />
-          Exit demo
-        </Link>
-      </DemoSheet>
+      <SwitchCustomerSheet open={open} onClose={() => setOpen(false)} />
     </>
   );
 }

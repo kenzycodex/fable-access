@@ -150,7 +150,7 @@ function PassResult({
           </DetailRow>
         </div>
 
-        <div className="mt-6 flex flex-col gap-2.5 sm:flex-row">
+        <div className="mt-6 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           <Button variant="secondary" size="lg" full icon={<ShareNetwork size={18} />} onClick={shareReceipt}>
             Share receipt
           </Button>

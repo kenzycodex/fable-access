@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import useSWR from "swr";
 import {
-  ArrowLeft,
   Bell,
   ClockCounterClockwise,
   CreditCard,
@@ -13,9 +12,14 @@ import {
   PaperPlaneTilt,
   Plus,
   ShieldCheck,
+  SignOut,
+  UsersThree,
+  CaretUp,
 } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
+import { SwitchCustomerSheet } from "@/components/demo/CustomerSwitcher";
 import { HeaderActions } from "@/components/demo/HeaderActions";
+import { Avatar } from "@/components/demo/kit";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { customerNotifications } from "@/lib/fable/api";
 
@@ -54,11 +58,11 @@ function BrandMark({ size = "md" }: { size?: "sm" | "md" }) {
   const dim = size === "sm" ? "size-8" : "size-9";
   return branding.logo_url ? (
     // A logo is whatever shape its owner uploaded, so it is contained, not
-    // cropped. The space it leaves above and below takes the bank's accent
+    // cropped. The space it leaves above and below takes the bank's primary
     // colour rather than white, so a wide wordmark sits in a filled badge.
     <span
       className={`flex ${dim} shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/10`}
-      style={{ backgroundColor: "var(--brand-accent, #00d4ff)" }}
+      style={{ backgroundColor: "var(--brand-primary, #7c3aed)" }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader needed */}
       <img src={branding.logo_url} alt={name} className="size-full object-contain" />
@@ -119,8 +123,9 @@ function Sidebar() {
   );
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[256px] flex-col justify-between border-r border-d-border bg-d-surface px-4 py-6 lg:flex">
-      <div className="flex flex-col gap-8">
+    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[256px] flex-col border-r border-d-border bg-d-surface lg:flex">
+      {/* The menu scrolls on a short window; the account row below never does. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto px-4 pb-4 pt-6">
         <Link href={href()} className="flex items-center gap-3 px-2">
           <BrandMark />
           <span className="truncate text-[17px] font-bold tracking-tight text-d-text">{name}</span>
@@ -129,19 +134,99 @@ function Sidebar() {
         {group("Others", OTHERS)}
       </div>
 
-      <div className="flex flex-col gap-3">
-        <Link
-          href="/"
-          className="flex h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-medium text-d-muted transition-colors hover:bg-d-surface-2 hover:text-d-text"
-        >
-          <ArrowLeft size={19} />
-          Exit demo
-        </Link>
-        <p className="px-3 text-[11px] leading-relaxed text-d-faint">
-          Demo environment. Balances are simulated and no real money moves.
-        </p>
+      <div className="shrink-0 border-t border-d-border p-3">
+        <AccountMenu />
       </div>
     </aside>
+  );
+}
+
+/**
+ * The signed-in customer at the foot of the sidebar, with a menu above it: the
+ * pattern Claude and ChatGPT use. Switching customer and leaving the demo live
+ * here, so neither sits in the navigation as if it were a page.
+ */
+function AccountMenu() {
+  const { customer, customers, name } = useInstitution();
+  const [open, setOpen] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on an outside click or Escape.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const displayName = customer?.name ?? name;
+
+  return (
+    <div ref={ref} className="relative">
+      {open && (
+        <div
+          role="menu"
+          className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-2xl border border-d-border bg-d-surface shadow-[0_18px_40px_-12px_rgba(0,0,0,0.25)]"
+        >
+          <p className="border-b border-d-border px-4 py-3 text-[11px] leading-relaxed text-d-faint">
+            Demo environment. Balances are simulated and no real money moves.
+          </p>
+          {customers.length > 1 && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                setSwitching(true);
+              }}
+              className="flex h-11 w-full items-center gap-3 px-4 text-left text-[14px] font-medium text-d-text transition-colors hover:bg-d-surface-2"
+            >
+              <UsersThree size={18} className="text-d-muted" />
+              Switch customer
+            </button>
+          )}
+          <Link
+            href="/"
+            role="menuitem"
+            className="flex h-11 w-full items-center gap-3 border-t border-d-border px-4 text-[14px] font-medium text-red-600 transition-colors hover:bg-red-500/[0.06] dark:text-red-400"
+          >
+            <SignOut size={18} />
+            Exit demo
+          </Link>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition-colors hover:bg-d-surface-2 ${
+          open ? "bg-d-surface-2" : ""
+        }`}
+      >
+        <Avatar name={displayName} size="sm" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-semibold leading-tight text-d-text">{displayName}</span>
+          <span className="block truncate text-[11px] leading-tight text-d-muted">
+            {customer ? customer.persona : "Demo account"}
+          </span>
+        </span>
+        <CaretUp size={14} className={`shrink-0 text-d-faint transition-transform ${open ? "" : "rotate-180"}`} />
+      </button>
+
+      <SwitchCustomerSheet open={switching} onClose={() => setSwitching(false)} />
+    </div>
   );
 }
 
