@@ -10,6 +10,7 @@ import {
   uploadLogo,
   type Branding,
 } from "@/lib/fable/api";
+import { usePermissions } from "@/lib/fable/useConsole";
 
 /**
  * How a bank makes the demo app look like its own product.
@@ -32,6 +33,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<{ kind: "success" | "danger"; text: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const { canManage } = usePermissions();
 
   useEffect(() => {
     if (!institutionId) return;
@@ -120,7 +122,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
                   <span className="text-[11px] text-d-faint">None</span>
                 )}
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className={`flex flex-wrap gap-2 ${canManage ? "" : "hidden"}`}>
                 <Button variant="secondary" size="sm" loading={uploading} onClick={() => fileRef.current?.click()} icon={<UploadSimple size={14} weight="bold" />}>
                   Upload
                 </Button>
@@ -188,11 +190,13 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
 
           {message && <Notice tone={message.kind}>{message.text}</Notice>}
 
-          <div>
-            <Button onClick={save} loading={saving} disabled={!institutionId}>
-              Save branding
-            </Button>
-          </div>
+          {canManage && (
+            <div>
+              <Button onClick={save} loading={saving} disabled={!institutionId}>
+                Save branding
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* A live swatch of what the two colours do, so the choice is not blind. */}

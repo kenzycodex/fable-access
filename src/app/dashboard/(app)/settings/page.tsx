@@ -1,53 +1,34 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTheme } from "next-themes";
 import { mutate as swrMutate } from "swr";
-import { Check, Copy, Desktop, Moon, Sun } from "@phosphor-icons/react";
-import { BrandingSettings } from "@/components/dashboard/BrandingSettings";
-import {
-  Badge,
-  Button,
-  ButtonLink,
-  Card,
-  CardHeader,
-  Field,
-  Notice,
-  PageHeader,
-  TextInput,
-  inputClass,
-} from "@/components/dashboard/primitives";
+import { Desktop, Moon, Sun } from "@phosphor-icons/react";
+import { Badge, Button, Card, CardHeader, Field, Notice, TextInput, inputClass } from "@/components/dashboard/primitives";
 import { ALL_INSTITUTION_TYPES, INSTITUTION_TYPE_GROUPS, OTHER_TYPE } from "@/data/institution-types";
-import { API_BASE, institutionCredentials, updateInstitutionProfile, type InstitutionCredentials } from "@/lib/fable/api";
+import { updateInstitutionProfile } from "@/lib/fable/api";
 import { useFableStore } from "@/lib/fable/store";
+import { usePermissions } from "@/lib/fable/useConsole";
 import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 
 type ThemeChoice = "light" | "dark" | "system";
 
-export default function SettingsPage() {
+export default function GeneralSettingsPage() {
   const { institution } = useSignedInInstitution();
   const store = useFableStore();
   const institutionId = store?.session.institutionId ?? null;
 
   return (
-    <>
-      <PageHeader title="Settings" description="Your institution profile, appearance, branding, API access and sign-in security." />
-
-      <ProfileCard
-        key={institution ? `${institution.name}|${institution.type}|${institution.contact_email}` : "loading"}
-        institutionId={institutionId}
-        profile={institution}
-      />
-
-      <BrandingSettings institutionId={institutionId} />
-
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-        <ApiAccessCard institutionId={institutionId} />
-        <AppearanceCard />
+    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+      <div className="lg:col-span-2">
+        <ProfileCard
+          key={institution ? `${institution.name}|${institution.type}|${institution.contact_email}` : "loading"}
+          institutionId={institutionId}
+          profile={institution}
+        />
       </div>
-
-      <PasswordCard />
-    </>
+      <AppearanceCard />
+    </div>
   );
 }
 
@@ -61,7 +42,7 @@ function AppearanceCard() {
 
   return (
     <Card>
-      <CardHeader title="Appearance" subtitle="System follows your device setting." />
+      <CardHeader title="Appearance" subtitle="Just for you, on this device. System follows your OS." />
       <div className="grid grid-cols-3 gap-2">
         {options.map((o) => {
           const active = theme === o.value;
@@ -81,123 +62,6 @@ function AppearanceCard() {
           );
         })}
       </div>
-    </Card>
-  );
-}
-
-/** The signed-in institution's real API key, never a placeholder. When the API
- * is down it says so instead of inventing one. */
-function ApiAccessCard({ institutionId }: { institutionId: string | null }) {
-  const [creds, setCreds] = useState<InstitutionCredentials | null>(null);
-  const [failed, setFailed] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!institutionId) return;
-    let cancelled = false;
-    institutionCredentials(institutionId)
-      .then((c) => !cancelled && setCreds(c))
-      .catch(() => !cancelled && setFailed(true));
-    return () => {
-      cancelled = true;
-    };
-  }, [institutionId]);
-
-  function copyKey() {
-    if (!creds?.api_key) return;
-    navigator.clipboard?.writeText(creds.api_key).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }
-
-  return (
-    <Card>
-      <CardHeader title="API access" subtitle="Authenticate server-to-server calls with this key." />
-      <p className="mb-1.5 text-[12px] font-semibold text-d-muted">Live secret key</p>
-      <div className="flex items-center gap-2 rounded-xl bg-d-surface-2 py-2 pl-4 pr-2">
-        <code className="flex-1 truncate text-[13px] text-d-text">
-          {creds?.masked_key ?? (failed ? "Unavailable, the API is offline" : "Loading...")}
-        </code>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={copyKey}
-          disabled={!creds?.api_key}
-          icon={copied ? <Check size={14} weight="bold" /> : <Copy size={14} />}
-        >
-          {copied ? "Copied" : "Copy"}
-        </Button>
-      </div>
-      <p className="mt-3 text-[12px] leading-relaxed text-d-muted">Keep it on your servers. Never ship it in a mobile app or a web page.</p>
-      <div className="mt-4">
-        <ButtonLink href="/docs" variant="secondary" size="sm">
-          Read the API reference
-        </ButtonLink>
-      </div>
-    </Card>
-  );
-}
-
-function PasswordCard() {
-  const [email, setEmail] = useState("");
-  const [oldPw, setOldPw] = useState("");
-  const [newPw, setNewPw] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (newPw !== confirm) return setMsg({ tone: "danger", text: "The new passwords do not match." });
-    if (newPw.length < 8) return setMsg({ tone: "danger", text: "Use at least 8 characters." });
-    setBusy(true);
-    setMsg(null);
-    try {
-      const res = await fetch(`${API_BASE}/auth/change-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, old_password: oldPw, new_password: newPw }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Could not change the password.");
-      setMsg({ tone: "success", text: "Password changed." });
-      setOldPw("");
-      setNewPw("");
-      setConfirm("");
-    } catch (err) {
-      setMsg({ tone: "danger", text: err instanceof Error ? err.message : "Could not change the password." });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader title="Sign-in security" subtitle="Change the administrator password." />
-      {msg && <Notice tone={msg.tone} className="mb-4">{msg.text}</Notice>}
-      <form onSubmit={submit} className="grid max-w-2xl grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="sm:col-span-2">
-          <Field label="Admin email">
-            <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />
-          </Field>
-        </div>
-        <Field label="Current password">
-          <TextInput type="password" value={oldPw} onChange={(e) => setOldPw(e.target.value)} required autoComplete="current-password" />
-        </Field>
-        <span className="hidden sm:block" />
-        <Field label="New password">
-          <TextInput type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} required autoComplete="new-password" />
-        </Field>
-        <Field label="Confirm new password">
-          <TextInput type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required autoComplete="new-password" />
-        </Field>
-        <div className="sm:col-span-2">
-          <Button type="submit" loading={busy}>
-            Update password
-          </Button>
-        </div>
-      </form>
     </Card>
   );
 }
@@ -230,6 +94,8 @@ function ProfileCard({
   const [email, setEmail] = useState(profile?.contact_email ?? "");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
+  const { canManage } = usePermissions();
+  const locked = !profile || !canManage;
 
   const dirty =
     !!profile && (name.trim() !== profile.name || type.trim() !== profile.type || email.trim() !== (profile.contact_email ?? ""));
@@ -259,17 +125,19 @@ function ProfileCard({
       <form onSubmit={save}>
         <div className="mb-5 flex items-start justify-between gap-3">
           <CardHeader title="Institution profile" subtitle="How your institution appears across Fable." />
-          <Button type="submit" disabled={!dirty} loading={busy}>
-            Save changes
-          </Button>
+          {canManage && (
+            <Button type="submit" disabled={!dirty} loading={busy}>
+              Save changes
+            </Button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Institution name">
-            <TextInput value={name} onChange={(e) => setName(e.target.value)} maxLength={80} disabled={!profile} />
+            <TextInput value={name} onChange={(e) => setName(e.target.value)} maxLength={80} disabled={locked} />
           </Field>
           <Field label="Type">
-            <select value={typeChoice} onChange={(e) => setTypeChoice(e.target.value)} disabled={!profile} className={inputClass}>
+            <select value={typeChoice} onChange={(e) => setTypeChoice(e.target.value)} disabled={locked} className={inputClass}>
               {!typeChoice && (
                 <option value="" disabled>
                   Choose a type
@@ -298,7 +166,7 @@ function ProfileCard({
             )}
           </Field>
           <Field label="Contact email">
-            <TextInput value={email} onChange={(e) => setEmail(e.target.value)} type="email" disabled={!profile} />
+            <TextInput value={email} onChange={(e) => setEmail(e.target.value)} type="email" disabled={locked} />
           </Field>
           <Field label="Environment">
             <div className="flex h-12 items-center">
