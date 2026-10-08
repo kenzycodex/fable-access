@@ -105,27 +105,34 @@ export default function TransferPage() {
   );
 
   useEffect(() => {
-    // The session starts (or resumes) the moment the banking surface loads.
-    const s = ensureSession();
-    setSession(s);
-    const tick = setInterval(() => setSessionSeconds(Math.round((Date.now() - s.loginTimestamp) / 1000)), 1000);
-
-    void collectDeviceFingerprint().then(setDevice);
-    void collectGeolocation().then(setLocation);
-
     const t = new BehavioralTracker();
     t.start();
     tracker = t;
 
-    // Auto-detect the channel this browser actually is. The selector stays so a
-    // demo can switch to USSD, which Shield treats as a riskier rail.
-    const isMobile = window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 768;
-    const detected: Channel = isMobile ? "app" : "web";
-    setDetectedChannel(detected);
-    setChannel(detected);
+    void collectDeviceFingerprint().then(setDevice);
+    void collectGeolocation().then(setLocation);
+
+    // Browser-only state (the session clock and the detected channel) is set up
+    // from a callback rather than synchronously in the effect body, so the first
+    // paint is not followed by a cascade of renders.
+    let tick: ReturnType<typeof setInterval> | undefined;
+    const init = setTimeout(() => {
+      // The session starts (or resumes) the moment the banking surface loads.
+      const s = ensureSession();
+      setSession(s);
+      tick = setInterval(() => setSessionSeconds(Math.round((Date.now() - s.loginTimestamp) / 1000)), 1000);
+
+      // Auto-detect the channel this browser actually is. The selector stays so
+      // a demo can switch to USSD, which Shield treats as a riskier rail.
+      const isMobile = window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 768;
+      const detected: Channel = isMobile ? "app" : "web";
+      setDetectedChannel(detected);
+      setChannel(detected);
+    }, 0);
 
     return () => {
-      clearInterval(tick);
+      clearTimeout(init);
+      if (tick) clearInterval(tick);
       t.stop();
       if (tracker === t) tracker = null;
     };

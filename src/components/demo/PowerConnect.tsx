@@ -6,7 +6,8 @@ import { Power } from "@phosphor-icons/react";
 import { DemoSheet } from "@/components/demo/DemoSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { resolveApiKey } from "@/lib/fable/api";
-import { getConnected, setConnected, maskKey } from "@/lib/fable/tenant";
+import { CONNECTED_KEY, setConnected, maskKey, type ConnectedInstitution } from "@/lib/fable/tenant";
+import { useMounted, useStoredValue } from "@/lib/useStoredValue";
 
 /** Ring sweeps, then the tick strokes itself in. Pure SVG, no dependency. */
 function SuccessTick() {
@@ -42,20 +43,27 @@ export function PowerConnect() {
   const { name, institutionId } = useInstitution();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [connectedKey, setConnectedKey] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [justConnected, setJustConnected] = useState(false);
   const [connectedTo, setConnectedTo] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mounted, setMounted] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  useEffect(() => {
-    setMounted(true);
-    setConnectedKey(getConnected()?.maskedKey ?? null);
-    return () => clearTimeout(closeTimer.current);
-  }, []);
+  // Neutral until mounted: the connection lives in localStorage, which the
+  // server render cannot see. Read as a store, not copied into state.
+  const mounted = useMounted();
+  const connectedRaw = useStoredValue(CONNECTED_KEY);
+  const connectedKey = (() => {
+    if (!connectedRaw) return null;
+    try {
+      return (JSON.parse(connectedRaw) as ConnectedInstitution).maskedKey ?? null;
+    } catch {
+      return null;
+    }
+  })();
+
+  useEffect(() => () => clearTimeout(closeTimer.current), []);
 
   async function save() {
     const trimmed = keyInput.trim();
@@ -72,7 +80,6 @@ export function PowerConnect() {
       // localStorage and never rides on a later request.
       const masked = maskKey(trimmed);
       setConnected({ institutionId: resolved.institution_id, name: resolved.name, maskedKey: masked });
-      setConnectedKey(masked);
       setKeyInput("");
       setJustConnected(true);
       setConnectedTo(resolved.name);
@@ -96,7 +103,6 @@ export function PowerConnect() {
 
   function disconnect() {
     setConnected(null);
-    setConnectedKey(null);
     setConnectedTo(null);
     setKeyInput("");
     setError(null);

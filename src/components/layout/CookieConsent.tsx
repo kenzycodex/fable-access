@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Image from "next/image";
+import { useStoredValue, writeStored } from "@/lib/useStoredValue";
 import Link from "next/link";
 
 const STORAGE_KEY = "fable-cookie-consent";
@@ -9,31 +10,25 @@ const STORAGE_KEY = "fable-cookie-consent";
 type Consent = "accepted" | "rejected";
 
 export function CookieConsent() {
-  const [visible, setVisible] = useState(false);
   const [showPreferences, setShowPreferences] = useState(false);
 
-  useEffect(() => {
-    const existing = window.localStorage.getItem(STORAGE_KEY);
-    if (!existing) {
-      setVisible(true);
-    }
-  }, []);
+  // Shown only once the browser has confirmed nothing is saved yet. `undefined`
+  // (server render and hydration) keeps it hidden, so it never flashes up for
+  // someone who already answered.
+  const stored = useStoredValue(STORAGE_KEY);
+  const visible = stored === null;
 
   function respond(consent: Consent) {
-    window.localStorage.setItem(STORAGE_KEY, consent);
-    setVisible(false);
+    writeStored(STORAGE_KEY, consent);
+    setShowPreferences(false);
   }
 
   function handleAcceptAll() {
-    window.localStorage.setItem(STORAGE_KEY, "accepted");
-    setShowPreferences(false);
-    setVisible(false);
+    respond("accepted");
   }
 
   function handleRejectAll() {
-    window.localStorage.setItem(STORAGE_KEY, "rejected");
-    setShowPreferences(false);
-    setVisible(false);
+    respond("rejected");
   }
 
   return (

@@ -13,6 +13,7 @@
 // the institution from the key rather than trusting the URL.
 
 import { DEFAULT_INSTITUTION } from "./constants";
+import { writeStored } from "../useStoredValue";
 
 const CUSTOMER_KEY = "fable_active_customer";
 const API_KEY_KEY = "fable_institution_api_key";
@@ -78,17 +79,21 @@ export function setCustomer(customerId: string, customerName: string, institutio
 
 /** Re-read the customer chosen for the current institution, if any. */
 export function restoreCustomer(): void {
+  const before = state.customerId;
   try {
     const raw = sessionStorage.getItem(`${CUSTOMER_KEY}:${state.institutionId}`);
     if (!raw) {
       state = { ...state, customerId: null, customerName: null };
-      return;
+    } else {
+      const parsed = JSON.parse(raw) as { customerId: string; customerName: string };
+      state = { ...state, customerId: parsed.customerId, customerName: parsed.customerName };
     }
-    const parsed = JSON.parse(raw) as { customerId: string; customerName: string };
-    state = { ...state, customerId: parsed.customerId, customerName: parsed.customerName };
   } catch {
     state = { ...state, customerId: null, customerName: null };
   }
+  // Subscribers read the customer straight from this store, so a restore that
+  // changed it has to tell them.
+  if (state.customerId !== before) emit();
 }
 
 /** The user_id Shield scores against. Falls back to the institution's Ada so a
@@ -123,7 +128,7 @@ export interface ConnectedInstitution {
   maskedKey: string;
 }
 
-const CONNECTED_KEY = "fable_connected_institution";
+export const CONNECTED_KEY = "fable_connected_institution";
 
 export function getConnected(): ConnectedInstitution | null {
   if (typeof window === "undefined") return null;
@@ -146,6 +151,7 @@ export function setConnected(next: ConnectedInstitution | null): void {
   } catch {
     // storage unavailable; connection state is per-session only
   }
+  writeStored(CONNECTED_KEY, next ? JSON.stringify(next) : null);
 }
 
 export function maskKey(key: string): string {

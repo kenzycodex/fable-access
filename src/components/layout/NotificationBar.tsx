@@ -1,23 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { CircleCloseIcon } from "@/components/icons";
+import { useStoredValue, writeStored } from "@/lib/useStoredValue";
 
 const STORAGE_KEY = "fable-notification-dismissed";
 
 export function NotificationBar() {
-  const [dismissed, setDismissed] = useState(true);
-
-  useEffect(() => {
-    setDismissed(window.localStorage.getItem(STORAGE_KEY) === "true");
-  }, []);
-
-  if (dismissed) return null;
+  // Hidden until the browser reports nothing is saved, so a dismissed bar never
+  // flashes back on load.
+  const stored = useStoredValue(STORAGE_KEY);
+  if (stored !== null && stored !== "false") return null;
 
   function dismiss() {
-    window.localStorage.setItem(STORAGE_KEY, "true");
-    setDismissed(true);
+    writeStored(STORAGE_KEY, "true");
   }
 
   return (

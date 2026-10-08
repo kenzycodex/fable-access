@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { Branding, DemoCustomer } from "@/app/demo/[institution]/layout";
 import {
   getTenant,
@@ -42,7 +42,13 @@ export function InstitutionProvider({
   branding: Branding;
   children: React.ReactNode;
 }) {
-  const [customerId, setCustomerId] = useState<string | null>(null);
+  // Read straight from the tenant store, which the demo and the non-React API
+  // layer share, instead of copying it into state from an effect.
+  const customerId = useSyncExternalStore(
+    subscribeTenant,
+    () => getTenant().customerId,
+    () => null,
+  );
   const pathname = usePathname();
   const router = useRouter();
 
@@ -69,13 +75,9 @@ export function InstitutionProvider({
     // rather than the home screen) would otherwise leave `customer` null —
     // which surfaced as an empty user id in the verification dialog, e.g.
     // GET /v1/accounts//security. Every screen now resolves a real customer.
-    let cid = getTenant().customerId;
-    if (!cid && customers.length > 0) {
+    if (!getTenant().customerId && customers.length > 0) {
       setTenantCustomer(customers[0].user_id, customers[0].name, institutionId);
-      cid = customers[0].user_id;
     }
-    setCustomerId(cid);
-    return subscribeTenant(() => setCustomerId(getTenant().customerId));
   }, [institutionId, customers]);
 
   const value = useMemo<InstitutionContextValue>(() => {

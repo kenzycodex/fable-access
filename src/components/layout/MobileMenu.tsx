@@ -6,14 +6,11 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDownIcon, CloseIcon, MenuIcon } from "@/components/icons";
 import { headerCta, primaryNav } from "@/data/nav";
+import { useMounted } from "@/lib/useStoredValue";
 
 export function MobileMenu({ transparent = false }: { transparent?: boolean }) {
   const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useMounted();
 
   useEffect(() => {
     if (!open) return;
