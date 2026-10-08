@@ -35,7 +35,8 @@ export default function PricingPage() {
         <Container className="relative z-[1]">
           <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Pricing" }]} className="mb-[var(--spacing-l)] text-white" />
           <div className="flex flex-col items-start gap-[var(--spacing-m)] lg:w-[75%]">
-            <h1>
+            {/* Slightly smaller than the global h1 so "Serious Money Movement" stops short of the hero image. */}
+            <h1 className="lg:text-[clamp(3.6rem,4.6vw,5.6rem)]">
               Simple Pricing for
               <br className="hidden lg:block" />
               <span className="font-marker text-accent">Serious</span> Money Movement
