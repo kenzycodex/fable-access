@@ -59,34 +59,74 @@ export default function PricingPage() {
             <p className="text-m text-black/80">{servicesIntro.body}</p>
           </Reveal>
 
-          <div className="grid grid-cols-1 gap-x-[var(--grid-gap)] gap-y-[72px] pt-[27px] md:grid-cols-2 lg:grid-cols-3">
-            {serviceTiers.map((tier, i) => (
-              <Reveal key={tier.title} delay={i * 100} className="h-full">
-                <div
-                  className={`flex h-full flex-col gap-[var(--spacing-s)] rounded-[var(--radius)] border-2 p-[var(--spacing-m)] ${tier.border} ${tier.bg}`}
-                >
-                  <div
-                    className={`-mt-[calc(var(--spacing-m)+25px)] flex size-[50px] shrink-0 items-center justify-center self-center rounded-full text-m font-bold ${tier.circle}`}
+          <div className="grid grid-cols-1 gap-[var(--grid-gap)] md:grid-cols-2 lg:grid-cols-3 lg:items-stretch">
+            {serviceTiers.map((tier, i) => {
+              const dark = Boolean(tier.featured);
+              const accentBg = { primary: "bg-primary", neutral: "bg-neutral", accent: "bg-accent" }[tier.accent];
+              const accentText = { primary: "text-primary", neutral: "text-neutral", accent: "text-accent" }[tier.accent];
+              return (
+                <Reveal key={tier.title} delay={i * 100} className="h-full">
+                  <article
+                    className={`relative flex h-full flex-col overflow-hidden rounded-[var(--radius-m)] border p-[var(--spacing-m)] transition-all duration-300 hover:-translate-y-1 ${
+                      dark
+                        ? "border-white/10 bg-base text-white shadow-[0_24px_60px_-20px_rgba(123,96,253,0.55)]"
+                        : "border-black/10 bg-white text-black shadow-[0_12px_40px_-24px_rgba(10,1,23,0.35)] hover:shadow-[0_24px_50px_-24px_rgba(10,1,23,0.45)]"
+                    }`}
                   >
-                    {tier.num}
-                  </div>
-                  <p className="font-heading text-h4 font-bold uppercase">{tier.title}</p>
-                  <p className="text-m text-black/85">
-                    <strong>{tier.bodyLead}</strong> {tier.body}
-                  </p>
-                  <div className="mt-[var(--spacing-xs)] flex flex-col gap-[var(--spacing-xs)]">
-                    <ul className="flex flex-col gap-[var(--spacing-xs)]">
+                    {/* Accent rule across the top edge */}
+                    <span aria-hidden="true" className={`absolute inset-x-0 top-0 h-1.5 ${accentBg}`} />
+                    {dark && (
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute -right-24 -top-24 size-64 rounded-full bg-secondary/30 blur-3xl"
+                      />
+                    )}
+
+                    <div className="relative flex items-center justify-between">
+                      <span
+                        className={`inline-flex items-center gap-2 rounded-pill px-3 py-1 text-2xs font-bold uppercase tracking-wider ${
+                          dark ? "bg-white/10 text-white" : "bg-light text-black/70"
+                        }`}
+                      >
+                        <span className={`size-1.5 rounded-full ${accentBg}`} />
+                        {tier.eyebrow}
+                      </span>
+                      <span
+                        className={`flex size-9 items-center justify-center rounded-full text-s font-bold text-black ${accentBg}`}
+                        aria-hidden="true"
+                      >
+                        {tier.num}
+                      </span>
+                    </div>
+
+                    <h3 className="relative mt-[var(--spacing-s)] text-h4">{tier.title}</h3>
+                    <p className={`relative mt-2 text-s leading-relaxed ${dark ? "text-white/75" : "text-black/70"}`}>
+                      {tier.body.charAt(0).toUpperCase() + tier.body.slice(1)}
+                    </p>
+
+                    <div className={`relative my-[var(--spacing-s)] border-y py-[var(--spacing-xs)] ${dark ? "border-white/10" : "border-black/10"}`}>
+                      <p className={`font-heading text-h5 font-bold ${dark ? accentText : "text-black"}`}>{tier.priceBasis}</p>
+                      <p className={`text-xs ${dark ? "text-white/60" : "text-black/55"}`}>{tier.priceNote}</p>
+                    </div>
+
+                    <ul className="relative flex flex-1 flex-col gap-3">
                       {tier.items.map((item) => (
-                        <li key={item} className="flex items-start gap-2 text-s">
-                          <CheckCircleIcon className="mt-0.5 size-[18px] shrink-0 text-primary" />
-                          {item}
+                        <li key={item} className="flex items-start gap-2.5 text-s">
+                          <CheckCircleIcon className={`mt-0.5 size-[18px] shrink-0 ${dark ? "text-accent" : "text-primary"}`} />
+                          <span className={dark ? "text-white/90" : "text-black/80"}>{item}</span>
                         </li>
                       ))}
                     </ul>
-                  </div>
-                </div>
-              </Reveal>
-            ))}
+
+                    <div className="relative mt-[var(--spacing-m)]">
+                      <Button href={demoCta.href} tone={dark ? "secondary" : "black"} variant={dark ? "solid" : "outline"} className="w-full justify-center">
+                        {tier.num === 1 ? "Try it in the demo" : "See it in action"}
+                      </Button>
+                    </div>
+                  </article>
+                </Reveal>
+              );
+            })}
           </div>
 
           <Reveal className="mt-[var(--section-space-s)] max-w-[720px] text-m text-black/70">

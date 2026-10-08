@@ -1,14 +1,19 @@
 export interface ServiceTier {
   num: number;
   title: string;
+  /** Small label above the title: what kind of line item this is. */
+  eyebrow: string;
   /** Lead-in bold phrase + rest of the description. */
   bodyLead: string;
   body: string;
+  /** What the price is measured against, shown as the card's headline figure. */
+  priceBasis: string;
+  priceNote: string;
   items: string[];
-  /** Design accents from the source's colored-border cards. */
-  border: string;
-  circle: string;
-  bg: string;
+  /** Dark, elevated card for the agent most institutions buy first. */
+  featured?: boolean;
+  /** Accent color token (Tailwind color name) for the number badge and top rule. */
+  accent: "primary" | "neutral" | "accent";
 }
 
 export const servicesIntro = {
@@ -19,7 +24,11 @@ export const servicesIntro = {
 export const serviceTiers: ServiceTier[] = [
   {
     num: 1,
-    title: "COPILOT",
+    title: "Copilot",
+    eyebrow: "Included",
+    priceBasis: "Included",
+    priceNote: "with every institution",
+    accent: "primary",
     bodyLead: "Copilot",
     body: "is always on: per-user behavioral baselining, included at no extra cost with every institution.",
     items: [
@@ -27,13 +36,15 @@ export const serviceTiers: ServiceTier[] = [
       "Zero-friction clearance for matched transfers",
       "Included with every plan, no separate line item",
     ],
-    border: "border-primary",
-    circle: "bg-primary text-white",
-    bg: "bg-primary/10",
   },
   {
     num: 2,
-    title: "SHIELD",
+    title: "Shield",
+    eyebrow: "Add-on",
+    priceBasis: "Per transfer scored",
+    priceNote: "Copilot + Shield from ₦100,000/month",
+    accent: "neutral",
+    featured: true,
     bodyLead: "Shield",
     body: "adds real-time scam and deepfake defense on top of Copilot, priced per transaction scored.",
     items: [
@@ -41,13 +52,14 @@ export const serviceTiers: ServiceTier[] = [
       "Plain-language decision explanations",
       "Sub-200ms response budget, every call",
     ],
-    border: "border-neutral",
-    circle: "bg-neutral text-black",
-    bg: "bg-neutral/10",
   },
   {
     num: 3,
-    title: "GHOST",
+    title: "Ghost",
+    eyebrow: "Add-on",
+    priceBasis: "Per transfer held",
+    priceNote: "priced on hold volume",
+    accent: "accent",
     bodyLead: "Ghost",
     body: "adds a disposable holding account and cooling window for any transfer a user overrides.",
     items: [
@@ -55,9 +67,6 @@ export const serviceTiers: ServiceTier[] = [
       "Recoverable funds on overridden blocks",
       "Configurable hold duration per institution",
     ],
-    border: "border-accent",
-    circle: "bg-accent text-black",
-    bg: "",
   },
 ];
 
