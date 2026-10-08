@@ -1,5 +1,4 @@
 import {
-  BellRinging,
   ChartLineUp,
   Code,
   FileMagnifyingGlass,
@@ -8,6 +7,8 @@ import {
   Play,
   Robot,
   SquaresFour,
+  Tray,
+  UsersThree,
 } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 
@@ -17,6 +18,8 @@ export interface DashboardNavItem {
   icon: Icon;
   match: (pathname: string) => boolean;
   external?: boolean;
+  /** A live count shown beside the label. */
+  badge?: "review";
 }
 
 export interface DashboardNavGroup {
@@ -30,8 +33,15 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
     label: "Workspace",
     items: [
       { href: "/dashboard", label: "Overview", icon: SquaresFour, match: (p) => p === "/dashboard" },
+      {
+        href: "/dashboard/review",
+        label: "Review queue",
+        icon: Tray,
+        badge: "review",
+        match: (p) => p.startsWith("/dashboard/review") || p.startsWith("/dashboard/alerts"),
+      },
       { href: "/dashboard/transactions", label: "Transactions", icon: List, match: (p) => p.startsWith("/dashboard/transactions") },
-      { href: "/dashboard/alerts", label: "Alerts", icon: BellRinging, match: (p) => p.startsWith("/dashboard/alerts") },
+      { href: "/dashboard/customers", label: "Customers", icon: UsersThree, match: (p) => p.startsWith("/dashboard/customers") },
     ],
   },
   {
@@ -44,7 +54,12 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
   {
     label: "Governance",
     items: [
-      { href: "/dashboard/compliance", label: "Compliance", icon: FileMagnifyingGlass, match: (p) => p.startsWith("/dashboard/compliance") },
+      {
+        href: "/dashboard/compliance",
+        label: "Compliance",
+        icon: FileMagnifyingGlass,
+        match: (p) => p.startsWith("/dashboard/compliance") || p.startsWith("/dashboard/report"),
+      },
       { href: "/dashboard/settings", label: "Settings", icon: GearSix, match: (p) => p.startsWith("/dashboard/settings") },
     ],
   },

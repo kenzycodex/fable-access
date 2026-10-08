@@ -8,7 +8,26 @@ import { CaretUp, GearSix, SignOut, X } from "@phosphor-icons/react";
 import { Avatar } from "@/components/app-kit";
 import { DASHBOARD_FOOTER_NAV, DASHBOARD_NAV_GROUPS } from "@/components/dashboard/nav";
 import { logout } from "@/lib/fable/store";
+import { useMe, useReviewCounts } from "@/lib/fable/useConsole";
 import { useSignedInInstitution } from "@/lib/fable/useInstitution";
+
+const ROLE_LABEL = { owner: "Owner", analyst: "Analyst", viewer: "Viewer", service: "API key" } as const;
+
+/** Cases still waiting on someone, beside the Review queue link. */
+function ReviewBadge({ active }: { active: boolean }) {
+  const { data } = useReviewCounts();
+  const n = data?.active ?? 0;
+  if (!n) return null;
+  return (
+    <span
+      className={`ml-auto min-w-6 rounded-full px-2 py-0.5 text-center text-[11px] font-bold tabular-nums ${
+        active ? "bg-white/25 text-white" : "bg-red-500 text-white"
+      }`}
+    >
+      {n > 99 ? "99+" : n}
+    </span>
+  );
+}
 
 /**
  * The console's left rail: grouped navigation, the links out to the demo bank and
@@ -85,6 +104,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     >
                       <Icon size={19} weight={active ? "fill" : "regular"} />
                       {item.label}
+                      {item.badge === "review" && <ReviewBadge active={active} />}
                     </Link>
                   );
                 })}
@@ -121,6 +141,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
 
 function AccountMenu() {
   const { institution } = useSignedInInstitution();
+  const { data: who } = useMe();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -180,7 +201,9 @@ function AccountMenu() {
         <Avatar name={name} size="sm" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-semibold leading-tight text-d-text">{name}</span>
-          <span className="block truncate text-[11px] leading-tight text-d-muted">Console admin</span>
+          <span className="block truncate text-[11px] leading-tight text-d-muted">
+            {who ? `${who.name || who.email} · ${ROLE_LABEL[who.role]}` : "Console"}
+          </span>
         </span>
         <CaretUp size={14} className={`shrink-0 text-d-faint transition-transform ${open ? "" : "rotate-180"}`} />
       </button>
