@@ -77,6 +77,42 @@ ALLOW_DEBUG_OTP = (
     and ENVIRONMENT != "production"
 )
 
+# --- Customer PIN and verification rules ---
+# Every number here is an operator choice, not something the code decides on
+# its own. The values below are the defaults; set the variable to change one.
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    """An integer from the environment. A missing, blank or invalid value falls
+    back to the default rather than stopping the service from starting."""
+    try:
+        return max(int(os.getenv(name, "").strip() or default), minimum)
+    except ValueError:
+        return default
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
+# How many digits a transaction PIN has. 4 is what most banking apps use; 6 is
+# the stricter choice. Only 4 and 6 are accepted.
+PIN_LENGTH = 6 if _env_int("FABLE_PIN_LENGTH", 4) == 6 else 4
+# Wrong PIN attempts before the PIN is locked, and for how long.
+PIN_MAX_ATTEMPTS = _env_int("FABLE_PIN_MAX_ATTEMPTS", 5)
+PIN_LOCKOUT_MINUTES = _env_int("FABLE_PIN_LOCKOUT_MINUTES", 15)
+# Off by default: the customer chooses any PIN. Turn on to refuse repeated
+# digits (0000) and plain sequences (1234, 4321).
+PIN_BLOCK_WEAK = _env_flag("FABLE_PIN_BLOCK_WEAK", False)
+
+# How long a verification proof stays valid, and the one-time code limits.
+STEPUP_TOKEN_TTL_SECONDS = _env_int("FABLE_STEPUP_TOKEN_TTL_SECONDS", 600)
+OTP_TTL_SECONDS = _env_int("FABLE_OTP_TTL_SECONDS", 600)
+OTP_MAX_ATTEMPTS = _env_int("FABLE_OTP_MAX_ATTEMPTS", 5)
+
 # --- KYC / liveness provider ---
 # Unset here. With no provider the identity_check tier resolves to the
 # strongest combination actually available (passkey + PIN + emailed code)

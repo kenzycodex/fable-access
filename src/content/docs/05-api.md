@@ -123,8 +123,7 @@ reference.
 | `GET /v1/accounts/{user_id}/statement` | Ledger entries |
 | `POST /v1/accounts/{user_id}/topup` | Sandbox top-up, with per-transfer and daily limits |
 | `GET /v1/accounts/{user_id}/security` | PIN, 2FA preference and contact status |
-| `POST /v1/accounts/{user_id}/security/pin` | Set or change the PIN. Any 4 or 6 digits; changing it needs the current one |
-| `POST /v1/accounts/{user_id}/security/pin/reset` | Forgotten PIN: choose a new one with a token from a code sent to the customer's registered contact (`purpose: "pin_reset"`) |
+| `POST /v1/accounts/{user_id}/security/pin` | Set or change the PIN. Its length is `FABLE_PIN_LENGTH` (4 by default); changing it needs the current one |
 | `POST /v1/accounts/{user_id}/security/two-factor` | Toggle "always ask" |
 | `POST /v1/accounts/{user_id}/security/contact` | Where the customer's own codes are sent |
 

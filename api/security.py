@@ -10,11 +10,13 @@ import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 
+import config
 from db import cursor, row_to_dict
 
 PBKDF2_ROUNDS = 200_000
-MAX_PIN_ATTEMPTS = 5
-LOCKOUT_MINUTES = 15
+# The PIN rules (length, wrong attempts before a lock, lock time, whether weak
+# PINs are refused) all come from the environment, see config.py. They are read
+# when used, so an operator's choice is never baked in at import time.
 
 class SecurityError(ValueError):
     """Rejected input, with a message meant for the customer."""
@@ -57,6 +59,11 @@ def status(user_id: str) -> dict:
     return {
         "user_id": user_id,
         "pin_set": bool(row and row.get("pin_hash")),
+        # How many digits the customer's PIN has. A PIN set before the length
+        # was recorded (or under another configured length) still reports its
+        # real size, so the entry boxes match what they typed when they set it.
+        "pin_length": ((row or {}).get("pin_length") or config.PIN_LENGTH) if (row and row.get("pin_hash")) else config.PIN_LENGTH,
+        "pin_policy": {"length": config.PIN_LENGTH, "block_weak": config.PIN_BLOCK_WEAK},
         "pin_set_at": (row or {}).get("pin_set_at"),
         "pin_locked": bool(locked),
         "pin_locked_until": locked.isoformat() if locked else None,
@@ -150,16 +157,27 @@ def set_contact(user_id: str, email: str | None, phone: str | None,
     return status(user_id)
 
 
+def _is_weak(pin: str) -> bool:
+    """Repeated digits (0000) or a plain run (1234, 4321)."""
+    if len(set(pin)) == 1:
+        return True
+    steps = {int(b) - int(a) for a, b in zip(pin, pin[1:])}
+    return steps in ({1}, {-1})
+
+
+def _validate_pin(pin: str) -> None:
+    if len(pin) != config.PIN_LENGTH:
+        raise SecurityError(f"Your PIN must be {config.PIN_LENGTH} digits.")
+    if config.PIN_BLOCK_WEAK and _is_weak(pin):
+        raise SecurityError("That PIN is too easy to guess. Choose another.")
+
+
 def set_pin(user_id: str, pin: str, current_pin: str | None = None,
             institution_id: str | None = None) -> dict:
     pin = pin.strip()
     if not pin.isdigit():
         raise SecurityError("Your PIN must be digits only.")
-    if len(pin) not in (4, 6):
-        raise SecurityError("Your PIN must be 4 or 6 digits.")
-    # No strength rules beyond length. The customer picks their own PIN, and the
-    # real protection is the lock-out after repeated wrong attempts, not a list
-    # of "bad" numbers.
+    _validate_pin(pin)
 
     row = _record(user_id)
 
@@ -182,32 +200,17 @@ def _store_pin(user_id: str, pin: str, institution_id: str | None) -> None:
 
     with cursor() as cur:
         cur.execute(
-            """INSERT INTO user_security (user_id, institution_id, pin_hash, pin_set_at, failed_attempts, locked_until)
-               VALUES (?, ?, ?, ?, 0, NULL)
+            """INSERT INTO user_security (user_id, institution_id, pin_hash, pin_set_at, pin_length, failed_attempts, locked_until)
+               VALUES (?, ?, ?, ?, ?, 0, NULL)
                ON CONFLICT(user_id) DO UPDATE SET
                  pin_hash = excluded.pin_hash,
                  pin_set_at = excluded.pin_set_at,
+                 pin_length = excluded.pin_length,
                  failed_attempts = 0,
                  locked_until = NULL,
                  updated_at = datetime('now')""",
-            (user_id, institution_id, stored, _now().isoformat()),
+            (user_id, institution_id, stored, _now().isoformat(), len(pin)),
         )
-
-
-def set_pin_verified(user_id: str, pin: str, institution_id: str | None = None) -> dict:
-    """Set a new PIN for a customer who has already proved themselves another way.
-
-    Used by the forgotten-PIN flow, where the proof is a one-time code sent to
-    the customer's own registered address. The caller is responsible for having
-    verified that proof; this only validates the PIN itself and stores it.
-    """
-    pin = pin.strip()
-    if not pin.isdigit():
-        raise SecurityError("Your PIN must be digits only.")
-    if len(pin) not in (4, 6):
-        raise SecurityError("Your PIN must be 4 or 6 digits.")
-    _store_pin(user_id, pin, institution_id)
-    return status(user_id)
 
 
 def clear_pin(user_id: str) -> dict:
@@ -221,7 +224,7 @@ def clear_pin(user_id: str) -> dict:
     with cursor() as cur:
         cur.execute(
             """UPDATE user_security
-               SET pin_hash = NULL, pin_set_at = NULL, failed_attempts = 0,
+               SET pin_hash = NULL, pin_set_at = NULL, pin_length = NULL, failed_attempts = 0,
                    locked_until = NULL, updated_at = datetime('now')
                WHERE user_id = ?""",
             (user_id,),
@@ -263,8 +266,8 @@ def check_pin(user_id: str, pin: str) -> bool:
 
     attempts = (row.get("failed_attempts") or 0) + 1
     lock_until = (
-        (_now() + timedelta(minutes=LOCKOUT_MINUTES)).isoformat()
-        if attempts >= MAX_PIN_ATTEMPTS
+        (_now() + timedelta(minutes=config.PIN_LOCKOUT_MINUTES)).isoformat()
+        if attempts >= config.PIN_MAX_ATTEMPTS
         else None
     )
     with cursor() as cur:
@@ -280,7 +283,7 @@ def check_pin(user_id: str, pin: str) -> bool:
 
     if lock_until:
         raise SecurityError(
-            f"Too many wrong attempts. Locked for {LOCKOUT_MINUTES} minutes."
+            f"Too many wrong attempts. Locked for {config.PIN_LOCKOUT_MINUTES} minutes."
         )
     return False
 

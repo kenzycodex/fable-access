@@ -370,6 +370,9 @@ MIGRATIONS = {
         "trusted": "INTEGER DEFAULT 0",
     },
     "user_security": {
+        # How many digits the stored PIN has, so the entry boxes match it even
+        # if the configured length changes later.
+        "pin_length": "INTEGER",
         # The customer's own out-of-band channels. Until now a verification
         # code fell back to the *institution's* contact address, which the
         # customer doesn't control — so "a code was sent to your email" wasn't

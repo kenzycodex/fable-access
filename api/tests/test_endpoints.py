@@ -140,45 +140,49 @@ def test_tenant_cannot_be_switched_by_query_parameter(client):
 # ---------------------------------------------------------------------------
 
 def test_any_pin_of_the_right_length_is_accepted(client):
-    """There are no strength rules: a customer may pick 1234, 0000 or 1111.
+    """By default there are no strength rules: a customer may pick 1234 or 0000.
     The protection is the lock-out on repeated wrong attempts."""
     user = "endpointbank_tunde"
-    for pin in ("1234", "0000", "111111"):
-        current = None if pin == "1234" else last
-        res = client.post(f"/v1/accounts/{user}/security/pin",
-                          json={"pin": pin, "current_pin": current})
+    last = None
+    for pin in ("1234", "0000", "1111"):
+        res = client.post(f"/v1/accounts/{user}/security/pin", json={"pin": pin, "current_pin": last})
         assert res.status_code == 200, (pin, res.text)
         last = pin
 
 
-def test_pin_must_still_be_digits_and_four_or_six_long(client):
+def test_pin_must_be_digits_and_exactly_the_configured_length(client):
     user = "endpointbank_ada"
     assert client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "12ab"}).status_code == 400
     assert client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "12345"}).status_code == 400
+    # The default length is 4, so a 6-digit PIN is refused too.
+    assert client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "123456"}).status_code == 400
 
 
-def test_forgotten_pin_reset_needs_a_real_code_proof(client):
-    """A bare request, or a token minted for a transfer, cannot reset the PIN."""
-    import security
-    from agents.shield import stepup
+def test_pin_rules_come_from_the_environment_not_the_code(client, monkeypatch):
+    """Length, weak-PIN blocking and the lock-out are operator choices."""
+    import config
 
-    user = "endpointbank_chioma"
-    assert client.post(f"/v1/accounts/{user}/security/pin/reset",
-                       json={"pin": "2468", "otp_token": "nope"}).status_code == 401
+    user = "endpointbank_rules"
 
-    transfer_token = stepup.issue_token(user, "pin", "transfer", "txn_x")["token"]
-    assert client.post(f"/v1/accounts/{user}/security/pin/reset",
-                       json={"pin": "2468", "otp_token": transfer_token}).status_code == 401
+    monkeypatch.setattr(config, "PIN_LENGTH", 6)
+    assert client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "4821"}).status_code == 400
+    ok = client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "482193"})
+    assert ok.status_code == 200
+    assert ok.json()["pin_length"] == 6          # boxes match the PIN that was set
 
-    reset_token = stepup.issue_token(user, "pin", "pin_reset", None)["token"]
-    res = client.post(f"/v1/accounts/{user}/security/pin/reset",
-                      json={"pin": "2468", "otp_token": reset_token})
-    assert res.status_code == 200
-    assert security.check_pin(user, "2468") is True
+    monkeypatch.setattr(config, "PIN_LENGTH", 4)
+    monkeypatch.setattr(config, "PIN_BLOCK_WEAK", True)
+    other = "endpointbank_weak"
+    for weak in ("0000", "1234", "9876"):
+        assert client.post(f"/v1/accounts/{other}/security/pin", json={"pin": weak}).status_code == 400, weak
+    assert client.post(f"/v1/accounts/{other}/security/pin", json={"pin": "4821"}).status_code == 200
 
-    # Single use: the same proof cannot be replayed to change it again.
-    assert client.post(f"/v1/accounts/{user}/security/pin/reset",
-                       json={"pin": "1357", "otp_token": reset_token}).status_code == 401
+    # Lock-out after a configured number of wrong attempts.
+    monkeypatch.setattr(config, "PIN_MAX_ATTEMPTS", 2)
+    for _ in range(2):
+        client.post("/v1/stepup/pin/verify", json={"user_id": other, "pin": "1111", "purpose": "transfer"})
+    locked = client.post("/v1/stepup/pin/verify", json={"user_id": other, "pin": "4821", "purpose": "transfer"})
+    assert locked.status_code == 400 and "Too many" in locked.json()["detail"]
 
 
 def test_institution_can_clear_its_own_customers_pin_only(client):
@@ -237,38 +241,3 @@ def test_institution_profile_rejects_bad_input(client):
     assert client.patch(url, json={"name": "x"}, headers=own).status_code == 400
     assert client.patch(url, json={"contact_email": "not-an-email"}, headers=own).status_code == 400
     assert client.patch(url, json={}, headers=own).status_code == 400
-
-
-def test_forgot_pin_works_end_to_end_through_a_code(client, monkeypatch):
-    """Customer forgets their PIN: a code goes to their registered email, the
-    code proves it, and they choose a new PIN that then actually works."""
-    import config
-
-    user = "endpointbank_resetflow"
-    # No mail server in tests, so let the code come back in the response.
-    monkeypatch.setattr(config, "ALLOW_DEBUG_OTP", True)
-
-    assert client.post(f"/v1/accounts/{user}/security/contact", json={"email": "ada@example.com"}).status_code == 200
-    assert client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "1234"}).status_code == 200
-
-    sent = client.post("/v1/stepup/otp/send", json={
-        "user_id": user, "purpose": "pin_reset", "channel": "email",
-    })
-    assert sent.status_code == 200
-    challenge, code = sent.json()["challenge_id"], sent.json()["debug_code"]
-
-    # A wrong code is refused and does not burn the challenge.
-    wrong = client.post("/v1/stepup/otp/verify", json={"user_id": user, "challenge_id": challenge, "code": "000000"})
-    assert wrong.status_code == 400 or wrong.json().get("verified") is not True
-
-    verified = client.post("/v1/stepup/otp/verify", json={"user_id": user, "challenge_id": challenge, "code": code})
-    assert verified.status_code == 200
-    token = verified.json()["token"]
-
-    reset = client.post(f"/v1/accounts/{user}/security/pin/reset", json={"pin": "0000", "otp_token": token})
-    assert reset.status_code == 200 and reset.json()["pin_set"] is True
-
-    old = client.post("/v1/stepup/pin/verify", json={"user_id": user, "pin": "1234", "purpose": "transfer"})
-    new = client.post("/v1/stepup/pin/verify", json={"user_id": user, "pin": "0000", "purpose": "transfer"})
-    assert old.status_code == 400
-    assert new.status_code == 200 and new.json()["verified"] is True

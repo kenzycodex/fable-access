@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field
 import accounts as ledger
 import audit
 import security
-from agents.shield import stepup
 from tenancy import resolve_institution
 
 router = APIRouter(prefix="/v1/accounts", tags=["accounts"])
@@ -80,39 +79,6 @@ def set_pin(user_id: str, payload: SetPinRequest):
         raise HTTPException(status_code=400, detail=str(exc))
     audit.record(audit.SECURITY_CHANGED, user_id, institution_id=payload.institution_id,
                  change="pin_changed" if had_pin else "pin_set")
-    return result
-
-
-class ResetPinRequest(BaseModel):
-    pin: str = Field(min_length=4, max_length=6)
-    # Proof from the one-time code sent to the customer's own registered
-    # address, requested with purpose "pin_reset".
-    otp_token: str
-    institution_id: Optional[str] = None
-
-
-@router.post("/{user_id}/security/pin/reset")
-def reset_pin(user_id: str, payload: ResetPinRequest):
-    """Forgotten PIN: choose a new one after proving the registered channel.
-
-    The proof is a code delivered out-of-band, to the address the customer
-    registered, which a session holder does not control. Bound to this user and
-    to the `pin_reset` purpose, and single-use, so a token minted for approving
-    a transfer cannot be replayed to take over the PIN.
-    """
-    level = stepup.verify_token(payload.otp_token, user_id, purpose="pin_reset")
-    if level is None:
-        raise HTTPException(
-            status_code=401,
-            detail="That verification has expired. Request a new code and try again.",
-        )
-    try:
-        result = security.set_pin_verified(user_id, payload.pin, payload.institution_id)
-    except security.SecurityError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    stepup.consume_token(payload.otp_token)
-    audit.record(audit.SECURITY_CHANGED, user_id, institution_id=payload.institution_id,
-                 change="pin_reset", via="registered_code")
     return result
 
 

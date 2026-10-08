@@ -64,7 +64,11 @@ Open the demo, send a flagged transfer, and it will ask you to choose a new PIN.
 Once the latest code is deployed (`git pull origin main` then
 `docker compose up -d --build`), you also get:
 
-- any 4 or 6 digit PIN is accepted, with no "too easy to guess" rule
-- a "Forgot your PIN?" link in the demo, using a code to the registered email
-- a **Reset PIN** button on each customer in the console under Agents > Copilot
+- PIN rules you control from `api/.env`: `FABLE_PIN_LENGTH` (4 or 6),
+  `FABLE_PIN_MAX_ATTEMPTS`, `FABLE_PIN_LOCKOUT_MINUTES` and `FABLE_PIN_BLOCK_WEAK`
+- a **Reset PIN** button on each customer in the console under Agents > Copilot,
+  which clears the PIN so the customer picks a new one
 - `docker compose exec api python scripts/pin_tool.py list` and `... clear <user_id>`
+
+There is no self-service "forgot PIN" for customers. Recovery goes through the
+institution, the way it does at a bank.

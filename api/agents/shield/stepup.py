@@ -30,9 +30,9 @@ import config
 from db import cursor, row_to_dict
 
 CHALLENGE_TTL_SECONDS = 300      # 5 minutes to complete a factor
-TOKEN_TTL_SECONDS = 600          # proof is good for 10 minutes
-OTP_TTL_SECONDS = 600
-MAX_OTP_ATTEMPTS = 5
+TOKEN_TTL_SECONDS = config.STEPUP_TOKEN_TTL_SECONDS
+OTP_TTL_SECONDS = config.OTP_TTL_SECONDS
+MAX_OTP_ATTEMPTS = config.OTP_MAX_ATTEMPTS
 
 # Relying Party identity. Must match the origin the browser is on; overridable
 # so a deployed instance can set its real domain.
