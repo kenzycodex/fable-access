@@ -17,6 +17,9 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 class ProvisionRequest(BaseModel):
     institution_name: str
     admin_email: str
+    # What kind of institution this is (a commercial bank, a fintech, a payment
+    # gateway...). A free label; nothing in the product branches on it.
+    institution_type: Optional[str] = None
     # Demo archetypes to seed. None uses FABLE_DEMO_CUSTOMERS.
     customers: Optional[int] = None
 
@@ -148,7 +151,8 @@ def provision_institution(req: ProvisionRequest, background_tasks: BackgroundTas
             (req.admin_email, institution_id, hashed_pw)
         )
 
-    register_institution(institution_id, req.institution_name, req.admin_email)
+    institution_type = " ".join((req.institution_type or "").split())[:60] or "Financial Institution"
+    register_institution(institution_id, req.institution_name, req.admin_email, institution_type)
 
     # Give the new tenant a populated world to log into: three demo customers
     # with 90 days of their own history, scoped to this institution.

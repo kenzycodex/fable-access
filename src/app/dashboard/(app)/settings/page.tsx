@@ -7,6 +7,7 @@ import { useTheme } from "next-themes";
 import { BrainIcon, EyeIcon, GhostIcon, ShieldIcon } from "@/components/app-icons";
 import { BrandingSettings } from "@/components/dashboard/BrandingSettings";
 import { Card, PageHeader } from "@/components/dashboard/primitives";
+import { INSTITUTION_TYPE_GROUPS, ALL_INSTITUTION_TYPES, OTHER_TYPE } from "@/data/institution-types";
 import { institutionCredentials, updateInstitutionProfile, type InstitutionCredentials } from "@/lib/fable/api";
 import { mutate as swrMutate } from "swr";
 import { useSignedInInstitution } from "@/lib/fable/useInstitution";
@@ -321,15 +322,6 @@ function LightToggle({
   );
 }
 
-const INSTITUTION_TYPES = [
-  "Microfinance Bank",
-  "Commercial Bank",
-  "Fintech",
-  "Payment Service Provider",
-  "Wallet Provider",
-  "Payment Gateway",
-];
-
 const fieldInput =
   "w-full rounded-lg border border-gray-200 dark:border-white/[0.06] bg-gray-50 dark:bg-white/[0.03] px-4 py-2.5 text-[13px] font-medium text-gray-800 dark:text-white/80 outline-none focus:ring-2 focus:ring-[#7C3AED]/30";
 
@@ -350,7 +342,14 @@ function ProfileCard({
   profile: { name: string; type: string; contact_email: string | null } | null;
 }) {
   const [name, setName] = useState(profile?.name ?? "");
-  const [type, setType] = useState(profile?.type ?? "");
+  const savedType = profile?.type ?? "";
+  // A type that is not in the list is shown as "Other" with its own text box, so
+  // an institution that fits none of the categories is never forced into one.
+  const [typeChoice, setTypeChoice] = useState(
+    ALL_INSTITUTION_TYPES.includes(savedType) || !savedType ? savedType : OTHER_TYPE,
+  );
+  const [customType, setCustomType] = useState(ALL_INSTITUTION_TYPES.includes(savedType) ? "" : savedType);
+  const type = typeChoice === OTHER_TYPE ? customType : typeChoice;
   const [email, setEmail] = useState(profile?.contact_email ?? "");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "error"; text: string } | null>(null);
@@ -399,12 +398,38 @@ function ProfileCard({
           </label>
           <label className="flex flex-col gap-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Type</span>
-            <input value={type} onChange={(e) => setType(e.target.value)} list="institution-types" maxLength={60} disabled={!profile} className={fieldInput} />
-            <datalist id="institution-types">
-              {INSTITUTION_TYPES.map((t) => (
-                <option key={t} value={t} />
+            <select
+              value={typeChoice}
+              onChange={(e) => setTypeChoice(e.target.value)}
+              disabled={!profile}
+              className={fieldInput}
+            >
+              {!typeChoice && (
+                <option value="" disabled>
+                  Choose a type
+                </option>
+              )}
+              {INSTITUTION_TYPE_GROUPS.map((g) => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.types.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
-            </datalist>
+              <option value={OTHER_TYPE}>Other (type your own)</option>
+            </select>
+            {typeChoice === OTHER_TYPE && (
+              <input
+                value={customType}
+                onChange={(e) => setCustomType(e.target.value)}
+                maxLength={60}
+                placeholder="Describe your institution"
+                aria-label="Describe your institution"
+                className={`${fieldInput} mt-1`}
+              />
+            )}
           </label>
           <label className="flex flex-col gap-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-white/40">Contact email</span>

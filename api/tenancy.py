@@ -158,7 +158,7 @@ def list_institutions() -> list[dict]:
         return [row_to_dict(r) for r in cur.fetchall()]
 
 
-def register_institution(institution_id: str, name: str, contact_email: str, type_: str = "Microfinance Bank") -> None:
+def register_institution(institution_id: str, name: str, contact_email: str, type_: str = "Financial Institution") -> None:
     with cursor() as cur:
         cur.execute(
             """INSERT INTO institutions (institution_id, name, type, contact_email)

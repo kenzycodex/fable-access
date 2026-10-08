@@ -140,7 +140,7 @@ reference.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /admin/provision` | Create a tenant, seed it, email credentials. Operator key required |
+| `POST /admin/provision` | Create a tenant, seed it, email credentials. Operator key required. Optional `institution_type` (a commercial bank, a fintech, a payment gateway...) |
 | `GET /v1/institutions/{id}` | Detail and customer roster. Never returns credentials |
 | `PATCH /v1/institutions/{id}` | Edit the institution's name, type and contact email. Needs that institution's session. The id, sign-in email and demo URL do not change |
 | `GET /v1/institutions/{id}/credentials` | The institution's own API key. Needs that institution's session |

@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS user_locations (
 CREATE TABLE IF NOT EXISTS institutions (
     institution_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    type TEXT DEFAULT 'Microfinance Bank',
+    type TEXT DEFAULT 'Financial Institution',
     contact_email TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 );
