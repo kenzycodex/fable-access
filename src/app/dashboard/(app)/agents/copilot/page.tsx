@@ -4,12 +4,16 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ArrowLeft, Brain, MagnifyingGlass } from "@phosphor-icons/react";
 import { Card, PageHeader, StatCard } from "@/components/dashboard/primitives";
-import { apiChannelLabel } from "@/lib/fable/api";
+import { apiChannelLabel, resetCustomerPin, type CopilotCustomer } from "@/lib/fable/api";
+import { formatNaira } from "@/lib/fable/format";
+import { useFableStore } from "@/lib/fable/store";
 import { useAgentsOverview, useCopilotCustomers } from "@/lib/fable/useBackend";
 
 export default function CopilotAgentPage() {
   const { data: overview } = useAgentsOverview();
-  const { data } = useCopilotCustomers();
+  const { data, mutate } = useCopilotCustomers();
+  const store = useFableStore();
+  const institutionId = store?.session.institutionId ?? null;
   const [query, setQuery] = useState("");
 
   const customers = useMemo(() => {
@@ -106,6 +110,12 @@ export default function CopilotAgentPage() {
                   </div>
                 )}
 
+                <VerificationRow
+                  customer={c}
+                  institutionId={institutionId}
+                  onChanged={() => void mutate()}
+                />
+
                 <p className="mt-3 text-[11px] text-gray-400 dark:text-white/25">
                   Last activity {formatWhen(c.last_activity)} · baseline refreshed {c.last_updated ? formatWhen(c.last_updated) : "—"}
                 </p>
@@ -138,4 +148,102 @@ function formatWhen(iso: string): string {
   const hours = Math.round(mins / 60);
   if (hours < 48) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
+}
+
+function Chip({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+  return (
+    <span
+      className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
+        ok
+          ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400"
+          : "bg-gray-100 text-gray-500 dark:bg-white/[0.06] dark:text-white/40"
+      }`}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** Verification status for one customer, and the institution's PIN reset.
+ *
+ * Resetting clears the PIN rather than choosing one, so the bank never learns or
+ * picks a customer's PIN: the customer sets a new one at their next
+ * verification. It is a two-step control because it changes a security factor. */
+function VerificationRow({
+  customer,
+  institutionId,
+  onChanged,
+}: {
+  customer: CopilotCustomer;
+  institutionId: string | null;
+  onChanged: () => void;
+}) {
+  const v = customer.verification;
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!v) return null;
+
+  async function reset() {
+    if (!institutionId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await resetCustomerPin(institutionId, customer.user_id);
+      setConfirming(false);
+      onChanged();
+    } catch {
+      setError("Could not reset the PIN. Sign in again and retry.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-200 pt-3 dark:border-white/[0.05]">
+      <Chip ok={v.pin_set && !v.pin_locked}>{!v.pin_set ? "No PIN" : v.pin_locked ? "PIN locked" : "PIN set"}</Chip>
+      <Chip ok={v.passkeys > 0}>{v.passkeys > 0 ? `${v.passkeys} device${v.passkeys === 1 ? "" : "s"}` : "No passkey"}</Chip>
+      <Chip ok={v.contact_set}>{v.contact_set ? "Codes reach them" : "No code contact"}</Chip>
+      {customer.balance != null && (
+        <span className="text-[12px] font-semibold tabular-nums text-gray-600 dark:text-white/60">
+          Balance {formatNaira(customer.balance)}
+        </span>
+      )}
+
+      {v.pin_set && (
+        <span className="ml-auto flex items-center gap-2">
+          {confirming ? (
+            <>
+              <span className="text-[11px] text-gray-500 dark:text-white/40">Clear this customer&apos;s PIN?</span>
+              <button
+                type="button"
+                onClick={reset}
+                disabled={busy}
+                className="rounded-lg bg-red-500 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-red-600 disabled:opacity-50"
+              >
+                {busy ? "Clearing…" : "Yes, reset"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                className="text-[11px] font-semibold text-gray-500 hover:text-gray-800 dark:text-white/40 dark:hover:text-white"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              className="rounded-lg border border-gray-200 px-3 py-1.5 text-[11px] font-bold text-gray-600 transition-colors hover:bg-gray-100 dark:border-white/[0.08] dark:text-white/55 dark:hover:bg-white/[0.05]"
+            >
+              Reset PIN
+            </button>
+          )}
+        </span>
+      )}
+      {error && <p className="w-full text-[11px] text-red-500">{error}</p>}
+    </div>
+  );
 }

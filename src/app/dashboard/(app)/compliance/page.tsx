@@ -1,10 +1,10 @@
 "use client";
 
 import { CheckIcon, FileCheckIcon } from "@/components/app-icons";
-import { Card, PageHeader, RiskBadge, StatCard } from "@/components/dashboard/primitives";
+import { Card, PageHeader, StatCard } from "@/components/dashboard/primitives";
 import { summarize } from "@/lib/fable/analytics";
-import { formatClock, formatNaira, formatRelativeTime } from "@/lib/fable/format";
-import { useDashboardFeed } from "@/lib/fable/useBackend";
+import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
+import { useCompliance, useDashboardFeed } from "@/lib/fable/useBackend";
 
 // Regulatory frameworks Fable is built against (real Nigerian/industry
 // standards). Presented as posture, nothing here is certified in the demo.
@@ -17,9 +17,10 @@ const FRAMEWORKS = [
 
 export default function CompliancePage() {
   const feed = useDashboardFeed();
+  const { data: compliance } = useCompliance();
+  const events = compliance?.audit_trail ?? [];
   const txns = [...feed.transactions].sort((a, b) => b.timestamp - a.timestamp);
   const s = summarize(txns);
-  const auditTrail = txns.slice(0, 12);
   const incidents = txns.filter((t) => t.action === "BLOCK");
 
   return (
@@ -48,22 +49,34 @@ export default function CompliancePage() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 mt-4">
-        {/* Audit trail */}
+        {/* Audit trail: the recorded events themselves, not a re-listing of
+            transfers. Containment, verification, security changes and top-ups
+            are what a compliance officer reconstructs an incident from. */}
         <Card className="lg:col-span-2">
           <h2 className="mb-4 text-[16px] font-bold text-gray-900 dark:text-white">Audit trail</h2>
           <div className="flex flex-col divide-y divide-gray-100 dark:divide-white/[0.04]">
-            {!feed.ready ? (
+            {!compliance ? (
               <div className="h-24 animate-pulse rounded bg-gray-100 dark:bg-white/[0.04]" />
+            ) : events.length === 0 ? (
+              <p className="py-6 text-center text-[13px] text-gray-400 dark:text-white/40">No events recorded yet.</p>
             ) : (
-              auditTrail.map((t) => (
-                <div key={t.id} className="flex items-center gap-4 py-3 text-[13px]">
-                  <span className="w-16 shrink-0 tabular-nums text-gray-500 dark:text-white/40">{formatClock(t.timestamp)}</span>
-                  <span className="min-w-0 flex-1 truncate text-gray-800 dark:text-white/80 font-medium">
-                    {t.customerName} → {t.recipientName} <span className="text-gray-400 dark:text-white/40 font-normal">· {formatNaira(t.amount)}</span>
-                  </span>
-                  <RiskBadge action={t.action} />
-                </div>
-              ))
+              events.slice(0, 25).map((e) => {
+                const d = describeEvent(e);
+                return (
+                  <div key={e.id} className="flex items-center gap-4 py-3 text-[13px]">
+                    <span className="w-20 shrink-0 tabular-nums text-gray-500 dark:text-white/40">{eventTime(e.created_at)}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium text-gray-800 dark:text-white/80">{d.label}</span>
+                      {e.user_id && (
+                        <span className="block truncate font-mono text-[11px] text-gray-400 dark:text-white/35">{e.user_id}</span>
+                      )}
+                    </span>
+                    <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${d.tone}`}>
+                      {d.tag}
+                    </span>
+                  </div>
+                );
+              })
             )}
           </div>
         </Card>
@@ -109,4 +122,61 @@ export default function CompliancePage() {
       </Card>
     </>
   );
+}
+
+const TONE = {
+  ok: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400",
+  warn: "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400",
+  bad: "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400",
+  info: "bg-violet-50 text-violet-600 dark:bg-violet-500/10 dark:text-violet-400",
+};
+
+type AuditEvent = NonNullable<ReturnType<typeof useCompliance>["data"]>["audit_trail"] extends (infer E)[] | undefined ? E : never;
+
+/** Turn a recorded event into a sentence a compliance officer can read. */
+function describeEvent(e: AuditEvent): { label: string; tag: string; tone: string } {
+  const p = e.payload ?? {};
+  const amount = typeof p.amount === "number" ? ` of ${formatNaira(p.amount)}` : "";
+
+  switch (e.event_type) {
+    case "containment.created":
+      return { label: `Transfer${amount} held in containment`, tag: "Held", tone: TONE.warn };
+    case "containment.released":
+      return { label: `Held transfer${amount} released by the customer`, tag: "Released", tone: TONE.info };
+    case "containment.cancelled":
+      return { label: `Held transfer${amount} cancelled, money returned`, tag: "Cancelled", tone: TONE.ok };
+    case "containment.expired":
+      return { label: "Holds auto-cancelled after their cooling window", tag: "Expired", tone: TONE.ok };
+    case "stepup.passed":
+      return { label: `Identity check passed (${String(p.level ?? "verified")})`, tag: "Verified", tone: TONE.ok };
+    case "stepup.failed":
+      return { label: `Failed ${String(p.factor ?? "verification")} check${p.reason ? `: ${String(p.reason).replace(/_/g, " ")}` : ""}`, tag: "Failed", tone: TONE.bad };
+    case "transfer.approved":
+      return { label: `Flagged transfer${amount} approved after verification`, tag: "Approved", tone: TONE.info };
+    case "security.changed": {
+      const change = String(p.change ?? "");
+      const via = p.via === "institution" ? " by the institution" : p.via === "registered_code" ? " with a code to their registered contact" : "";
+      const label =
+        change === "pin_set" ? "Transaction PIN set"
+        : change === "pin_changed" ? "Transaction PIN changed"
+        : change === "pin_reset" ? `Transaction PIN reset${via}`
+        : "Security setting changed";
+      return { label, tag: "Security", tone: TONE.warn };
+    }
+    case "account.topup":
+      return { label: `Account topped up${amount}${p.method ? ` by ${String(p.method)}` : ""}`, tag: "Top-up", tone: TONE.info };
+    case "admin.login":
+      return { label: "Console sign-in", tag: "Sign-in", tone: TONE.info };
+    case "institution.provisioned":
+      return { label: "Institution provisioned", tag: "Setup", tone: TONE.info };
+    default:
+      return { label: e.event_type, tag: "Event", tone: TONE.info };
+  }
+}
+
+function eventTime(iso: string): string {
+  // The API stores naive UTC timestamps; force UTC unless a zone is present.
+  const normalized = iso.includes("T") ? iso : iso.replace(" ", "T");
+  const t = Date.parse(/Z|[+-]\d{2}:\d{2}$/.test(normalized) ? normalized : `${normalized}Z`);
+  return Number.isNaN(t) ? iso : formatRelativeTime(t);
 }
