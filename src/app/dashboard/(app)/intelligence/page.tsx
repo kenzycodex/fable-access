@@ -33,34 +33,36 @@ export default function IntelligencePage() {
         <StatCard label="Flagged" value={s ? String(s.flagged) : "-"} tone="warning" />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader title="Scam-pattern library" subtitle="Scripts that recur in blocked and flagged transfers" />
-          <BarList items={patterns} emptyLabel="No scam patterns detected yet" color="#ef4444" />
-        </Card>
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+        <div className="flex flex-col gap-4 lg:col-span-2">
+          <Card>
+            <CardHeader title="Scam-pattern library" subtitle="Scripts that recur in blocked and flagged transfers" />
+            <BarList items={patterns} emptyLabel="No scam patterns detected yet" color="#ef4444" />
+          </Card>
+          <Card>
+            <CardHeader title="Signals fired" subtitle="Which of the 14 layers trigger most" />
+            <BarList items={signals} emptyLabel="No signals fired yet" color="#f59e0b" />
+          </Card>
+        </div>
 
-        <Card>
-          <CardHeader title="Outcome mix" subtitle="All scored transfers" />
-          <DonutChart
-            segments={[
-              { label: "Passed", value: s?.passed ?? 0, color: "#10b981" },
-              { label: "Flagged", value: s?.flagged ?? 0, color: "#f59e0b" },
-              { label: "Blocked", value: s?.blocked ?? 0, color: "#ef4444" },
-            ]}
-            centerValue={s ? total.toLocaleString("en-NG") : "-"}
-            centerLabel="transfers"
-          />
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardHeader title="Signals fired" subtitle="Which of the 14 layers trigger most" />
-          <BarList items={signals} emptyLabel="No signals fired yet" color="#f59e0b" />
-        </Card>
-
-        <Card>
-          <CardHeader title="Channel breakdown" subtitle="Volume by channel" />
-          <BarList items={channels} emptyLabel="No channel data yet" />
-        </Card>
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardHeader title="Outcome mix" subtitle="All scored transfers" />
+            <DonutChart
+              segments={[
+                { label: "Passed", value: s?.passed ?? 0, color: "#10b981" },
+                { label: "Flagged", value: s?.flagged ?? 0, color: "#f59e0b" },
+                { label: "Blocked", value: s?.blocked ?? 0, color: "#ef4444" },
+              ]}
+              centerValue={s ? total.toLocaleString("en-NG") : "-"}
+              centerLabel="transfers"
+            />
+          </Card>
+          <Card>
+            <CardHeader title="Channel breakdown" subtitle="Volume by channel" />
+            <BarList items={channels} emptyLabel="No channel data yet" />
+          </Card>
+        </div>
       </div>
     </>
   );

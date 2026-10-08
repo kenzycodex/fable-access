@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Check, FileText, ShieldCheck } from "@phosphor-icons/react";
 import {
   Badge,
@@ -36,6 +37,7 @@ type AuditEvent = NonNullable<ReturnType<typeof useCompliance>["data"]>["audit_t
  */
 export default function CompliancePage() {
   const nameFor = useCustomerNames();
+  const [showAll, setShowAll] = useState(false);
   const feed = useDashboardFeed();
   const { data: compliance } = useCompliance();
 
@@ -84,7 +86,7 @@ export default function CompliancePage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
         {/* The recorded events themselves, not a re-listing of transfers.
             Containment, verification, security changes and top-ups are what a
             compliance officer reconstructs an incident from. */}
@@ -102,7 +104,7 @@ export default function CompliancePage() {
             <EmptyState icon={<FileText size={22} />} title="No events yet" body="Holds, verifications and security changes are recorded here." />
           ) : (
             <ul className="divide-y divide-d-border">
-              {events.slice(0, 25).map((e) => {
+              {events.slice(0, showAll ? 25 : 8).map((e) => {
                 const d = describeEvent(e);
                 return (
                   <li key={e.id} className="flex items-center gap-4 px-5 py-3.5 text-[13px]">
@@ -120,6 +122,13 @@ export default function CompliancePage() {
                 );
               })}
             </ul>
+          )}
+          {events.length > 8 && (
+            <div className="border-t border-d-border px-5 py-3">
+              <Button variant="ghost" size="sm" onClick={() => setShowAll((v) => !v)}>
+                {showAll ? "Show fewer" : `Show ${Math.min(events.length, 25) - 8} more`}
+              </Button>
+            </div>
           )}
         </Card>
 

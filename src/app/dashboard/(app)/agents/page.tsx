@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowRight, Binoculars, Brain, Ghost, ShieldCheck } from "@phosphor-icons/react";
 import { Badge, Card, Notice, PageHeader } from "@/components/dashboard/primitives";
-import { formatNaira } from "@/lib/fable/format";
+import { formatNairaCompact } from "@/lib/fable/format";
 import { useAgentsOverview } from "@/lib/fable/useBackend";
 
 export default function AgentsPage() {
@@ -24,7 +24,7 @@ export default function AgentsPage() {
         </Notice>
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <AgentCard
           href="/dashboard/agents/copilot"
           icon={<Brain size={22} weight="fill" />}
@@ -63,7 +63,7 @@ export default function AgentsPage() {
             { label: "Containers", value: fmt(data?.ghost.containers_created) },
             { label: "Cancelled", value: fmt(data?.ghost.cancelled) },
             { label: "Cancel rate", value: data ? `${Math.round(data.ghost.cancellation_rate * 100)}%` : "-" },
-            { label: "Money saved", value: data ? formatNaira(data.ghost.money_saved_ngn) : "-" },
+            { label: "Money saved", value: data ? formatNairaCompact(data.ghost.money_saved_ngn) : "-" },
           ]}
         />
 
@@ -123,16 +123,16 @@ function AgentCard({
           <Badge tone={live ? "success" : "neutral"}>{live ? "Active" : "Loading"}</Badge>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mt-5 grid grid-cols-2 gap-3">
           {stats.map((s) => (
-            <div key={s.label} className="rounded-xl bg-d-surface-2 px-3 py-2.5">
-              <p className="truncate text-[16px] font-bold tabular-nums text-d-text">{s.value}</p>
-              <p className="text-[11px] font-medium text-d-muted">{s.label}</p>
+            <div key={s.label} className="rounded-2xl bg-d-surface-2 px-4 py-3.5">
+              <p className="truncate text-[22px] font-bold leading-tight tabular-nums text-d-text">{s.value}</p>
+              <p className="mt-0.5 truncate text-[12px] font-medium text-d-muted">{s.label}</p>
             </div>
           ))}
         </div>
 
-        <div className="mt-4 flex items-center gap-1.5 text-[12px] font-semibold text-brand opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="mt-4 flex items-center gap-1.5 text-[12px] font-semibold text-brand">
           Open deep-dive <ArrowRight size={14} weight="bold" />
         </div>
       </Card>

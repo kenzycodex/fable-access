@@ -107,7 +107,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
     <Card>
       <CardHeader title="Branding" subtitle="Your customers see your bank, not Fable. Changes apply to your demo bank instantly." />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-5">
         <div className="flex flex-col gap-5 lg:col-span-3">
           <div>
             <p className="mb-2 text-[12px] font-semibold text-d-muted">Logo</p>
@@ -196,7 +196,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
         </div>
 
         {/* A live swatch of what the two colours do, so the choice is not blind. */}
-        <div className="lg:col-span-2">
+        <div className="lg:sticky lg:top-24 lg:col-span-2">
           <p className="mb-2 text-[12px] font-semibold text-d-muted">Preview</p>
           <div className="overflow-hidden rounded-2xl border border-d-border">
             <div className="px-5 pb-6 pt-5 text-white" style={{ backgroundColor: form.accent_color }}>

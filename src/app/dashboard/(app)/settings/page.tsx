@@ -41,7 +41,7 @@ export default function SettingsPage() {
 
       <BrandingSettings institutionId={institutionId} />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <ApiAccessCard institutionId={institutionId} />
         <AppearanceCard />
       </div>
