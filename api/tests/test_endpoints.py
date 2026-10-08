@@ -237,3 +237,38 @@ def test_institution_profile_rejects_bad_input(client):
     assert client.patch(url, json={"name": "x"}, headers=own).status_code == 400
     assert client.patch(url, json={"contact_email": "not-an-email"}, headers=own).status_code == 400
     assert client.patch(url, json={}, headers=own).status_code == 400
+
+
+def test_forgot_pin_works_end_to_end_through_a_code(client, monkeypatch):
+    """Customer forgets their PIN: a code goes to their registered email, the
+    code proves it, and they choose a new PIN that then actually works."""
+    import config
+
+    user = "endpointbank_resetflow"
+    # No mail server in tests, so let the code come back in the response.
+    monkeypatch.setattr(config, "ALLOW_DEBUG_OTP", True)
+
+    assert client.post(f"/v1/accounts/{user}/security/contact", json={"email": "ada@example.com"}).status_code == 200
+    assert client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "1234"}).status_code == 200
+
+    sent = client.post("/v1/stepup/otp/send", json={
+        "user_id": user, "purpose": "pin_reset", "channel": "email",
+    })
+    assert sent.status_code == 200
+    challenge, code = sent.json()["challenge_id"], sent.json()["debug_code"]
+
+    # A wrong code is refused and does not burn the challenge.
+    wrong = client.post("/v1/stepup/otp/verify", json={"user_id": user, "challenge_id": challenge, "code": "000000"})
+    assert wrong.status_code == 400 or wrong.json().get("verified") is not True
+
+    verified = client.post("/v1/stepup/otp/verify", json={"user_id": user, "challenge_id": challenge, "code": code})
+    assert verified.status_code == 200
+    token = verified.json()["token"]
+
+    reset = client.post(f"/v1/accounts/{user}/security/pin/reset", json={"pin": "0000", "otp_token": token})
+    assert reset.status_code == 200 and reset.json()["pin_set"] is True
+
+    old = client.post("/v1/stepup/pin/verify", json={"user_id": user, "pin": "1234", "purpose": "transfer"})
+    new = client.post("/v1/stepup/pin/verify", json={"user_id": user, "pin": "0000", "purpose": "transfer"})
+    assert old.status_code == 400
+    assert new.status_code == 200 and new.json()["verified"] is True
