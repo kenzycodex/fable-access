@@ -29,8 +29,33 @@ STEPUP_PASSED = "stepup.passed"
 STEPUP_FAILED = "stepup.failed"
 TRANSFER_APPROVED = "transfer.approved"
 SECURITY_CHANGED = "security.changed"
+ACCOUNT_TOPUP = "account.topup"
 ADMIN_LOGIN = "admin.login"
 INSTITUTION_PROVISIONED = "institution.provisioned"
+
+
+def _institution_of(user_id: str | None) -> str | None:
+    """Which institution a customer belongs to, when the caller did not say.
+
+    An event with no institution is read as platform-level and is shown to every
+    tenant, so a customer's event must never be stored without one. Callers deep
+    in the step-up code know the user but not the tenant; this finds it.
+    """
+    if not user_id:
+        return None
+    try:
+        with cursor() as cur:
+            for table in ("accounts", "user_security", "fable_users", "transactions"):
+                cur.execute(
+                    f"SELECT institution_id FROM {table} WHERE user_id = ? AND institution_id IS NOT NULL LIMIT 1",
+                    (user_id,),
+                )
+                row = cur.fetchone()
+                if row and row["institution_id"]:
+                    return row["institution_id"]
+    except Exception:  # noqa: BLE001 — never let a lookup break the audited action
+        pass
+    return None
 
 
 def record(event_type: str, user_id: str | None = None, **payload) -> None:
@@ -40,7 +65,7 @@ def record(event_type: str, user_id: str | None = None, **payload) -> None:
     so the compliance view can scope directly rather than inferring a tenant by
     joining through transactions.
     """
-    institution_id = payload.get("institution_id")
+    institution_id = payload.get("institution_id") or _institution_of(user_id)
     try:
         with cursor() as cur:
             cur.execute(

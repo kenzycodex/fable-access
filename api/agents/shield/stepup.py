@@ -25,6 +25,7 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
+import audit
 import config
 from db import cursor, row_to_dict
 
@@ -116,6 +117,7 @@ def record_failure(user_id: str, kind: str, reason: str) -> None:
             "INSERT INTO stepup_failures (user_id, kind, reason) VALUES (?, ?, ?)",
             (user_id, kind, reason),
         )
+    audit.record(audit.STEPUP_FAILED, user_id, factor=kind, reason=reason)
 
 
 def record_success(user_id: str) -> None:
@@ -175,6 +177,7 @@ def issue_token(user_id: str, level: str, purpose: str | None, reference: str | 
     # Issuing a token means a factor was just satisfied — record the success so
     # the failed-verification signal resets for the next transfer.
     record_success(user_id)
+    audit.record(audit.STEPUP_PASSED, user_id, level=level, purpose=purpose)
     return {"token": token, "level": level, "expires_in": TOKEN_TTL_SECONDS}
 
 

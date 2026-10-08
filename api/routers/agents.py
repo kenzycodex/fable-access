@@ -152,8 +152,33 @@ def copilot_customers(request: Request, limit: int = Query(50, ge=1, le=200), in
         )
         users = [row_to_dict(r) for r in cur.fetchall()]
 
+    # What the console needs to support a customer, read in one pass: whether
+    # they have a PIN, whether it is locked, which factors they have enrolled,
+    # and what they hold. Read-only on purpose. Asking the ledger for a balance
+    # would create an account row for anyone it had not seen.
+    import security
+
+    with cursor() as cur:
+        ids = [u["user_id"] for u in users]
+        balances: dict[str, float] = {}
+        if ids:
+            marks = ",".join("?" for _ in ids)
+            cur.execute(f"SELECT user_id, balance FROM accounts WHERE user_id IN ({marks})", ids)
+            balances = {r["user_id"]: float(r["balance"] or 0) for r in cur.fetchall()}
+
+    def verification(user_id: str) -> dict:
+        st = security.status(user_id)
+        return {
+            "pin_set": st["pin_set"],
+            "pin_locked": st["pin_locked"],
+            "passkeys": st["passkey_count"],
+            "contact_set": st["email_set"] or st["phone_set"],
+            "two_factor": st["two_factor_enabled"],
+        }
+
     out = []
     for u in users:
+        extra = {"balance": balances.get(u["user_id"]), "verification": verification(u["user_id"])}
         baseline = get_user_baseline(u["user_id"])
         if baseline:
             out.append({
@@ -173,6 +198,7 @@ def copilot_customers(request: Request, limit: int = Query(50, ge=1, le=200), in
                 "avg_time_to_submit_s": round(baseline["avg_time_to_submit"], 1) if baseline["avg_time_to_submit"] else None,
                 "last_activity": u["last_seen"],
                 "last_updated": baseline["last_updated"],
+                **extra,
             })
         else:
             out.append({
@@ -181,6 +207,7 @@ def copilot_customers(request: Request, limit: int = Query(50, ge=1, le=200), in
                 "transactions_analyzed": u["tx"],
                 "live_transactions": u["live_tx"] or 0,
                 "last_activity": u["last_seen"],
+                **extra,
             })
 
     return {"customers": out, "total": len(out)}
