@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowLeft, Ghost, Timer } from "@phosphor-icons/react";
 import { Card, PageHeader, StatCard } from "@/components/dashboard/primitives";
 import { formatNaira } from "@/lib/fable/format";
+import { useCustomerNames } from "@/lib/fable/useInstitution";
 import { useGhostContainers } from "@/lib/fable/useBackend";
 
 const STATUS_STYLES: Record<string, string> = {
@@ -13,6 +14,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export default function GhostAgentPage() {
+  const nameFor = useCustomerNames();
   const { data } = useGhostContainers();
   const stats = data?.stats;
 
@@ -68,7 +70,7 @@ export default function GhostAgentPage() {
                         {g.recipient_bank ? ` · ${g.recipient_bank}` : ""}
                       </p>
                       <p className="text-[11px] text-gray-500 dark:text-white/35">
-                        {g.user_id} · risk {g.risk_score?.toFixed(2) ?? "—"} · {g.cooling_window_minutes ?? "—"}min window
+                        {nameFor(g.user_id)} · risk {g.risk_score?.toFixed(2) ?? "—"} · {g.cooling_window_minutes ?? "—"}min window
                       </p>
                     </div>
                     <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${STATUS_STYLES[g.status] ?? STATUS_STYLES.RELEASED}`}>

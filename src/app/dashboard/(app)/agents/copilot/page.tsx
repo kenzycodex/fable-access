@@ -7,9 +7,11 @@ import { Card, PageHeader, StatCard } from "@/components/dashboard/primitives";
 import { apiChannelLabel, resetCustomerPin, type CopilotCustomer } from "@/lib/fable/api";
 import { formatNaira } from "@/lib/fable/format";
 import { useFableStore } from "@/lib/fable/store";
+import { useCustomerNames } from "@/lib/fable/useInstitution";
 import { useAgentsOverview, useCopilotCustomers } from "@/lib/fable/useBackend";
 
 export default function CopilotAgentPage() {
+  const nameFor = useCustomerNames();
   const { data: overview } = useAgentsOverview();
   const { data, mutate } = useCopilotCustomers();
   const store = useFableStore();
@@ -20,8 +22,8 @@ export default function CopilotAgentPage() {
     const all = data?.customers ?? [];
     if (!query.trim()) return all;
     const q = query.trim().toLowerCase();
-    return all.filter((c) => c.user_id.toLowerCase().includes(q));
-  }, [data, query]);
+    return all.filter((c) => c.user_id.toLowerCase().includes(q) || nameFor(c.user_id).toLowerCase().includes(q));
+  }, [data, query, nameFor]);
 
   return (
     <>
@@ -50,8 +52,8 @@ export default function CopilotAgentPage() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search customer id…"
-              aria-label="Search customer id…"
+              placeholder="Search customer name or id…"
+              aria-label="Search customer name or id"
               className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-8 pr-3 text-[12px] text-gray-900 outline-none focus:ring-1 focus:ring-[#7C3AED]/40 dark:border-white/[0.05] dark:bg-[#111] dark:text-white sm:w-56"
             />
           </div>
@@ -68,10 +70,11 @@ export default function CopilotAgentPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5">
                     <span className="flex size-8 items-center justify-center rounded-lg bg-[#7C3AED]/10 text-[12px] font-bold text-[#7C3AED]">
-                      {c.user_id.slice(0, 2).toUpperCase()}
+                      {nameFor(c.user_id).slice(0, 2).toUpperCase()}
                     </span>
                     <div>
-                      <p className="font-mono text-[13px] font-semibold text-gray-900 dark:text-white">{c.user_id}</p>
+                      <p className="text-[13px] font-semibold text-gray-900 dark:text-white">{nameFor(c.user_id)}</p>
+                      <p className="font-mono text-[10px] text-gray-400 dark:text-white/30">{c.user_id}</p>
                       <p className="text-[11px] text-gray-500 dark:text-white/35">
                         {c.transactions_analyzed.toLocaleString("en-NG")} transactions analyzed · {c.live_transactions} live
                       </p>

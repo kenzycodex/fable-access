@@ -4,6 +4,7 @@ import { CheckIcon, FileCheckIcon } from "@/components/app-icons";
 import { Card, PageHeader, StatCard } from "@/components/dashboard/primitives";
 import { summarize } from "@/lib/fable/analytics";
 import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
+import { useCustomerNames } from "@/lib/fable/useInstitution";
 import { useCompliance, useDashboardFeed } from "@/lib/fable/useBackend";
 
 // Regulatory frameworks Fable is built against (real Nigerian/industry
@@ -16,6 +17,7 @@ const FRAMEWORKS = [
 ];
 
 export default function CompliancePage() {
+  const nameFor = useCustomerNames();
   const feed = useDashboardFeed();
   const { data: compliance } = useCompliance();
   const events = compliance?.audit_trail ?? [];
@@ -68,7 +70,7 @@ export default function CompliancePage() {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium text-gray-800 dark:text-white/80">{d.label}</span>
                       {e.user_id && (
-                        <span className="block truncate font-mono text-[11px] text-gray-400 dark:text-white/35">{e.user_id}</span>
+                        <span className="block truncate text-[11px] text-gray-400 dark:text-white/35" title={e.user_id}>{nameFor(e.user_id)}</span>
                       )}
                     </span>
                     <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${d.tone}`}>

@@ -878,6 +878,8 @@ export interface InstitutionProfile {
   name: string;
   type: string;
   contact_email: string | null;
+  /** The institution's customers, with the names the demo bank shows. */
+  customers?: { user_id: string; name: string }[];
 }
 
 /** GET /v1/institutions/{id} — the signed-in tenant's real profile.

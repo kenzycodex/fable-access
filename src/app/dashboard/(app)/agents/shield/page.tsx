@@ -6,10 +6,12 @@ import { ArrowLeft, CaretDown, ShieldCheck } from "@phosphor-icons/react";
 import { Card, PageHeader, RiskBadge, StatCard } from "@/components/dashboard/primitives";
 import { apiChannelLabel, parseApiSignals } from "@/lib/fable/api";
 import { formatNaira } from "@/lib/fable/format";
+import { useCustomerNames } from "@/lib/fable/useInstitution";
 import { useShieldDecisions } from "@/lib/fable/useBackend";
 import type { RiskAction } from "@/lib/fable/types";
 
 export default function ShieldAgentPage() {
+  const nameFor = useCustomerNames();
   const { data } = useShieldDecisions();
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -87,7 +89,7 @@ export default function ShieldAgentPage() {
                           {formatNaira(d.amount)} → {prettyId(d.recipient_id)}{d.recipient_bank ? ` · ${d.recipient_bank}` : ""}
                         </p>
                         <p className="text-[11px] text-gray-500 dark:text-white/35">
-                          {d.user_id} · {d.channel ? apiChannelLabel(d.channel) : "—"} · risk {d.risk_score?.toFixed(3) ?? "—"}
+                          {nameFor(d.user_id)} · {d.channel ? apiChannelLabel(d.channel) : "—"} · risk {d.risk_score?.toFixed(3) ?? "—"}
                           {d.is_seed ? " · seed" : " · live"}
                         </p>
                       </div>
