@@ -83,6 +83,20 @@ export interface Transaction extends ScoreResult {
   live?: boolean;
   /** True when this transaction was scored/persisted by the Fable API. */
   remote?: boolean;
+  /** What a person at the bank concluded. Only flagged and blocked transfers
+   * are reviewed, so this is null for a pass. */
+  review?: CaseReview | null;
+}
+
+export type ReviewState = "open" | "in_review" | "escalated" | "resolved";
+export type ReviewOutcome = "fraud" | "legitimate";
+
+export interface CaseReview {
+  state: ReviewState;
+  outcome: ReviewOutcome | null;
+  assignee: string | null;
+  reviewedBy: string | null;
+  reviewedAt: number | null;
 }
 
 export interface GhostContainer {

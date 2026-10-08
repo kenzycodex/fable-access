@@ -12,7 +12,7 @@ import type { GeoLocation } from "./geolocation";
 import { cacheBaseline, CHANNEL_LABELS } from "./scoring";
 import type { SessionContext } from "./session";
 import { activeInstitution, activeUserId, authHeaders } from "./tenant";
-import type { Channel, RiskAction, ScoreResult, Signal, Transaction, TransactionInput } from "./types";
+import type { Channel, ReviewOutcome, ReviewState, RiskAction, ScoreResult, Signal, Transaction, TransactionInput } from "./types";
 
 export const API_BASE = (process.env.NEXT_PUBLIC_FABLE_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
 /** Legacy single-tenant user id. Still the fallback for dashboard reads that
@@ -476,7 +476,7 @@ export function ghostDetail(ghostId: string): Promise<{
 // Dashboard reads + seeding
 // ---------------------------------------------------------------------------
 
-interface ApiTransactionRow {
+export interface ApiTransactionRow {
   id: string;
   /** Which customer made it. */
   user_id?: string | null;
@@ -497,6 +497,11 @@ interface ApiTransactionRow {
   created_at: string;
   status?: string | null;
   explanation?: string | null;
+  review_state?: ReviewState | null;
+  review_outcome?: ReviewOutcome | null;
+  assignee?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
 }
 
 function prettyRecipient(id: string | null, account: string | null): string {
@@ -514,7 +519,7 @@ function prettyUserId(userId: string | null | undefined): string {
   return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
-function mapApiRow(r: ApiTransactionRow): Transaction {
+export function mapApiRow(r: ApiTransactionRow): Transaction {
   const action: RiskAction = r.action_taken ?? "PASS";
   return {
     id: r.id,
@@ -544,18 +549,47 @@ function mapApiRow(r: ApiTransactionRow): Transaction {
     // at every institution rendered as the same person, and the console kept
     // showing a name from a tenant that had been deleted.
     customerName: r.customer_name || prettyUserId(r.user_id),
+    userId: r.user_id ?? undefined,
     remote: true,
+    review: r.review_state
+      ? {
+          state: r.review_state,
+          outcome: r.review_outcome ?? null,
+          assignee: r.assignee ?? null,
+          reviewedBy: r.reviewed_by ?? null,
+          reviewedAt: r.reviewed_at ? parseApiDate(r.reviewed_at) : null,
+        }
+      : null,
   };
 }
 
 /** GET /v1/dashboard/transactions — the institution feed (frontend shape).
  * Clamped to the API's max page size (200) so an over-large limit can't 422. */
-export async function dashboardTransactions(limit = 200, institution?: string | null): Promise<Transaction[]> {
+export async function dashboardTransactions(
+  limit = 200,
+  institution?: string | null,
+  filters: { user?: string; from?: string; to?: string; action?: string; offset?: number } = {},
+): Promise<Transaction[]> {
+  return (await dashboardTransactionPage(limit, institution, filters)).transactions;
+}
+
+/** The same feed with its total, for paging and range views. */
+export async function dashboardTransactionPage(
+  limit = 200,
+  institution?: string | null,
+  filters: { user?: string; from?: string; to?: string; action?: string; offset?: number } = {},
+): Promise<{ total: number; transactions: Transaction[] }> {
   const capped = Math.min(Math.max(1, limit), 200);
-  const res = await fetchJson<{ transactions: ApiTransactionRow[] }>(
-    `/v1/dashboard/transactions?limit=${capped}${tenantParam(institution)}`,
+  const q = new URLSearchParams({ limit: String(capped) });
+  if (filters.user) q.set("user", filters.user);
+  if (filters.from) q.set("from", filters.from);
+  if (filters.to) q.set("to", filters.to);
+  if (filters.action) q.set("action", filters.action);
+  if (filters.offset) q.set("offset", String(filters.offset));
+  const res = await fetchJson<{ total: number; transactions: ApiTransactionRow[] }>(
+    `/v1/dashboard/transactions?${q.toString()}${tenantParam(institution)}`,
   );
-  return res.transactions.map(mapApiRow);
+  return { total: res.total, transactions: res.transactions.map(mapApiRow) };
 }
 
 interface ApiTransparency {
@@ -868,9 +902,12 @@ export function agentsGhostContainers(limit = 50, institution?: string | null): 
 
 export interface InstitutionCredentials {
   institution_id: string;
+  /** Only returned to an owner. */
   api_key: string | null;
   masked_key: string | null;
   created_at: string | null;
+  mode?: "sandbox" | "live";
+  can_manage?: boolean;
 }
 
 export interface InstitutionProfile {
@@ -1074,11 +1111,17 @@ export function getBranding(institutionId: string): Promise<Branding> {
   return fetchJson<Branding>(`/v1/branding/${encodeURIComponent(institutionId)}`);
 }
 
-export function updateBranding(institutionId: string, patch: Partial<Branding>): Promise<Branding> {
-  return fetchJson<Branding>(`/v1/branding/${encodeURIComponent(institutionId)}`, {
+export async function updateBranding(institutionId: string, patch: Partial<Branding>): Promise<Branding> {
+  const res = await fetch(`${API_BASE}/v1/branding/${encodeURIComponent(institutionId)}`, {
     method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(patch),
   });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.detail === "string" ? body.detail : "Could not save branding.");
+  }
+  return (await res.json()) as Branding;
 }
 
 /** Multipart upload — deliberately not routed through fetchJson, which sets a
@@ -1088,6 +1131,8 @@ export async function uploadLogo(institutionId: string, file: File): Promise<Bra
   form.append("file", file);
   const res = await fetch(`${API_BASE}/v1/branding/${encodeURIComponent(institutionId)}/logo`, {
     method: "POST",
+    // Logo writes need the owner's session; without it every upload was a 401.
+    headers: authHeaders(),
     body: form,
   });
   if (!res.ok) {
