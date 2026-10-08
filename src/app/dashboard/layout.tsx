@@ -5,7 +5,7 @@ export const metadata: Metadata = {
     default: "Institution Dashboard",
     template: "%s | Fable Console",
   },
-  description: "The Fable institution console: transactions, Watch alerts, intelligence, and compliance.",
+  description: "The Fable institution console: transactions, alerts, intelligence, and compliance.",
 };
 
 // Thin wrapper so both the login screen and the authenticated app share the

@@ -41,7 +41,7 @@ export default function HomePage() {
                 <h1>
                   Stop Fraud Fast.
                   <br />
-                  <span className="font-marker text-accent">Four</span> AI Agents.
+                  <span className="font-marker text-accent">Three</span> AI Agents.
                 </h1>
               </Reveal>
               <Reveal delay={200}>
@@ -122,7 +122,7 @@ export default function HomePage() {
             </Link>
           </Reveal>
 
-          <div className="grid w-full grid-cols-2 gap-[20px] lg:grid-cols-4">
+          <div className="grid w-full grid-cols-1 gap-[20px] sm:grid-cols-3">
             {pipelineSteps.map((step, i) => (
               <Reveal key={step.label} delay={i * 80}>
                 <div className="flex flex-col items-start gap-[16px] rounded-[var(--radius)] border-2 border-white p-[var(--spacing-s)]">

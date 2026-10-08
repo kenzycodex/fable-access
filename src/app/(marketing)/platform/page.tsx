@@ -83,9 +83,9 @@ export default function PlatformPage() {
       <Section id="agents" className="bg-tertiary">
         <Container>
           <Reveal className="mb-[var(--spacing-xl)] flex flex-col gap-[var(--spacing-m)]">
-            <h2><span className="font-marker text-accent">Four</span> Agents, Each With One Job</h2>
+            <h2><span className="font-marker text-accent">Three</span> Agents, Each With One Job</h2>
           </Reveal>
-          <IconCardGrid cards={agentCards} columns={4} />
+          <IconCardGrid cards={agentCards} columns={3} />
         </Container>
       </Section>
 

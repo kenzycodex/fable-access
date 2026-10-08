@@ -17,8 +17,8 @@ export default function AlertsPage() {
   return (
     <>
       <PageHeader
-        title="Watch Alerts"
-        description="Everything Shield flagged or blocked, with the signals behind each decision. Watch surfaces these as they happen."
+        title="Alerts"
+        description="Everything Shield flagged or blocked, with the signals behind each decision. New ones appear here as they happen."
       />
 
       <div className="flex flex-wrap gap-3 mt-2">

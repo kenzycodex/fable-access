@@ -8,12 +8,12 @@ export const tfoSubNav = [
 ];
 
 export const pipelineIntro = {
-  title: "One Call, Four Agents, In Order",
-  body: "Every transfer routes through the same pipeline: Copilot checks it against the user's baseline first. If it doesn't match, Shield scores it across fourteen signal layers. If a user overrides a Shield block anyway, Ghost holds the money instead of losing it. Watch, the passive monitor that will run between sessions, is on the roadmap.",
+  title: "One Call, Three Agents, In Order",
+  body: "Every transfer routes through the same pipeline: Copilot checks it against the user's baseline first. If it doesn't match, Shield scores it across fourteen signal layers. If a user overrides a Shield block anyway, Ghost holds the money instead of losing it.",
   image: { src: "/images/solutions/legacy-solutions.png", alt: "The Fable agent pipeline", width: 1024, height: 840 },
 };
 
-// "Agents" 4-card grid: what each one actually does, no images needed.
+// "Agents" 3-card grid: what each one actually does, no images needed.
 export const agentCards: IconCard[] = [
   {
     title: "Copilot — Baseline Engine",
@@ -26,10 +26,6 @@ export const agentCards: IconCard[] = [
   {
     title: "Ghost — Cooling Window",
     body: "Routes an overridden block into a disposable holding account instead of letting the transfer clear outright, so even a fully-scammed user has a way back.",
-  },
-  {
-    title: "Watch — Coming Soon",
-    body: "Planned passive monitoring between sessions, watching for pattern drift and device changes without adding latency to the transfer path. Not live yet.",
   },
 ];
 

@@ -127,7 +127,7 @@ export function useIntelligence(pollMs = CADENCE.standard) {
   return useSWR<DashboardIntelligence>(["fable:intelligence", institution], () => dashboardIntelligence(institution), livePolling(pollMs));
 }
 
-/** Watch Alerts feed (flagged/blocked transfers). */
+/** Alerts feed (flagged/blocked transfers). */
 export function useAlerts(pollMs = CADENCE.live) {
   const institution = useTenant();
   return useSWR<DashboardAlerts>(["fable:alerts", institution], () => dashboardAlerts(60, institution), livePolling(pollMs));
@@ -150,7 +150,7 @@ export function useCopilotBaseline(userId?: string | null) {
   );
 }
 
-/** Agents overview: live stats for Copilot, Shield, Ghost, Watch. */
+/** Agents overview: live stats for Copilot, Shield and Ghost. */
 export function useAgentsOverview(pollMs = CADENCE.standard) {
   const institution = useTenant();
   return useSWR<AgentsOverview>(["fable:agents-overview", institution], () => agentsOverview(institution), livePolling(pollMs));

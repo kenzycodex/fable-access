@@ -1,8 +1,8 @@
 export const homeStats = [
   { value: "₦25.82bn", label: "Lost to fraud", description: "In Q1 2025 alone.\nReported by NIBSS." },
-  { value: "200ms", label: "Decision budget", description: "Scores every flagged transfer.\nInside the transfer flow." },
+  { value: "200ms", label: "Decision budget", description: "Scores every transfer.\nInside the transfer flow." },
   { value: "10s", label: "Clearing window", description: "The strict NIP window.\nMoney never becomes bottleneck." },
-  { value: "4", label: "AI Agents", description: "Work seamlessly together.\nWithout adding friction." },
+  { value: "3", label: "AI Agents", description: "Work seamlessly together.\nWithout adding friction." },
 ];
 
 // "How Fable Works" zig-zag: the three agents a transfer actually meets,
@@ -37,5 +37,4 @@ export const pipelineSteps = [
   { label: "Copilot", desc: "Builds a behavioral baseline per user — clears safe transfers instantly.", icon: "/images/journey/login.svg" },
   { label: "Shield", desc: "Scores every transfer across fourteen signal layers, built to answer inside 200ms.", icon: "/images/journey/transaction.svg" },
   { label: "Ghost", desc: "Holds risky transfers in a cooling window so money never leaves.", icon: "/images/journey/post-transaction.svg" },
-  { label: "Watch", desc: "Coming soon: passive monitoring between sessions for emerging risk patterns.", icon: "/images/journey/signup.svg" },
 ];
