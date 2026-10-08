@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft, List, X } from "@phosphor-icons/react";
+import { House, List, X } from "@phosphor-icons/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { highlight } from "@/components/ui/CodeBlock";
 
 export interface DocSection {
   id: string;
@@ -59,7 +60,7 @@ export function DocsShell({ sections }: { sections: DocSection[] }) {
             href="/"
             className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 transition-colors hover:text-gray-900 dark:text-white/45 dark:hover:text-white"
           >
-            <ArrowLeft size={15} weight="bold" />
+            <House size={16} weight="bold" />
             Fable
           </Link>
           <span className="text-gray-300 dark:text-white/15">/</span>
@@ -117,7 +118,7 @@ export function DocsShell({ sections }: { sections: DocSection[] }) {
         </aside>
 
         {/* Content */}
-        <main className="min-w-0 flex-1 py-10 lg:pl-10 max-w-5xl">
+        <main className="min-w-0 flex-1 py-10 lg:pl-10 max-w-6xl">
           {sections.map((section) => (
             <section key={section.id} id={section.id} data-doc-anchor className="scroll-mt-20">
               <ReactMarkdown
@@ -170,14 +171,19 @@ export function DocsShell({ sections }: { sections: DocSection[] }) {
                   // styled as a chip instead.
                   code: ({ className, children }) =>
                     className?.includes("language-") ? (
-                      <code className="block font-mono text-[12.5px] leading-relaxed">{children}</code>
+                      <code className="block font-mono text-[12.5px] leading-relaxed text-white/90">
+                        {highlight(
+                          String(children).replace(/\n$/, ""),
+                          /language-(\w+)/.exec(className)?.[1] ?? "",
+                        )}
+                      </code>
                     ) : (
                       <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[12.5px] text-[#7C3AED] dark:bg-white/[0.07]">
                         {children}
                       </code>
                     ),
                   pre: ({ children }) => (
-                    <pre className="mb-5 overflow-x-auto rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-white/[0.06] dark:bg-[#0e0e13]">
+                    <pre className="mb-5 overflow-x-auto rounded-xl border border-white/10 bg-[#0e0e13] p-4">
                       {children}
                     </pre>
                   ),
