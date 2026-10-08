@@ -48,8 +48,9 @@ export default function DashboardLoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (store?.session.loggedIn) router.replace("/dashboard");
-  }, [store, router]);
+    // While a sign-in is in flight, handleSignIn owns the navigation.
+    if (store?.session.loggedIn && !submitting) router.replace("/dashboard");
+  }, [store, router, submitting]);
 
   async function handleSignIn() {
     setSubmitting(true);
@@ -70,7 +71,13 @@ export default function DashboardLoginPage() {
       // which is what lets the server derive the tenant from a verified
       // identity instead of trusting a query parameter.
       login(data.institution_id, data.token, data.expires_at);
-      router.push("/dashboard");
+      // A full navigation, not router.push. The marketing site prefetches
+      // /dashboard while signed out, and middleware answered that prefetch with
+      // a redirect to this page. The client router then replays the cached
+      // redirect and leaves a freshly signed-in user on the login screen until
+      // they reload, which is most visible on mobile. A hard navigation skips
+      // the cache and sends the cookie we just set.
+      window.location.assign("/dashboard");
     } catch (err) {
       toast.error("Failed to connect to Fable API.");
       setSubmitting(false);
@@ -164,7 +171,7 @@ export default function DashboardLoginPage() {
 
               {DEMO_EMAIL && DEMO_PASSWORD && (
                 <div className="mt-4 rounded-lg border border-[#7C3AED]/20 bg-[#7C3AED]/5 p-3 text-center text-[13px] text-white/80">
-                  <p className="font-medium text-[#7C3AED] mb-1">Hackathon Demo Account</p>
+                  <p className="font-medium text-[#7C3AED] mb-1">Demo Account</p>
                   <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-white/60">
                     <p>Email: <span className="font-mono text-white">{DEMO_EMAIL}</span></p>
                     <p>Pass: <span className="font-mono text-white">{DEMO_PASSWORD}</span></p>
@@ -184,15 +191,15 @@ export default function DashboardLoginPage() {
               </div>
 
               <div className="mt-6 flex items-center justify-center gap-2 text-[12px] text-[#7C3AED]">
-                <button type="button" className="hover:underline hover:text-[#8b5cf6] transition-colors">Privacy Notice</button>
+                <Link href="/privacy" className="hover:underline hover:text-[#8b5cf6] transition-colors">Privacy Notice</Link>
                 <span className="text-gray-700">|</span>
-                <button type="button" className="hover:underline hover:text-[#8b5cf6] transition-colors">Terms of Service</button>
+                <Link href="/terms" className="hover:underline hover:text-[#8b5cf6] transition-colors">Terms of Service</Link>
                 <span className="text-gray-700">|</span>
-                <button type="button" className="hover:underline hover:text-[#8b5cf6] transition-colors">IP Notification</button>
+                <Link href="/terms#intellectual-property" className="hover:underline hover:text-[#8b5cf6] transition-colors">IP Notice</Link>
               </div>
 
               <p className="mt-4 text-center text-[12px] text-gray-500 leading-relaxed px-4">
-                By accessing the Fable Console and related services you hereby agree to the Terms of Service.
+                By accessing the Fable Console and related services you agree to the <Link href="/terms" className="underline hover:text-white/80">Terms of Service</Link> and acknowledge the <Link href="/privacy" className="underline hover:text-white/80">Privacy Notice</Link>.
               </p>
             </form>
           </div>
