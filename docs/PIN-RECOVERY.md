@@ -1,7 +1,8 @@
 # Forgotten transaction PIN: check and clear it on the server
 
-Run these on the DigitalOcean droplet (Console or SSH). They work on the server
-as it is now. Nothing needs to be deployed first.
+Run these on the DigitalOcean droplet (SSH or the Droplet Console). They work on
+the server as it is. Nothing needs to be deployed first, and `sqlite3` does not
+need to be installed: the API container already has Python.
 
 A PIN is stored only as a salted hash, so it cannot be read back. The fix is to
 clear it. The customer then chooses a new one at their next verification.
@@ -12,52 +13,47 @@ clear it. The customer then chooses a new one at their next verification.
 cd /var/www/fable/api
 ```
 
-## 2. Check who has a PIN (read only, changes nothing)
+## 2. Back up the database properly
+
+The database runs in WAL mode. Recent changes sit in `data/fable.db-wal`, next to
+`data/fable.db`, until SQLite folds them in. **A plain `cp data/fable.db ...` copies
+only the main file and misses the recent data**, so it is not a backup. Use
+SQLite's own backup, which includes everything:
 
 ```bash
-sqlite3 -header -column data/fable.db "select user_id, institution_id, pin_hash is not null as pin_set, failed_attempts, locked_until from user_security;"
+docker compose exec -T api python -c "import sqlite3,datetime;src=sqlite3.connect('/data/fable.db');name='/data/fable.db.bak-'+datetime.datetime.now().strftime('%Y%m%d-%H%M%S')+'-full';dst=sqlite3.connect(name);src.backup(dst);dst.close();print('saved',name)"
+```
+
+Never delete `fable.db-wal` or `fable.db-shm`. They are part of the live database.
+
+## 3. Check who has a PIN (read only)
+
+```bash
+docker compose exec -T api python -c "import sqlite3;[print(r) for r in sqlite3.connect('/data/fable.db').execute('select user_id, institution_id, pin_hash is not null as pin_set, failed_attempts, locked_until from user_security')]"
 ```
 
 - One row per customer. `pin_set` is `1` when they have a PIN.
-- `locked_until` has a time when too many wrong attempts locked them out.
+- `failed_attempts` of 5 with a `locked_until` time means they are locked out.
 - Customer ids look like `meridian_ada` or `union_bank_chioma`.
 
-If you get `sqlite3: command not found`, either install it:
+## 4. Clear PINs
+
+Everyone's PIN, which also lifts any lock:
 
 ```bash
-apt install -y sqlite3
+docker compose exec -T api python -c "import sqlite3;db=sqlite3.connect('/data/fable.db');db.execute('update user_security set pin_hash=NULL, pin_set_at=NULL, failed_attempts=0, locked_until=NULL');db.commit();print('done')"
 ```
 
-or run the same check through the container's Python:
+One customer only (put the id in place of `PUT_USER_ID_HERE`):
 
 ```bash
-docker compose exec api python -c "import sqlite3;db=sqlite3.connect('/data/fable.db');[print(r) for r in db.execute('select user_id, institution_id, pin_hash is not null, failed_attempts, locked_until from user_security')]"
-```
-
-## 3. Back up the database first
-
-```bash
-cp data/fable.db data/fable.db.bak-$(date +%Y%m%d-%H%M%S)
-```
-
-## 4. Clear one customer's PIN
-
-Replace `PUT_USER_ID_HERE` with the id from step 2.
-
-```bash
-sqlite3 data/fable.db "update user_security set pin_hash=NULL, pin_set_at=NULL, failed_attempts=0, locked_until=NULL where user_id='PUT_USER_ID_HERE';"
-```
-
-Clear everyone's PIN instead:
-
-```bash
-sqlite3 data/fable.db "update user_security set pin_hash=NULL, pin_set_at=NULL, failed_attempts=0, locked_until=NULL;"
+docker compose exec -T api python -c "import sqlite3;db=sqlite3.connect('/data/fable.db');db.execute(\"update user_security set pin_hash=NULL, pin_set_at=NULL, failed_attempts=0, locked_until=NULL where user_id='PUT_USER_ID_HERE'\");db.commit();print('done')"
 ```
 
 ## 5. Check it worked
 
-Run the step 2 command again. `pin_set` should now be `0` for that customer.
-Open the demo, send a flagged transfer, and it will ask you to choose a new PIN.
+Run step 3 again. `pin_set` should be `0`. Open the demo, send a flagged
+transfer, and it will ask the customer to choose a new PIN.
 
 ## After the next deploy
 
