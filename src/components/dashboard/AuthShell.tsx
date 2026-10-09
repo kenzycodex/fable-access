@@ -25,7 +25,7 @@ export function AuthShell({
           <Image src="/images/brand/login-bg.jpg" alt="" fill priority className="object-cover" />
         </div>
 
-        <div className="flex flex-col items-center justify-center px-5 py-10 sm:px-10">
+        <div className="flex flex-col items-center justify-center px-5 py-10 sm:px-10 dark:bg-black">
           <div className="w-full max-w-[400px]">
             <Link href="/" aria-label="Fable home" className="mb-8 inline-flex">
               <Image
