@@ -529,15 +529,26 @@ html:has([data-surface="app"]) {
   --d-shadow: 0 1px 2px rgba(60, 40, 140, 0.04), 0 14px 34px -18px rgba(60, 40, 140, 0.2);
 }
 
+/* Dark: a deep violet-black, never pure black, so it reads rich rather than
+   flat. Surfaces step up in clear increments so cards stay distinct from the
+   page, and borders carry a faint violet tint instead of plain grey. The brand
+   lifts one shade (#8b5cf6) because #7c3aed is too dim as text on this ground. */
 .dark .console-shell {
-  --d-bg: #0c0a18;
-  --d-surface: #161330;
-  --d-surface-2: #201c3d;
-  --d-border: rgba(255, 255, 255, 0.09);
+  --brand-primary: #8b5cf6;
+  --d-bg: #06050d;
+  --d-surface: #100d1f;
+  --d-surface-2: #1a1630;
+  --d-border: rgba(167, 139, 250, 0.11);
   --d-text: #f5f3ff;
-  --d-muted: #b1abc9;
-  --d-faint: #7a7596;
-  --d-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 40px -22px rgba(0, 0, 0, 0.75);
+  --d-muted: #aca6c6;
+  --d-faint: #736d90;
+  --d-shadow: inset 0 1px 0 rgba(196, 181, 253, 0.06), 0 24px 48px -24px rgba(0, 0, 0, 0.9);
+  /* Two soft purple glows, fixed to the viewport so they sit behind the work
+     rather than scrolling past it. Low enough to stay atmosphere, not decoration. */
+  background-image:
+    radial-gradient(900px 520px at 85% -8%, rgba(124, 58, 237, 0.16), transparent 70%),
+    radial-gradient(700px 480px at -5% 105%, rgba(91, 33, 182, 0.12), transparent 70%);
+  background-attachment: fixed;
 }
 
 /* Printing from the console (the board report): light palette whatever the
@@ -554,6 +565,7 @@ html:has([data-surface="app"]) {
     --d-faint: #7d7896;
     --d-shadow: none;
     background: #ffffff !important;
+    background-image: none !important;
   }
   .console-shell main {
     max-width: none !important;
