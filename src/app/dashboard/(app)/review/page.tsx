@@ -12,6 +12,7 @@ import {
   Segmented,
   Skeleton,
   StatCard,
+  StatGrid,
 } from "@/components/dashboard/primitives";
 import type { QueueView } from "@/lib/fable/console";
 import { formatNaira, formatRelativeTime, formatRiskScore } from "@/lib/fable/format";
@@ -61,8 +62,8 @@ function ReviewQueue() {
     <>
       <PageHeader title="Review queue" description="Flagged and blocked transfers waiting for a decision." />
 
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <StatCard label="Open" value={counts ? String(counts.open) : "-"} sub="Nobody has picked these up" icon={<Tray size={17} weight="fill" />} />
+      <StatGrid>
+        <StatCard label="Open" value={counts ? String(counts.open) : "-"} sub="Nobody has picked these up" icon={<Tray size={17} weight="fill" />} featured />
         <StatCard label="In review" value={counts ? String(counts.in_review) : "-"} sub="Assigned to someone" icon={<UserCircle size={17} weight="fill" />} tone="warning" />
         <StatCard label="Escalated" value={counts ? String(counts.escalated) : "-"} sub="Need a senior decision" icon={<Flag size={17} weight="fill" />} tone="danger" />
         <StatCard
@@ -72,7 +73,7 @@ function ReviewQueue() {
           icon={<CheckCircle size={17} weight="fill" />}
           tone="success"
         />
-      </div>
+      </StatGrid>
 
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-5">
         <Card padded={false} className={`xl:col-span-3 ${selected ? "hidden xl:block" : ""}`}>

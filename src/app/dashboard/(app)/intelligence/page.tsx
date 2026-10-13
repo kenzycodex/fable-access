@@ -1,7 +1,8 @@
 "use client";
 
+import { ChartLineUp, Prohibit, ShieldCheck, Warning } from "@phosphor-icons/react";
 import { DonutChart } from "@/components/dashboard/charts";
-import { BarList, Card, CardHeader, PageHeader, StatCard } from "@/components/dashboard/primitives";
+import { BarList, Card, CardHeader, PageHeader, StatCard, StatGrid } from "@/components/dashboard/primitives";
 import { useIntelligence } from "@/lib/fable/useBackend";
 
 export default function IntelligencePage() {
@@ -24,14 +25,15 @@ export default function IntelligencePage() {
     <>
       <PageHeader
         title="Insights"
-        description="What Fable is learning across your transaction feed: which scam scripts recur, which channels carry risk, and which signals fire most."
+        description="Which scams, channels and signals show up most."
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard label="Risk rate" value={s ? `${riskRate}%` : "-"} sub="Flagged or blocked" />
-        <StatCard label="Blocked" value={s ? String(s.blocked) : "-"} tone="danger" />
-        <StatCard label="Flagged" value={s ? String(s.flagged) : "-"} tone="warning" />
-      </div>
+      <StatGrid>
+        <StatCard label="Risk rate" value={s ? `${riskRate}%` : "-"} sub="Flagged or blocked" icon={<ChartLineUp size={17} weight="bold" />} featured />
+        <StatCard label="Transfers scored" value={s ? total.toLocaleString("en-NG") : "-"} sub="Across all channels" tone="success" icon={<ShieldCheck size={17} weight="fill" />} />
+        <StatCard label="Flagged" value={s ? String(s.flagged) : "-"} sub="Asked to verify" tone="warning" icon={<Warning size={17} weight="fill" />} />
+        <StatCard label="Blocked" value={s ? String(s.blocked) : "-"} sub="Stopped outright" tone="danger" icon={<Prohibit size={17} weight="bold" />} />
+      </StatGrid>
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
         <div className="flex flex-col gap-4 lg:col-span-2">

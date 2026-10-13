@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowLeft, Brain, MagnifyingGlass } from "@phosphor-icons/react";
+import { ArrowLeft, Brain, Database, DeviceMobile, MagnifyingGlass, MapPin } from "@phosphor-icons/react";
 import {
   Avatar,
   Badge,
@@ -12,6 +12,7 @@ import {
   EmptyState,
   PageHeader,
   StatCard,
+  StatGrid,
   inputClass,
 } from "@/components/dashboard/primitives";
 import { CustomerSecurity } from "@/components/dashboard/CustomerSecurity";
@@ -39,7 +40,7 @@ export default function CopilotAgentPage() {
     <>
       <PageHeader
         title="Fable Copilot"
-        description="The behavioral baseline engine. Everything below is what Copilot has learned from transaction history, per customer, from the live database."
+        description="What Copilot has learned about each customer."
         actions={
           <ButtonLink href="/dashboard/agents" variant="secondary" icon={<ArrowLeft size={14} weight="bold" />}>
             All agents
@@ -47,12 +48,12 @@ export default function CopilotAgentPage() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Customers learned" value={String(overview?.copilot.customers_learned ?? "-")} icon={<Brain size={17} weight="fill" />} />
-        <StatCard label="Data points" value={(overview?.copilot.data_points ?? 0).toLocaleString("en-NG")} sub={`${overview?.copilot.live_data_points ?? 0} live`} />
-        <StatCard label="Devices tracked" value={String(overview?.copilot.devices_tracked ?? "-")} tone="success" />
-        <StatCard label="Locations tracked" value={String(overview?.copilot.locations_tracked ?? "-")} tone="warning" />
-      </div>
+      <StatGrid>
+        <StatCard label="Customers learned" value={String(overview?.copilot.customers_learned ?? "-")} sub="Each with their own baseline" icon={<Brain size={17} weight="fill" />} featured />
+        <StatCard label="Data points" value={(overview?.copilot.data_points ?? 0).toLocaleString("en-NG")} sub={`${overview?.copilot.live_data_points ?? 0} live`} icon={<Database size={17} weight="fill" />} />
+        <StatCard label="Devices tracked" value={String(overview?.copilot.devices_tracked ?? "-")} tone="success" sub="Known to Copilot" icon={<DeviceMobile size={17} weight="fill" />} />
+        <StatCard label="Locations tracked" value={String(overview?.copilot.locations_tracked ?? "-")} tone="warning" sub="Usual places they transact" icon={<MapPin size={17} weight="fill" />} />
+      </StatGrid>
 
       <Card>
         <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

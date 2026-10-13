@@ -240,7 +240,7 @@ export function Segmented<T extends string>({
   className?: string;
 }) {
   return (
-    <div role="tablist" className={cx("inline-flex rounded-xl bg-d-surface-2 p-1", className)}>
+    <div role="tablist" className={cx("inline-flex max-w-full overflow-x-auto rounded-xl bg-d-surface-2 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", className)}>
       {options.map((o) => {
         const active = o.value === value;
         return (
@@ -251,7 +251,7 @@ export function Segmented<T extends string>({
             aria-selected={active}
             onClick={() => onChange(o.value)}
             className={cx(
-              "rounded-lg px-3.5 py-1.5 text-[12px] font-semibold transition-all",
+              "shrink-0 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-[12px] font-semibold transition-all",
               active ? "bg-d-surface text-d-text shadow-sm" : "text-d-muted hover:text-d-text",
             )}
           >

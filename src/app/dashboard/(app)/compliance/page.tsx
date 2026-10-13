@@ -73,7 +73,7 @@ export default function CompliancePage() {
     <>
       <PageHeader
         title="Compliance"
-        description="The audit record behind every decision, ready to export."
+        description="The audit record behind every decision."
         actions={
           <>
             <Button variant="secondary" icon={<DownloadSimple size={16} />} onClick={() => setExportOpen(true)}>

@@ -37,7 +37,7 @@ export default function SecuritySettingsPage() {
       <Card className="lg:col-span-2">
         <CardHeader title="Your password" subtitle={who ? `Signed in as ${who.email}` : "Change the password you sign in with."} />
         {msg && <Notice tone={msg.tone} className="mb-4">{msg.text}</Notice>}
-        <form onSubmit={submit} className="grid max-w-xl grid-cols-1 gap-4 sm:grid-cols-2">
+        <form onSubmit={submit} className="grid max-w-[36rem] grid-cols-1 gap-4 sm:grid-cols-2">
           {/* Lets password managers save the change against the right account. */}
           <input type="email" autoComplete="username" value={who?.email ?? ""} readOnly hidden />
           <div className="sm:col-span-2">

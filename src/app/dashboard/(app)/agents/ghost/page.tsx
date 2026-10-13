@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Ghost, Timer } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, ArrowLeft, Coins, Ghost, Timer } from "@phosphor-icons/react";
 import {
   Badge,
   ButtonLink,
@@ -9,8 +9,9 @@ import {
   EmptyState,
   PageHeader,
   StatCard,
+  StatGrid,
 } from "@/components/dashboard/primitives";
-import { formatNaira } from "@/lib/fable/format";
+import { formatNaira, formatNairaCompact } from "@/lib/fable/format";
 import { useCustomerNames } from "@/lib/fable/useInstitution";
 import { useGhostContainers } from "@/lib/fable/useBackend";
 
@@ -29,7 +30,7 @@ export default function GhostAgentPage() {
     <>
       <PageHeader
         title="Fable Ghost"
-        description="The containment layer. When a customer insists on a risky transfer, Ghost holds the money in a cooling window instead of letting it vanish. Cancelled containers are fraud that never happened."
+        description="Holds risky transfers so the money can come back."
         actions={
           <ButtonLink href="/dashboard/agents" variant="secondary" icon={<ArrowLeft size={14} weight="bold" />}>
             All agents
@@ -37,12 +38,12 @@ export default function GhostAgentPage() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Containers created" value={String(stats?.created ?? "-")} icon={<Ghost size={17} weight="fill" />} />
-        <StatCard label="Currently held" value={String(stats?.held ?? "-")} tone="warning" />
-        <StatCard label="Cancellation rate" value={stats ? `${Math.round(stats.cancellation_rate * 100)}%` : "-"} tone="success" sub="Money recovered" />
-        <StatCard label="Money saved" value={stats ? formatNaira(stats.money_saved_ngn) : "-"} tone="success" sub="From cancelled containers" />
-      </div>
+      <StatGrid>
+        <StatCard label="Containers created" value={String(stats?.created ?? "-")} sub="Transfers Ghost has held" icon={<Ghost size={17} weight="fill" />} featured />
+        <StatCard label="Currently held" value={String(stats?.held ?? "-")} tone="warning" sub="Inside a cooling window" icon={<Timer size={17} weight="fill" />} />
+        <StatCard label="Cancellation rate" value={stats ? `${Math.round(stats.cancellation_rate * 100)}%` : "-"} tone="success" sub="Money recovered" icon={<ArrowCounterClockwise size={17} weight="bold" />} />
+        <StatCard label="Money saved" value={stats ? formatNairaCompact(stats.money_saved_ngn) : "-"} tone="success" sub="From cancelled holds" icon={<Coins size={17} weight="fill" />} />
+      </StatGrid>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card>

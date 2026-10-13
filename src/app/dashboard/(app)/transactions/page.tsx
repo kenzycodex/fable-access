@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
-import { CaretDown, DownloadSimple, MagnifyingGlass, Receipt } from "@phosphor-icons/react";
+import { CaretDown, DownloadSimple, MagnifyingGlass, Prohibit, Receipt, ShieldCheck, Warning } from "@phosphor-icons/react";
 import {
   Avatar,
   Badge,
@@ -14,10 +14,12 @@ import {
   RiskBadge,
   Segmented,
   Skeleton,
+  StatCard,
+  StatGrid,
   inputClass,
   table,
 } from "@/components/dashboard/primitives";
-import { formatNaira, formatRelativeTime, formatRiskScore } from "@/lib/fable/format";
+import { formatNaira, formatNairaCompact, formatRelativeTime, formatRiskScore } from "@/lib/fable/format";
 import { CHANNEL_LABELS } from "@/lib/fable/scoring";
 import type { RiskAction, Transaction } from "@/lib/fable/types";
 import { daysAgo, downloadCsv } from "@/lib/fable/console";
@@ -102,6 +104,7 @@ export default function TransactionsPage() {
   );
 
   const visible = rows.slice(0, shown);
+  const value = (a: RiskAction) => all.filter((t) => t.action === a).reduce((n, t) => n + t.amount, 0);
 
   return (
     <>
@@ -116,9 +119,16 @@ export default function TransactionsPage() {
       />
       {exportError && <p className="-mt-3 text-[13px] text-red-500">{exportError}</p>}
 
+      <StatGrid>
+        <StatCard label="Transactions" value={ready ? all.length.toLocaleString("en-NG") : "-"} sub={range === "latest" ? "The latest scored" : `Last ${range} days`} icon={<Receipt size={17} weight="fill" />} featured />
+        <StatCard label="Passed" value={ready ? counts.PASS.toLocaleString("en-NG") : "-"} sub={ready ? `${formatNairaCompact(value("PASS"))} moved freely` : "Loading"} tone="success" icon={<ShieldCheck size={17} weight="fill" />} />
+        <StatCard label="Flagged" value={ready ? counts.FLAG.toLocaleString("en-NG") : "-"} sub={ready ? `${formatNairaCompact(value("FLAG"))} asked to verify` : "Loading"} tone="warning" icon={<Warning size={17} weight="fill" />} />
+        <StatCard label="Blocked" value={ready ? counts.BLOCK.toLocaleString("en-NG") : "-"} sub={ready ? `${formatNairaCompact(value("BLOCK"))} stopped` : "Loading"} tone="danger" icon={<Prohibit size={17} weight="bold" />} />
+      </StatGrid>
+
       <Card padded={false}>
         <div className="flex flex-wrap items-center gap-3 border-b border-d-border p-4">
-          <div className="relative min-w-[240px] flex-1">
+          <div className="relative w-full min-w-0 flex-1 sm:min-w-[240px]">
             <MagnifyingGlass size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-d-faint" />
             <input
               value={query}
@@ -173,7 +183,12 @@ export default function TransactionsPage() {
           />
         ) : (
           <>
-            <div className={table.wrap}>
+            <ul className="divide-y divide-d-border md:hidden">
+              {visible.map((t) => (
+                <MobileCard key={t.id} txn={t} open={openId === t.id} onToggle={() => setOpenId(openId === t.id ? null : t.id)} />
+              ))}
+            </ul>
+            <div className={`${table.wrap} hidden md:block`}>
               <table className={`${table.base} min-w-[860px]`}>
                 <thead>
                   <tr className={table.head}>
@@ -195,7 +210,7 @@ export default function TransactionsPage() {
               </table>
             </div>
 
-            <div className="flex items-center justify-between border-t border-d-border px-5 py-3 text-[12px] text-d-muted">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-d-border px-4 py-3 text-[12px] text-d-muted sm:px-5">
               <span>
                 Showing {visible.length} of {rows.length}
                 {totalInRange != null && totalInRange > all.length && ` (the latest ${all.length} of ${totalInRange.toLocaleString("en-NG")} in this period; export for all)`}
@@ -248,52 +263,93 @@ function Row({ txn: t, open, onToggle }: { txn: Transaction; open: boolean; onTo
       {open && (
         <tr className="bg-d-surface-2">
           <td colSpan={8} className="px-5 pb-5 pt-1">
-            <div className="grid gap-5 md:grid-cols-2">
-              <div>
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-d-faint">Why Shield decided this</p>
-                <p className="text-[13px] leading-relaxed text-d-muted">
-                  {t.explanation || (t.action === "PASS" ? "Matched this customer's normal behaviour, so it passed with no extra steps." : "No explanation was recorded.")}
-                </p>
-                {t.narration && (
-                  <p className="mt-3 text-[13px] text-d-muted">
-                    Narration: <span className="font-medium text-d-text">&ldquo;{t.narration}&rdquo;</span>
-                  </p>
-                )}
-                <div className="mt-4 flex flex-wrap gap-3 text-[13px] font-semibold">
-                  {t.userId && (
-                    <Link href={`/dashboard/customers/${encodeURIComponent(t.userId)}`} className="text-brand hover:underline">
-                      Customer profile
-                    </Link>
-                  )}
-                  {t.review && (
-                    <Link href={`/dashboard/review?case=${encodeURIComponent(t.id)}`} className="text-brand hover:underline">
-                      Open the case
-                    </Link>
-                  )}
-                </div>
-              </div>
-              <div>
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-d-faint">Signals</p>
-                {t.signals.length === 0 ? (
-                  <p className="text-[13px] text-d-muted">No signals fired.</p>
-                ) : (
-                  <ul className="flex flex-col gap-2">
-                    {t.signals.map((s, i) => (
-                      <li key={s.code + i} className="flex items-start justify-between gap-3 rounded-xl bg-d-surface px-3.5 py-2.5 text-[13px]">
-                        <span>
-                          <span className="font-semibold text-d-text">{s.label}</span>
-                          <span className="text-d-muted"> {s.detail}</span>
-                        </span>
-                        <span className="shrink-0 rounded-md bg-brand/10 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-brand">+{s.weight}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
+            <Detail txn={t} />
           </td>
         </tr>
       )}
     </Fragment>
   );
 }
+
+/** Why Shield decided what it did, plus links to the customer and the case. */
+function Detail({ txn: t }: { txn: Transaction }) {
+  return (
+      <div className="grid gap-5 md:grid-cols-2">
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-d-faint">Why Shield decided this</p>
+            <p className="text-[13px] leading-relaxed text-d-muted">
+              {t.explanation || (t.action === "PASS" ? "Matched this customer's normal behaviour, so it passed with no extra steps." : "No explanation was recorded.")}
+            </p>
+            {t.narration && (
+              <p className="mt-3 text-[13px] text-d-muted">
+                Narration: <span className="font-medium text-d-text">&ldquo;{t.narration}&rdquo;</span>
+              </p>
+            )}
+            <div className="mt-4 flex flex-wrap gap-3 text-[13px] font-semibold">
+              {t.userId && (
+                <Link href={`/dashboard/customers/${encodeURIComponent(t.userId)}`} className="text-brand hover:underline">
+                  Customer profile
+                </Link>
+              )}
+              {t.review && (
+                <Link href={`/dashboard/review?case=${encodeURIComponent(t.id)}`} className="text-brand hover:underline">
+                  Open the case
+                </Link>
+              )}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-d-faint">Signals</p>
+            {t.signals.length === 0 ? (
+              <p className="text-[13px] text-d-muted">No signals fired.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {t.signals.map((s, i) => (
+                  <li key={s.code + i} className="flex items-start justify-between gap-3 rounded-xl bg-d-surface px-3.5 py-2.5 text-[13px]">
+                    <span>
+                      <span className="font-semibold text-d-text">{s.label}</span>
+                      <span className="text-d-muted"> {s.detail}</span>
+                    </span>
+                    <span className="shrink-0 rounded-md bg-brand/10 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-brand">+{s.weight}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+  );
+}
+
+/** One transfer as a phone-friendly card that expands to its detail. */
+function MobileCard({ txn: t, open, onToggle }: { txn: Transaction; open: boolean; onToggle: () => void }) {
+  return (
+    <li>
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3 px-4 py-3.5 text-left active:bg-d-surface-2">
+        <Avatar name={t.customerName} size="sm" />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span className="truncate text-[14px] font-semibold text-d-text">{t.customerName}</span>
+            {t.live && <Badge tone="brand">Live</Badge>}
+          </span>
+          <span className="mt-0.5 block truncate text-[12px] text-d-muted">
+            {formatNaira(t.amount)} to {t.recipientName}
+          </span>
+          <span className="mt-1 flex items-center gap-2 text-[11px] text-d-faint">
+            {CHANNEL_LABELS[t.channel]} · {formatRelativeTime(t.timestamp)}
+          </span>
+        </span>
+        <span className="flex shrink-0 flex-col items-end gap-1.5">
+          <RiskBadge action={t.action} />
+          <span className="text-[12px] font-bold tabular-nums text-d-text">{formatRiskScore(t.riskScore)}</span>
+        </span>
+        <CaretDown size={14} className={`shrink-0 text-d-faint transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="bg-d-surface-2 px-4 pb-5 pt-3">
+          <Detail txn={t} />
+        </div>
+      )}
+    </li>
+  );
+}
+

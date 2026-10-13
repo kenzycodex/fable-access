@@ -15,7 +15,7 @@ export default function AgentsPage() {
     <>
       <PageHeader
         title="Agents"
-        description="Every Fable agent as an operational unit: what it has learned, what it is deciding, and how well it is doing, live from the intelligence layer."
+        description="Every Fable agent, live from the intelligence layer."
       />
 
       {offline && (

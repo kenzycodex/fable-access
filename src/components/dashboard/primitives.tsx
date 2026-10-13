@@ -146,6 +146,12 @@ export function StatCard({
   );
 }
 
+/** The row of KPI tiles at the top of a page: one column on a phone, two on a
+ * tablet, four on a desktop. The same everywhere, so every page reads alike. */
+export function StatGrid({ children }: { children: ReactNode }) {
+  return <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">{children}</div>;
+}
+
 /** Shield's verdict on a transfer. */
 export function RiskBadge({ action }: { action: RiskAction }) {
   const tone = action === "BLOCK" ? "danger" : action === "FLAG" ? "warning" : "success";

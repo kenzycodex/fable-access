@@ -18,7 +18,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const pathname = usePathname();
   return (
     <>
-      <PageHeader title="Settings" description="Your institution, its people, policy and integrations." />
+      <PageHeader title="Settings" description="Your institution, people, policy and integrations." />
       <nav aria-label="Settings sections" className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
         <div className="inline-flex min-w-full gap-1 rounded-2xl border border-d-border bg-d-surface p-1.5 sm:min-w-0">
           {TABS.map((t) => {

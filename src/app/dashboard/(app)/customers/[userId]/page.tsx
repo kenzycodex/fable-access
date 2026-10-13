@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
-import { ArrowLeft, Brain, Receipt, Tray } from "@phosphor-icons/react";
+import { ArrowLeft, Brain, Prohibit, Receipt, Tray, Wallet, Warning } from "@phosphor-icons/react";
 import { DonutChart } from "@/components/dashboard/charts";
 import { CustomerSecurity } from "@/components/dashboard/CustomerSecurity";
 import { STATE_LABEL, STATE_TONE } from "@/components/dashboard/CaseDetail";
@@ -19,10 +19,11 @@ import {
   RiskBadge,
   Skeleton,
   StatCard,
+  StatGrid,
   table,
 } from "@/components/dashboard/primitives";
 import { apiChannelLabel } from "@/lib/fable/api";
-import { formatNaira, formatRelativeTime, formatRiskScore } from "@/lib/fable/format";
+import { formatNaira, formatNairaCompact, formatRelativeTime, formatRiskScore } from "@/lib/fable/format";
 import { useFableStore } from "@/lib/fable/store";
 import { useCopilotCustomers } from "@/lib/fable/useBackend";
 import { useTransactionRange } from "@/lib/fable/useConsole";
@@ -64,7 +65,7 @@ export default function CustomerPage() {
       <BackLink />
       <PageHeader
         title={name}
-        description={`Customer ${userId}`}
+        description="Their baseline, transfers and cases."
         actions={
           openCases > 0 ? (
             <ButtonLink href="/dashboard/review" variant="secondary" icon={<Tray size={16} />}>
@@ -74,12 +75,12 @@ export default function CustomerPage() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <StatCard label="Transfers" value={txnPage ? txnPage.total.toLocaleString("en-NG") : "-"} sub={customer?.has_baseline ? "Baseline built" : "Still learning"} icon={<Receipt size={17} weight="fill" />} />
-        <StatCard label="Balance" value={customer?.balance != null ? formatNaira(customer.balance) : "-"} tone="success" />
-        <StatCard label="Flagged or blocked" value={txns.length ? String(flag + block) : "-"} sub={`${block} blocked`} tone="warning" />
-        <StatCard label="Confirmed fraud" value={String(confirmedFraud)} sub={`${cases.length} reviewed or open`} tone="danger" />
-      </div>
+      <StatGrid>
+        <StatCard label="Transfers" value={txnPage ? txnPage.total.toLocaleString("en-NG") : "-"} sub={customer?.has_baseline ? "Baseline built" : "Still learning"} icon={<Receipt size={17} weight="fill" />} featured />
+        <StatCard label="Balance" value={customer?.balance != null ? formatNairaCompact(customer.balance) : "-"} sub="Available now" tone="success" icon={<Wallet size={17} weight="fill" />} />
+        <StatCard label="Flagged or blocked" value={txns.length ? String(flag + block) : "-"} sub={`${block} blocked`} tone="warning" icon={<Warning size={17} weight="fill" />} />
+        <StatCard label="Confirmed fraud" value={String(confirmedFraud)} sub={`${cases.length} reviewed or open`} tone="danger" icon={<Prohibit size={17} weight="bold" />} />
+      </StatGrid>
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -144,7 +145,28 @@ export default function CustomerPage() {
         ) : txns.length === 0 ? (
           <EmptyState icon={<Receipt size={22} />} title="No transfers yet" body="Their transfers will appear here." />
         ) : (
-          <div className={table.wrap}>
+          <>
+          <ul className="divide-y divide-d-border md:hidden">
+            {txns.slice(0, 40).map((t) => (
+              <li key={t.id} className="flex items-center gap-3 px-4 py-3.5">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-semibold text-d-text">{t.recipientName}</span>
+                  <span className="mt-0.5 block text-[12px] text-d-muted">
+                    {formatNaira(t.amount)} · {formatRelativeTime(t.timestamp)}
+                  </span>
+                </span>
+                <span className="flex shrink-0 flex-col items-end gap-1">
+                  <RiskBadge action={t.action} />
+                  {t.review && (
+                    <Link href={`/dashboard/review?case=${encodeURIComponent(t.id)}`} className="text-[11px] font-semibold text-brand">
+                      {t.review.outcome ? (t.review.outcome === "fraud" ? "Fraud" : "Legitimate") : STATE_LABEL[t.review.state]}
+                    </Link>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className={`${table.wrap} hidden md:block`}>
             <table className={`${table.base} min-w-[760px]`}>
               <thead>
                 <tr className={table.head}>
@@ -188,6 +210,7 @@ export default function CustomerPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
     </>

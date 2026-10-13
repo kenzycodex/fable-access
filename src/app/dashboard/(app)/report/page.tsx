@@ -33,7 +33,7 @@ export default function BoardReportPage() {
             <ArrowLeft size={14} weight="bold" /> Compliance
           </Link>
           <h1 className="text-[26px] font-bold tracking-tight text-d-text lg:text-[30px]">Board report</h1>
-          <p className="mt-1 text-[14px] text-d-muted">A one-page summary of a period, ready to print or save as PDF.</p>
+          <p className="mt-1 text-[14px] text-d-muted">A one-page summary of any period.</p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <Segmented<Range>
@@ -87,7 +87,7 @@ function Report({ data }: { data: BoardReport }) {
     d ? new Date(`${d}T00:00:00Z`).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "";
 
   return (
-    <Card className="report-sheet mx-auto w-full max-w-[900px] !rounded-[24px] p-8 print:max-w-none print:!border-0 print:p-0 print:shadow-none sm:p-10">
+    <Card className="report-sheet mx-auto w-full max-w-[900px] !rounded-[24px] p-5 print:max-w-none print:!border-0 print:p-0 print:shadow-none sm:p-10">
       <header className="flex flex-wrap items-start justify-between gap-4 border-b border-d-border pb-6">
         <div>
           <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-brand">Fraud prevention report</p>
@@ -192,7 +192,7 @@ function Headline({ label, value, sub, accent = false }: { label: string; value:
   return (
     <div className={`rounded-2xl p-4 ${accent ? "bg-brand text-white print:bg-transparent print:text-d-text" : "bg-d-surface-2"}`}>
       <p className={`text-[12px] font-medium ${accent ? "text-white/80 print:text-d-muted" : "text-d-muted"}`}>{label}</p>
-      <p className="mt-1 text-[22px] font-bold leading-tight tracking-tight">{value}</p>
+      <p className="mt-1 break-words text-[19px] font-bold leading-tight tracking-tight sm:text-[22px]">{value}</p>
       <p className={`mt-1 text-[11px] ${accent ? "text-white/75 print:text-d-faint" : "text-d-faint"}`}>{sub}</p>
     </div>
   );

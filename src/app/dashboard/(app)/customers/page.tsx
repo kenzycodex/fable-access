@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { CaretRight, MagnifyingGlass, UsersThree } from "@phosphor-icons/react";
+import { CaretRight, Fingerprint, MagnifyingGlass, ShieldWarning, UsersThree, Brain } from "@phosphor-icons/react";
 import {
   Avatar,
   Badge,
@@ -11,6 +11,8 @@ import {
   PageHeader,
   Segmented,
   Skeleton,
+  StatCard,
+  StatGrid,
   inputClass,
   table,
 } from "@/components/dashboard/primitives";
@@ -46,10 +48,19 @@ export default function CustomersPage() {
 
   const attention = all.filter(needsAttention).length;
   const learning = all.filter((c) => !c.has_baseline).length;
+  const withPasskey = all.filter((c) => (c.verification?.passkeys ?? 0) > 0).length;
+  const loaded = Boolean(data);
 
   return (
     <>
-      <PageHeader title="Customers" description="Everyone Fable protects at your bank, with what it has learned about each." />
+      <PageHeader title="Customers" description="Everyone Fable protects at your bank." />
+
+      <StatGrid>
+        <StatCard label="Customers" value={loaded ? String(all.length) : "-"} sub="With activity at your bank" icon={<UsersThree size={17} weight="fill" />} featured />
+        <StatCard label="Baselines built" value={loaded ? String(all.length - learning) : "-"} sub={loaded ? `${learning} still learning` : "Loading"} tone="success" icon={<Brain size={17} weight="fill" />} />
+        <StatCard label="With a passkey" value={loaded ? String(withPasskey) : "-"} sub="Strongest verification" tone="warning" icon={<Fingerprint size={17} weight="fill" />} />
+        <StatCard label="Needs attention" value={loaded ? String(attention) : "-"} sub="Locked PIN or weak security" tone="danger" icon={<ShieldWarning size={17} weight="fill" />} />
+      </StatGrid>
 
       <Card padded={false}>
         <div className="flex flex-wrap items-center gap-3 border-b border-d-border p-4">
@@ -87,7 +98,32 @@ export default function CustomersPage() {
             body={all.length ? "Try a different search or filter." : "Customers appear once they make a transfer."}
           />
         ) : (
-          <div className={table.wrap}>
+          <>
+          <ul className="divide-y divide-d-border md:hidden">
+            {rows.map((c) => {
+              const v = c.verification;
+              return (
+                <li key={c.user_id}>
+                  <Link href={`/dashboard/customers/${encodeURIComponent(c.user_id)}`} className="flex items-center gap-3 px-4 py-3.5 active:bg-d-surface-2">
+                    <Avatar name={nameFor(c.user_id)} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px] font-semibold text-d-text">{nameFor(c.user_id)}</span>
+                      <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-d-muted">
+                        {c.transactions_analyzed.toLocaleString("en-NG")} transfers
+                        {v?.pin_locked ? <Badge tone="danger">PIN locked</Badge> : v && !v.passkeys && !v.contact_set ? <Badge tone="warning">Weak</Badge> : null}
+                        {!c.has_baseline && <Badge tone="warning">Learning</Badge>}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-[13px] font-semibold tabular-nums text-d-text">{c.balance != null ? formatNaira(c.balance) : "-"}</span>
+                      <CaretRight size={14} className="ml-auto mt-1 text-d-faint" />
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          <div className={`${table.wrap} hidden md:block`}>
             <table className={`${table.base} min-w-[760px]`}>
               <thead>
                 <tr className={table.head}>
@@ -151,6 +187,7 @@ export default function CustomersPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
     </>

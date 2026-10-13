@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, CaretDown, ShieldCheck } from "@phosphor-icons/react";
+import { ArrowLeft, CaretDown, CheckCircle, Flag, ShieldCheck, Warning } from "@phosphor-icons/react";
 import {
   ButtonLink,
   Card,
@@ -10,6 +10,7 @@ import {
   PageHeader,
   RiskBadge,
   StatCard,
+  StatGrid,
 } from "@/components/dashboard/primitives";
 import { apiChannelLabel, parseApiSignals } from "@/lib/fable/api";
 import { formatNaira } from "@/lib/fable/format";
@@ -28,7 +29,7 @@ export default function ShieldAgentPage() {
     <>
       <PageHeader
         title="Fable Shield"
-        description="The real-time scoring engine. Fourteen signal layers, personal baselines and hard thresholds. Every decision below is real and fully explainable."
+        description="The real-time scoring engine and every decision it made."
         actions={
           <ButtonLink href="/dashboard/agents" variant="secondary" icon={<ArrowLeft size={14} weight="bold" />}>
             All agents
@@ -36,12 +37,12 @@ export default function ShieldAgentPage() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Transactions scored" value={(acc?.transactions_scored ?? 0).toLocaleString("en-NG")} icon={<ShieldCheck size={17} weight="fill" />} />
-        <StatCard label="Pass rate" value={acc ? `${Math.round(acc.pass_rate * 100)}%` : "-"} tone="success" sub="Frictionless transfers" />
-        <StatCard label="Friction events" value={String(acc?.friction_events ?? "-")} tone="warning" sub="Flagged plus blocked" />
-        <StatCard label="False-positive proxy" value={String(acc?.false_positive_proxy ?? "-")} tone="danger" sub="Friction later confirmed safe" />
-      </div>
+      <StatGrid>
+        <StatCard label="Transactions scored" value={(acc?.transactions_scored ?? 0).toLocaleString("en-NG")} sub="Every decision, explained" icon={<ShieldCheck size={17} weight="fill" />} featured />
+        <StatCard label="Pass rate" value={acc ? `${Math.round(acc.pass_rate * 100)}%` : "-"} tone="success" sub="Frictionless transfers" icon={<CheckCircle size={17} weight="fill" />} />
+        <StatCard label="Friction events" value={String(acc?.friction_events ?? "-")} tone="warning" sub="Flagged plus blocked" icon={<Warning size={17} weight="fill" />} />
+        <StatCard label="Cleared as safe" value={String(acc?.false_positive_proxy ?? "-")} tone="danger" sub="Flagged, later confirmed legitimate" icon={<Flag size={17} weight="fill" />} />
+      </StatGrid>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <Card className="lg:col-span-2">
