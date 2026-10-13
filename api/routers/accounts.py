@@ -1,7 +1,8 @@
 """Customer balances, top-ups and security factors."""
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
+from tenancy import customer_scope
 from pydantic import BaseModel, Field
 
 import accounts as ledger
@@ -9,7 +10,7 @@ import audit
 import security
 from tenancy import resolve_institution
 
-router = APIRouter(prefix="/v1/accounts", tags=["accounts"])
+router = APIRouter(prefix="/v1/accounts", tags=["accounts"], dependencies=[Depends(customer_scope)])
 
 
 @router.get("/{user_id}")

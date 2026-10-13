@@ -192,9 +192,11 @@ send test transfers by name. Before real customers use it:
 4. Review your thresholds under **Settings → Risk policy**.
 5. An owner switches the environment to **Live** under **Settings → API & webhooks**.
 
-In live mode, any request that names your institution without your key is
-refused with `401`. Nothing else changes: existing data, keys and webhooks carry
-over.
+In live mode, any request about your institution or one of its customers that
+does not carry your key is refused with `401`. That includes verification,
+Ghost holds and approvals, so your app reaches Fable through your own servers,
+never directly from a phone or browser. Nothing else changes: existing data,
+keys and webhooks carry over.
 
 ## SDKs
 

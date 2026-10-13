@@ -28,8 +28,10 @@ a control hidden in the console is also refused by the server. An API key acts
 with analyst rights: it can read and report outcomes, but cannot manage people,
 keys, webhooks or policy.
 
-An institution in **live** mode refuses any write that names it without its
-key. Sandbox institutions, including every demo bank, accept writes by name.
+An institution in **live** mode refuses, without its key, any request that
+names it or concerns one of its customers, holds or transactions: scoring,
+balances, verification, Ghost holds, approvals and notifications alike. Sandbox
+institutions, including every demo bank, accept these by name.
 
 `/`, `/health`, `/docs` and `/openapi.json` are always public. Requests are rate
 limited per client (default 180 per 60 seconds), and exceeding it returns `429`.

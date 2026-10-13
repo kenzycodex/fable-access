@@ -1,4 +1,5 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from tenancy import customer_scope
 
 import audit
 import notifications
@@ -15,7 +16,7 @@ from agents.ghost.account import (
 )
 from tenancy import disabled_agents, resolve_institution
 
-router = APIRouter(prefix="/v1/ghost", tags=["ghost"])
+router = APIRouter(prefix="/v1/ghost", tags=["ghost"], dependencies=[Depends(customer_scope)])
 
 
 @router.post("/create")

@@ -8,7 +8,8 @@ console) agrees on where the money ended up.
 """
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
+from tenancy import customer_scope
 from pydantic import BaseModel
 
 from db import cursor, loads, row_to_dict
@@ -16,7 +17,7 @@ from tenancy import resolve_institution
 from accounts import InsufficientFunds, assert_can_spend, debit
 from agents.shield import assurance, stepup as stepup_service
 
-router = APIRouter(prefix="/v1/transactions", tags=["transactions"])
+router = APIRouter(prefix="/v1/transactions", tags=["transactions"], dependencies=[Depends(customer_scope)])
 
 # Outcomes a client may record. Kept explicit so a stray value can't overwrite
 # a transaction's status with something the rest of the app doesn't understand.

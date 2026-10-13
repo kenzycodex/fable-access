@@ -7,19 +7,19 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 import config
 from agents.ghost.account import calculate_cooling_window
 from db import DEFAULT_INSTITUTION_ID, cursor, loads, row_to_dict
 from models.schemas import DemoSeedRequest, InstitutionSeedRequest
-from tenancy import resolve_institution
+from tenancy import customer_scope, resolve_institution
 from utils import utcnow
 
 router = APIRouter(prefix="/v1/demo", tags=["demo"])
 
 
-@router.get("/overview/{user_id}")
+@router.get("/overview/{user_id}", dependencies=[Depends(customer_scope)])
 def customer_overview(user_id: str, institution: Optional[str] = Query(None), limit: int = Query(60, ge=1, le=200)):
     """One round-trip for a customer's home screen: balance, recent transfers
     and the learned baseline together.

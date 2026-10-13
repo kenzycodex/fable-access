@@ -487,3 +487,38 @@ def test_password_guessing_is_throttled(client):
     assert "Retry-After" in blocked.headers
     # Another account is unaffected.
     assert client.post("/auth/login", json={"email": OWNER, "password": "correct-horse-1"}).status_code == 200
+
+
+def test_live_mode_protects_every_customer_endpoint(client):
+    """Live mode used to guard scoring only. A live bank's balances, verification,
+    holds and notifications must need its key too, while sandbox banks stay open."""
+    from agents.copilot.demo_customers import user_id_for
+    from db import cursor
+
+    user = user_id_for(BANK, "tunde")
+    other_user = user_id_for(OTHER, "tunde")
+    key = client.post(f"/v1/institutions/{BANK}/keys/rotate", headers=_headers(OWNER)).json()["api_key"]
+    other_key = client.post(f"/v1/institutions/{OTHER}/keys/rotate", headers=_headers(STRANGER, OTHER)).json()["api_key"]
+    try:
+        client.put(f"/v1/institutions/{BANK}/mode", json={"mode": "live"}, headers=_headers(OWNER))
+        probes = [
+            ("get", f"/v1/accounts/{user}", None),
+            ("get", f"/v1/accounts/{user}/security", None),
+            ("get", f"/v1/notifications/{user}", None),
+            ("get", f"/v1/copilot/transparency/{user}", None),
+            ("get", f"/v1/demo/overview/{user}?institution={BANK}", None),
+            ("post", "/v1/stepup/requirement", {"user_id": user, "risk_score": 0.6, "signals": [], "action": "FLAG", "purpose": "transfer"}),
+        ]
+        for method, path, body in probes:
+            call = getattr(client, method)
+            kwargs = {"json": body} if body is not None else {}
+            assert call(path, **kwargs).status_code == 401, path
+            assert call(path, headers={"X-API-Key": other_key}, **kwargs).status_code == 401, path
+            assert call(path, headers={"X-API-Key": key}, **kwargs).status_code != 401, path
+    finally:
+        with cursor() as cur:
+            cur.execute("UPDATE institutions SET mode = 'sandbox' WHERE institution_id = ?", (BANK,))
+
+    # A sandbox bank's customers stay reachable without a key, as the demo needs.
+    assert client.get(f"/v1/accounts/{other_user}/security").status_code != 401
+    assert client.get(f"/v1/accounts/{user}/security").status_code != 401

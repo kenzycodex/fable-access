@@ -9,11 +9,12 @@ notifications" tells the customer about alerts they never received.
 So this feed is empty on a fresh install, and fills as decisions are made.
 That is the honest behaviour.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from tenancy import customer_scope
 
 import notifications as notify
 
-router = APIRouter(prefix="/v1/notifications", tags=["notifications"])
+router = APIRouter(prefix="/v1/notifications", tags=["notifications"], dependencies=[Depends(customer_scope)])
 
 
 @router.get("/{user_id}")

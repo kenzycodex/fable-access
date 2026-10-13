@@ -6,12 +6,13 @@ bank asks before it lets money move: "what does this decision require?".
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from tenancy import customer_scope
 from pydantic import BaseModel, Field
 
 from agents.shield import assurance, stepup
 
-router = APIRouter(prefix="/v1/stepup", tags=["stepup"])
+router = APIRouter(prefix="/v1/stepup", tags=["stepup"], dependencies=[Depends(customer_scope)])
 
 
 # ---------------------------------------------------------------------------

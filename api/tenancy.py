@@ -9,6 +9,8 @@ the slug is only asserted.
 Reads take the institution from the logged-in dashboard session and filter on
 it, so one tenant can never see another's transactions.
 """
+from fastapi import Request
+
 from db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict, slugify_institution
 
 
@@ -210,6 +212,54 @@ def require_role(request, minimum: str) -> dict:
     if _ROLE_RANK.get(who["role"], 0) < _ROLE_RANK[minimum]:
         raise HTTPException(status_code=403, detail="Your role cannot do this.")
     return who
+
+
+def _subject_institution(request, body: dict) -> str | None:
+    """Which institution a customer-facing request is about, from what it names."""
+    params = request.path_params
+    with cursor() as cur:
+        if params.get("ghost_id"):
+            cur.execute("SELECT institution_id FROM ghost_containers WHERE ghost_id = ?", (params["ghost_id"],))
+            row = cur.fetchone()
+            return row["institution_id"] if row else None
+        if params.get("txid"):
+            cur.execute("SELECT institution_id FROM transactions WHERE id = ?", (params["txid"],))
+            row = cur.fetchone()
+            return row["institution_id"] if row else None
+    user_id = params.get("user_id") or (body.get("user_id") if isinstance(body, dict) else None)
+    if not user_id:
+        return None
+    import audit
+
+    return audit._institution_of(str(user_id))
+
+
+async def customer_scope(request: Request) -> None:
+    """Guard for the customer-facing API (balances, verification, holds, approvals).
+
+    A live institution's traffic is real customers' money, so a request about one
+    of its customers must carry that institution's API key, sent from the bank's
+    own servers. Without this, live mode protected scoring but left every other
+    customer endpoint open to anyone who knew a customer id. Sandbox institutions,
+    including every demo bank, are unaffected.
+    """
+    from fastapi import HTTPException
+
+    body: dict = {}
+    if request.method in ("POST", "PUT", "PATCH") and "json" in request.headers.get("content-type", ""):
+        try:
+            body = await request.json()  # Starlette caches it; the route still reads it normally
+        except Exception:  # noqa: BLE001 - a malformed body is the route's error to report
+            body = {}
+
+    institution = _subject_institution(request, body)
+    if not institution or institution_mode(institution) != "live":
+        return
+    if institution_from_api_key(extract_api_key(request)) != institution:
+        raise HTTPException(
+            status_code=401,
+            detail="This institution is live. Requests about its customers must carry its API key.",
+        )
 
 
 def institution_mode(institution_id: str | None) -> str:
