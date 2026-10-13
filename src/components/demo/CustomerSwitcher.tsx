@@ -49,7 +49,7 @@ export function SwitchCustomerSheet({ open, onClose }: { open: boolean; onClose:
                 {/* A phone gets the name and one line; the story and the range chip are for
                     larger screens, where there is room to read them. */}
                 <span className="mt-0.5 block truncate text-[12px] text-d-muted sm:hidden">
-                  {c.persona} · {c.typical_range}
+                  {c.persona} Â· {c.typical_range}
                 </span>
                 <span className="mt-0.5 hidden text-[12px] leading-relaxed text-d-muted sm:block">{c.description}</span>
                 <span className="mt-2 hidden rounded-md bg-d-surface-2 px-2 py-0.5 text-[11px] font-semibold text-d-muted sm:inline-flex">
