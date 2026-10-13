@@ -166,7 +166,7 @@ def console_identity(request) -> dict:
     if payload:
         with cursor() as cur:
             cur.execute(
-                "SELECT role, name, active, institution_id FROM admins WHERE email = ?",
+                "SELECT role, name, active, institution_id, COALESCE(session_version, 0) AS sv FROM admins WHERE email = ?",
                 (payload.get("sub"),),
             )
             row = cur.fetchone()
@@ -176,6 +176,8 @@ def console_identity(request) -> dict:
         if row is not None:
             if not row["active"] or row["institution_id"] != payload["inst"]:
                 raise HTTPException(status_code=401, detail="This account no longer has console access.")
+            if int(payload.get("sv", 0) or 0) != int(row["sv"]):
+                raise HTTPException(status_code=401, detail="Your password was changed, so this session ended. Sign in again.")
             return {
                 "inst": payload["inst"],
                 "email": payload.get("sub"),

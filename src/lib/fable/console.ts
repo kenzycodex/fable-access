@@ -54,8 +54,10 @@ export interface Me {
 
 export const me = () => call<Me>("/auth/me");
 
+/** Change the signed-in user's password. The response carries a fresh session:
+ * the change ends every other session for the account, but not this one. */
 export function changePassword(oldPassword: string, newPassword: string) {
-  return call<{ success: boolean }>("/auth/change-password", {
+  return call<{ success: boolean; token: string; expires_at: number; institution_id: string }>("/auth/change-password", {
     method: "POST",
     ...json({ old_password: oldPassword, new_password: newPassword }),
   });

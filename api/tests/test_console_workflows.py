@@ -433,3 +433,57 @@ def test_no_raw_key_is_ever_stored(client):
     payload = {"user_id": "x", "transaction_id": "none", "was_fraud": False}
     assert client.post("/v1/shield/feedback", json=payload, headers={"X-API-Key": key}).status_code == 404
     assert client.post("/v1/shield/feedback", json=payload, headers={"X-API-Key": "fbl_live_" + "0" * 32}).status_code == 401
+
+
+# --- Sign-in hardening ------------------------------------------------------
+
+def test_changing_a_password_ends_other_sessions_but_not_this_one(client):
+    email = "rotator@workbank.ng"
+    _admin(email, BANK, "analyst")
+    login = client.post("/auth/login", json={"email": email, "password": "correct-horse-1"}).json()
+    old = {"X-Fable-Session": login["token"]}
+    other = {"X-Fable-Session": client.post("/auth/login", json={"email": email, "password": "correct-horse-1"}).json()["token"]}
+    assert client.get("/v1/review/counts", headers=old).status_code == 200
+
+    r = client.post("/auth/change-password", json={"old_password": "correct-horse-1", "new_password": "fresh-pass-99"}, headers=old)
+    assert r.status_code == 200 and r.json()["token"]
+    fresh = {"X-Fable-Session": r.json()["token"]}
+
+    assert client.get("/v1/review/counts", headers=other).status_code == 401  # ended
+    assert client.get("/v1/review/counts", headers=old).status_code == 401    # ended too
+    assert client.get("/v1/review/counts", headers=fresh).status_code == 200  # the one that changed it carries on
+
+
+def test_reset_links_are_stored_hashed_and_only_the_latest_works(client):
+    import db
+    from routers.auth import token_hash
+
+    email = "forgetful@workbank.ng"
+    _admin(email, BANK, "viewer")
+    # Two requests: only the second link may work, and no raw token is stored.
+    client.post("/auth/forgot-password", json={"email": email})
+    client.post("/auth/forgot-password", json={"email": email})
+    with db.cursor() as cur:
+        cur.execute("SELECT token FROM password_resets WHERE email = ?", (email,))
+        rows = [r["token"] for r in cur.fetchall()]
+    assert len(rows) == 1 and rows[0].startswith("sha256:")
+
+    # A known token, stored the way the app stores it, resets the password once.
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM password_resets WHERE email = ?", (email,))
+        cur.execute("INSERT INTO password_resets (token, email, expires_at) VALUES (?, ?, ?)",
+                    (token_hash("known-token"), email, 9_999_999_999))
+    assert client.post("/auth/reset-password", json={"token": "known-token", "new_password": "brand-new-1"}).status_code == 200
+    assert client.post("/auth/reset-password", json={"token": "known-token", "new_password": "again-again-1"}).status_code == 400
+
+
+def test_password_guessing_is_throttled(client):
+    email = "target@workbank.ng"
+    _admin(email, BANK, "viewer")
+    for _ in range(5):
+        assert client.post("/auth/login", json={"email": email, "password": "wrong-guess"}).status_code == 401
+    blocked = client.post("/auth/login", json={"email": email, "password": "correct-horse-1"})
+    assert blocked.status_code == 429  # even the right password waits out the window
+    assert "Retry-After" in blocked.headers
+    # Another account is unaffected.
+    assert client.post("/auth/login", json={"email": OWNER, "password": "correct-horse-1"}).status_code == 200

@@ -155,6 +155,14 @@ CREATE TABLE IF NOT EXISTS institution_aliases (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Failed console sign-ins, for throttling password guessing. Pruned as it goes.
+CREATE TABLE IF NOT EXISTS login_failures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    ip TEXT,
+    at INTEGER NOT NULL
+);
+
 -- Former ids of renamed customers (see scripts/rename_customers.py).
 CREATE TABLE IF NOT EXISTS user_aliases (
     alias TEXT PRIMARY KEY,
@@ -440,6 +448,9 @@ MIGRATIONS = {
         "role": "TEXT DEFAULT 'owner'",
         "name": "TEXT",
         "active": "INTEGER DEFAULT 1",
+        # Bumped on a password change or reset. Every session carries the value
+        # it was issued with, so bumping it ends all of them at once.
+        "session_version": "INTEGER DEFAULT 0",
     },
     "audit_log": {
         # Scoping audit events by joining through transactions missed anything
@@ -565,6 +576,8 @@ CREATE INDEX IF NOT EXISTS ix_failures_user_time ON stepup_failures(user_id, cre
 CREATE INDEX IF NOT EXISTS ix_challenges_user    ON stepup_challenges(user_id);
 CREATE INDEX IF NOT EXISTS ix_notifs_user_time   ON notifications(user_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_txn_inst_review    ON transactions(institution_id, review_state);
+CREATE INDEX IF NOT EXISTS ix_login_fail_email   ON login_failures(email, at);
+CREATE INDEX IF NOT EXISTS ix_login_fail_ip      ON login_failures(ip, at);
 CREATE INDEX IF NOT EXISTS ix_notes_txn          ON case_notes(transaction_id);
 CREATE INDEX IF NOT EXISTS ix_hooks_inst         ON webhooks(institution_id);
 CREATE INDEX IF NOT EXISTS ix_deliveries_hook    ON webhook_deliveries(webhook_id, created_at);

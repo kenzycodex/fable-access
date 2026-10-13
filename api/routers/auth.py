@@ -1,3 +1,5 @@
+import hashlib
+
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel
 from db import get_conn, cursor
@@ -19,6 +21,41 @@ logger = logging.getLogger("fable.auth")
 ACTIVE, REMOVED, INVITED = 1, 0, 2
 MIN_PASSWORD = 8
 
+# Sign-in throttling. Five wrong passwords for one account, or thirty from one
+# address, inside the window, and further attempts are refused until it passes.
+# Stored in the database rather than in memory so it holds across workers and
+# restarts.
+LOGIN_WINDOW_SECONDS = 15 * 60
+MAX_FAILURES_PER_ACCOUNT = 5
+MAX_FAILURES_PER_IP = 30
+
+
+def token_hash(token: str) -> str:
+    """Reset and invite tokens are stored hashed, like API keys: a copy of the
+    database must not hand anyone a working link."""
+    return "sha256:" + hashlib.sha256(token.encode()).hexdigest()
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _throttled(email: str, ip: str) -> bool:
+    since = int(time.time()) - LOGIN_WINDOW_SECONDS
+    with cursor() as c:
+        c.execute("SELECT COUNT(*) AS n FROM login_failures WHERE email = ? AND at >= ?", (email, since))
+        by_account = c.fetchone()["n"]
+        c.execute("SELECT COUNT(*) AS n FROM login_failures WHERE ip = ? AND at >= ?", (ip, since))
+        by_ip = c.fetchone()["n"]
+    return by_account >= MAX_FAILURES_PER_ACCOUNT or by_ip >= MAX_FAILURES_PER_IP
+
+
+def _record_failure(email: str, ip: str) -> None:
+    now = int(time.time())
+    with cursor() as c:
+        c.execute("INSERT INTO login_failures (email, ip, at) VALUES (?, ?, ?)", (email, ip, now))
+        c.execute("DELETE FROM login_failures WHERE at < ?", (now - 24 * 3600,))
+
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -32,27 +69,41 @@ _DUMMY_HASH = hash_password(secrets.token_urlsafe(16))
 
 
 @router.post("/login")
-def login(req: LoginRequest):
+def login(req: LoginRequest, request: Request):
+    attempt_email = req.email.strip().lower()
+    ip = _client_ip(request)
+    if _throttled(attempt_email, ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many sign-in attempts. Wait 15 minutes, or reset your password.",
+            headers={"Retry-After": str(LOGIN_WINDOW_SECONDS)},
+        )
+
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "SELECT email, hashed_password, institution_id, role, name, COALESCE(active, 1) AS active "
-        "FROM admins WHERE lower(email) = lower(?)",
+        "SELECT email, hashed_password, institution_id, role, name, COALESCE(active, 1) AS active, "
+        "COALESCE(session_version, 0) AS sv FROM admins WHERE lower(email) = lower(?)",
         (req.email.strip(),),
     )
     row = cur.fetchone()
 
     if not row:
         verify_password(req.password, _DUMMY_HASH)  # equalise timing
+        _record_failure(attempt_email, ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not verify_password(req.password, row["hashed_password"]):
+        _record_failure(attempt_email, ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Checked after the password, so a removed account is not distinguishable
     # from a wrong password to someone guessing.
     if row["active"] != ACTIVE:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    with cursor() as c:
+        c.execute("DELETE FROM login_failures WHERE email = ?", (attempt_email,))
 
     # The address as stored, so the session and audit name the same account
     # however the email was typed at sign-in.
@@ -71,7 +122,7 @@ def login(req: LoginRequest):
     import audit
     audit.record(audit.ADMIN_LOGIN, email, institution_id=row["institution_id"])
 
-    session = sessions.issue(email, row["institution_id"])
+    session = sessions.issue(email, row["institution_id"], row["sv"])
     return {
         "success": True,
         "institution_id": row["institution_id"],
@@ -130,10 +181,12 @@ def forgot_password(req: ForgotPasswordRequest, bg_tasks: BackgroundTasks):
     
     token = secrets.token_urlsafe(32)
     expires_at = int(time.time()) + 3600 # 1 hour
-    
+
     with cursor() as c:
-        c.execute("INSERT OR REPLACE INTO password_resets (token, email, expires_at) VALUES (?, ?, ?)", (token, req.email, expires_at))
-        
+        # One live link per account: asking again replaces the earlier one.
+        c.execute("DELETE FROM password_resets WHERE email = ?", (req.email,))
+        c.execute("INSERT INTO password_resets (token, email, expires_at) VALUES (?, ?, ?)", (token_hash(token), req.email, expires_at))
+
     bg_tasks.add_task(send_reset_email, req.email, token)
     return {"success": True}
 
@@ -146,7 +199,10 @@ class ResetPasswordRequest(BaseModel):
 def reset_password(req: ResetPasswordRequest):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT email, expires_at FROM password_resets WHERE token = ?", (req.token,))
+    cur.execute(
+        "SELECT token, email, expires_at FROM password_resets WHERE token IN (?, ?)",
+        (token_hash(req.token), req.token),
+    )
     row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=400, detail="Invalid or expired token")
@@ -164,8 +220,13 @@ def reset_password(req: ResetPasswordRequest):
     hashed = hash_password(req.new_password)
     with cursor() as c:
         # Setting a password is how an invited member accepts the invite.
-        c.execute("UPDATE admins SET hashed_password = ?, active = 1 WHERE email = ?", (hashed, row['email']))
-        c.execute("DELETE FROM password_resets WHERE token = ?", (req.token,))
+        # The new password also ends every existing session for the account.
+        c.execute(
+            "UPDATE admins SET hashed_password = ?, active = 1, session_version = COALESCE(session_version, 0) + 1 WHERE email = ?",
+            (hashed, row['email']),
+        )
+        c.execute("DELETE FROM password_resets WHERE email = ?", (row['email'],))
+        c.execute("DELETE FROM login_failures WHERE email = ?", (row['email'].lower(),))
 
     return {"success": True}
 
@@ -201,11 +262,18 @@ def change_password(req: ChangePasswordRequest, request: Request):
 
     hashed = hash_password(req.new_password)
     with cursor() as c:
-        c.execute("UPDATE admins SET hashed_password = ? WHERE email = ?", (hashed, email))
+        c.execute(
+            "UPDATE admins SET hashed_password = ?, session_version = COALESCE(session_version, 0) + 1 WHERE email = ?",
+            (hashed, email),
+        )
+        c.execute("SELECT session_version FROM admins WHERE email = ?", (email,))
+        version = c.fetchone()["session_version"]
 
     import audit
     audit.record(audit.PASSWORD_CHANGED, email, institution_id=institution_id)
-    return {"success": True}
+    # Every other session for this account has just ended. This one carries on
+    # with a fresh token, so changing a password does not sign you out.
+    return {"success": True, **sessions.issue(email, institution_id, version)}
 
 
 @router.get("/me")

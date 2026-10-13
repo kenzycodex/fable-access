@@ -122,9 +122,11 @@ def invite(body: InviteBody, request: Request, background: BackgroundTasks):
         )
         token = secrets.token_urlsafe(32)
         cur.execute("DELETE FROM password_resets WHERE email = ?", (email,))
+        from routers.auth import token_hash
+
         cur.execute(
             "INSERT INTO password_resets (token, email, expires_at) VALUES (?, ?, ?)",
-            (token, email, int(time.time()) + INVITE_TTL_SECONDS),
+            (token_hash(token), email, int(time.time()) + INVITE_TTL_SECONDS),
         )
 
     inst = get_institution(who["inst"]) or {}
@@ -193,7 +195,10 @@ def remove(email: str, request: Request):
         raise HTTPException(status_code=409, detail="Your institution needs at least one owner.")
     with cursor() as cur:
         # Deactivated, not deleted, so the audit trail can still name them.
-        cur.execute("UPDATE admins SET active = ? WHERE email = ? AND institution_id = ?", (REMOVED, email, who["inst"]))
+        cur.execute(
+            "UPDATE admins SET active = ?, session_version = COALESCE(session_version, 0) + 1 WHERE email = ? AND institution_id = ?",
+            (REMOVED, email, who["inst"]),
+        )
         cur.execute("DELETE FROM password_resets WHERE email = ?", (email,))
     audit.record(audit.TEAM_REMOVED, None, institution_id=who["inst"], member=email, by=who["email"])
     return {"email": email, "status": "removed"}

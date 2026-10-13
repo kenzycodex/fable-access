@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button, Card, CardHeader, Field, Notice, TextInput } from "@/components/dashboard/primitives";
 import { changePassword } from "@/lib/fable/console";
+import { login } from "@/lib/fable/store";
 import { useMe } from "@/lib/fable/useConsole";
 
 export default function SecuritySettingsPage() {
@@ -20,8 +21,10 @@ export default function SecuritySettingsPage() {
     setBusy(true);
     setMsg(null);
     try {
-      await changePassword(oldPw, newPw);
-      setMsg({ tone: "success", text: "Password changed." });
+      const res = await changePassword(oldPw, newPw);
+      // Keep this session: the change ended every other one.
+      login(res.institution_id, res.token, res.expires_at);
+      setMsg({ tone: "success", text: "Password changed. Any other signed-in sessions have been signed out." });
       setOldPw("");
       setNewPw("");
       setConfirm("");

@@ -66,12 +66,18 @@ def _sign(payload_b64: str) -> str:
     return _b64e(hmac.new(_secret(), payload_b64.encode(), hashlib.sha256).digest())
 
 
-def issue(email: str, institution_id: str) -> dict:
-    """Mint a token for a freshly authenticated admin."""
+def issue(email: str, institution_id: str, version: int = 0) -> dict:
+    """Mint a token for a freshly authenticated admin.
+
+    `version` is the admin's session_version. A password change or reset bumps
+    it, which ends every token issued before: the revocation the stateless
+    design otherwise lacks.
+    """
     now = int(time.time())
     payload = {
         "sub": email,
         "inst": institution_id,
+        "sv": int(version or 0),
         "iat": now,
         "exp": now + SESSION_TTL_SECONDS,
         # Distinguishes two tokens minted in the same second, and gives us a
