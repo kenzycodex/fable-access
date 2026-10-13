@@ -273,7 +273,10 @@ export async function shieldAnalyze(
         latitude: location?.latitude ?? null,
         longitude: location?.longitude ?? null,
         accuracy_m: location?.accuracy_m ?? null,
-        city: location?.city ?? null,
+        // An IP address names the carrier's city, often tens of km from the
+        // customer, so only a GPS fix is allowed to say "new city". Country is
+        // reliable either way.
+        city: location?.source === "gps" ? location.city : null,
         region: location?.region ?? null,
         country: location?.country ?? null,
         country_code: location?.country_code ?? null,

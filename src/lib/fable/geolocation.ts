@@ -99,10 +99,14 @@ async function reverseGeocodeNominatim(lat: number, lon: number): Promise<Revers
     );
     if (!res.ok) return null;
     const a = ((await res.json()) as { address?: Record<string, string> }).address ?? {};
-    const city = a.city || a.town || a.village || a.city_district || a.county || a.state || null;
+    // The metro, never a district: Lagos addresses often carry only a
+    // city_district ("Bariga") and a state, and a district in `city` made every
+    // trip across town look like a new city. Districts go in `locality`.
+    const city = a.city || a.town || a.village || (a.state ? a.state.replace(/ State$/i, "") : null) || a.county || null;
     // The finest human-meaningful label, coarsening until something is present.
     const road = a.road ? `${a.house_number ? `${a.house_number} ` : ""}${a.road}` : null;
-    const finest = a.amenity || a.building || a.shop || a.office || road || a.neighbourhood || a.suburb || null;
+    const finest =
+      a.amenity || a.building || a.shop || a.office || road || a.neighbourhood || a.suburb || a.city_district || null;
     const locality = finest && finest !== city ? finest : null;
     if (!city && !locality) return null;
     return {
