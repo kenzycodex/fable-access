@@ -1,4 +1,5 @@
 import hmac
+import logging
 import smtplib
 from email.message import EmailMessage
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
@@ -13,6 +14,7 @@ from agents.copilot.demo_customers import seed_institution
 from utils import hash_password
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+logger = logging.getLogger("fable.admin")
 
 class ProvisionRequest(BaseModel):
     institution_name: str
@@ -32,7 +34,7 @@ def generate_api_key():
 
 def send_provision_email(admin_email: str, institution_name: str, temp_password: str, api_key: str, institution_id: str):
     if not config.SMTP_USERNAME or not config.SMTP_PASSWORD:
-        print(f"Skipping email to {admin_email}: SMTP credentials not configured.")
+        logger.info("Skipping email to %s: SMTP credentials are not configured.", admin_email)
         return
 
     msg = EmailMessage()
@@ -84,9 +86,9 @@ def send_provision_email(admin_email: str, institution_name: str, temp_password:
             server.starttls()
             server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
             server.send_message(msg)
-        print(f"Provisioning email sent successfully to {admin_email}")
+        logger.info("Provisioning email sent to %s.", admin_email)
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        logger.warning("Failed to send provisioning email to %s: %s", admin_email, e)
         # We don't raise here because we still want to return the keys if email fails
 
 def _require_operator(request: Request) -> None:

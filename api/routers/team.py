@@ -10,6 +10,7 @@ Roles:
   analyst  works the review queue and resets customer PINs; reads everything
   viewer   reads everything, changes nothing
 """
+import logging
 import re
 import secrets
 import smtplib
@@ -27,6 +28,7 @@ from tenancy import ROLES, get_institution, require_role
 from utils import hash_password
 
 router = APIRouter(prefix="/v1/team", tags=["team"])
+logger = logging.getLogger("fable.team")
 
 INVITE_TTL_SECONDS = 7 * 24 * 60 * 60
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -78,7 +80,7 @@ def _send_invite(email: str, inviter: str, institution_name: str, role: str, lin
             server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
             server.send_message(msg)
     except Exception as exc:  # noqa: BLE001 - the invite still exists; the link can be re-sent
-        print(f"Failed to send invite email: {exc}")
+        logger.warning("Failed to send invite email to %s: %s", email, exc)
 
 
 class InviteBody(BaseModel):

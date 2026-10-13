@@ -226,7 +226,7 @@ def test_institution_thresholds_change_the_decision(client):
     user = user_id_for(BANK, "chioma")
     # A transfer that lands mid-range under the defaults, found rather than
     # hardcoded so the test does not break every time a weight is tuned.
-    txn, score = None, None
+    txn = None
     for amount in (8000, 20000, 45000, 90000, 180000, 300000):
         for payee in ("brand_new_payee", None):
             candidate = {"amount": amount, "recipient_account": "0123456789", "recipient_bank": "Unknown Bank",
@@ -234,7 +234,7 @@ def test_institution_thresholds_change_the_decision(client):
                          **({"recipient_id": payee} if payee else {})}
             s = analyze_transaction(user, candidate, {}, {}, BANK)["risk_score"]
             if 0.25 <= s <= 0.85:
-                txn, score = candidate, s
+                txn = candidate
                 break
         if txn:
             break

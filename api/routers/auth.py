@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel
 from db import get_conn, cursor
 from utils import hash_password, needs_rehash, verify_password
+import logging
 import secrets
 import time
 import config
@@ -10,6 +11,7 @@ from email.message import EmailMessage
 import smtplib
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger("fable.auth")
 
 # admins.active: 1 can sign in, 0 removed by an owner, 2 invited and has not set
 # a password yet. Only an invite token moves 2 to 1; a removed member cannot
@@ -88,7 +90,7 @@ class ForgotPasswordRequest(BaseModel):
 
 def send_reset_email(email: str, token: str):
     if not config.SMTP_USERNAME or not config.SMTP_PASSWORD:
-        print(f"Skipping reset email: SMTP not configured.")
+        logger.info("Skipping reset email: SMTP is not configured.")
         return
     reset_url = f"{config.FRONTEND_URL.rstrip('/')}/dashboard/reset-password?token={token}"
     msg = EmailMessage()
@@ -116,7 +118,7 @@ def send_reset_email(email: str, token: str):
             server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
             server.send_message(msg)
     except Exception as e:
-        print(f"Failed to send reset email: {e}")
+        logger.warning("Failed to send reset email: %s", e)
 
 @router.post("/forgot-password")
 def forgot_password(req: ForgotPasswordRequest, bg_tasks: BackgroundTasks):

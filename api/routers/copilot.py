@@ -1,6 +1,5 @@
 from fastapi import APIRouter
 
-from models.schemas import FeedbackRequest
 from agents.copilot.transparency import get_transparency_data
 
 router = APIRouter(prefix="/v1/copilot", tags=["copilot"])
