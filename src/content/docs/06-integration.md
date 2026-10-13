@@ -28,9 +28,11 @@ tells you what happened through signed webhooks, and you decide what to do.
 
 ## 1. Get your key
 
-Every institution has one API key. An owner finds it in the console under
-**Settings → API & webhooks**, and can rotate it there. Rotating issues a new key
-and retires the old one immediately, so update your secrets manager first.
+Every institution has one API key. It is shown in full exactly once: in the
+welcome email when the institution is provisioned, and on screen when an owner
+rotates it under **Settings → API & webhooks**. Fable stores only a hash, so it
+cannot show the key again; a lost key is replaced by rotating it. Rotating
+retires the old key immediately, so update your secrets manager straight away.
 
 Keep the key on your servers. Never put it in a mobile app, a web page or a
 repository: anyone holding it can score transactions as your bank.

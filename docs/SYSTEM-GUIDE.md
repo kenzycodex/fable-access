@@ -323,11 +323,10 @@ curl -X POST http://localhost:8000/v1/demo/seed-institution \
   `/api/paystack-status` exists to diagnose it in one call.
 - **Ghost is simulated containment.** It models the cooling window in SQLite;
   production would wire it to a real Open Banking holds endpoint.
-- **API keys are stored in plain text** in the `api_keys` table, because the
-  console lets an owner view and copy theirs. Anyone with a copy of the database
-  or a backup can use them. Hashing them (and showing a key only once, when it
-  is created or rotated) is the planned fix; until then, treat the database file
-  and every backup as secret.
+- **API keys are shown once.** Only a SHA-256 hash of each key is stored, with
+  its first and last characters for display, so a copy of the database holds no
+  usable key. The full key appears once, when it is issued (provisioning email or
+  rotation). A lost key is replaced by rotating it in Settings.
 - **Analyst actions label, they do not move money.** Resolving a case as
   legitimate does not release a blocked transfer. Money moves only through the
   customer's own verification or a Ghost release.

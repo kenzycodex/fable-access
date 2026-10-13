@@ -126,12 +126,12 @@ function ApiKeyCard({ institutionId }: { institutionId: string | null }) {
         <code className="flex-1 truncate text-[13px] text-d-text">
           {creds?.masked_key ?? (failed ? "Unavailable, the API is offline" : "Loading...")}
         </code>
-        {canManage && <CopyButton value={creds?.api_key} />}
       </div>
       {creds?.created_at && <p className="mt-2 text-[12px] text-d-faint">Issued {when(creds.created_at)}</p>}
       <p className="mt-3 text-[12px] leading-relaxed text-d-muted">
-        Keep it on your servers. Never ship it in a mobile app or a web page.
-        {!canManage && " Only an owner can view or rotate the full key."}
+        For security, Fable stores only a fingerprint of your key, so the full key is shown once: when it is issued or
+        rotated. Lost it? {canManage ? "Rotate it to get a new one." : "Ask an owner to rotate it."} Keep it on your
+        servers, never in a mobile app or a web page.
       </p>
       {error && <Notice tone="danger" className="mt-3">{error}</Notice>}
       <div className="mt-4 flex flex-wrap gap-2">

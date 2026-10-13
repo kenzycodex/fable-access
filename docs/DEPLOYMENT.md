@@ -297,8 +297,9 @@ rm -f data/fable.db-wal data/fable.db-shm
 docker compose up -d --build
 ```
 
-The database holds every institution's API key and customer data. Delete the
-snapshot afterwards, and never commit one (`*.db` is already git-ignored).
+The database holds every institution's customer data (API keys are stored only
+as hashes). Delete the snapshot afterwards, and never commit one (`*.db` is
+already git-ignored).
 
 ⚠️ **Passkeys will not survive**, whichever option you pick. A credential is
 bound to the Relying Party ID it was registered against, so anything enrolled
@@ -327,7 +328,7 @@ In the browser:
 - [ ] `/demo/<your-institution>` loads with the tenant's own branding
 - [ ] Console login at `/dashboard/login` works
 - [ ] A transfer appears in the console within ~4 seconds
-- [ ] `/dashboard/settings` shows the institution's real API key
+- [ ] Settings, API & webhooks shows the masked API key, and rotating it shows the new key once
 - [ ] Passkey enrolment prompts (needs HTTPS — it will not work over plain HTTP)
 
 ---

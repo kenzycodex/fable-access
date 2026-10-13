@@ -153,7 +153,7 @@ reference.
 | `POST /admin/provision` | Create a tenant, seed it, email credentials. Operator key required. Optional `institution_type` (a commercial bank, a fintech, a payment gateway...) |
 | `GET /v1/institutions/{id}` | Detail and customer roster. Never returns credentials |
 | `PATCH /v1/institutions/{id}` | Edit the institution's name, type and contact email. Owner only. The id, sign-in email and demo URL do not change |
-| `GET /v1/institutions/{id}/credentials` | The institution's API key. Owners see it in full, other roles see it masked |
+| `GET /v1/institutions/{id}/credentials` | The institution's API key, masked. The full key is never returned: only a hash is stored |
 | `POST /v1/institutions/{id}/keys/rotate` | Issue a new key and retire the old one immediately. Owner only. The new key is returned once |
 | `GET` / `PUT /v1/institutions/{id}/settings` | Risk policy: flag and block thresholds and Ghost hold windows. Writing is owner only and audited |
 | `PUT /v1/institutions/{id}/mode` | `sandbox` or `live`. Owner only |
