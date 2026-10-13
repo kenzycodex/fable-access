@@ -155,6 +155,13 @@ CREATE TABLE IF NOT EXISTS institution_aliases (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Former ids of renamed customers (see scripts/rename_customers.py).
+CREATE TABLE IF NOT EXISTS user_aliases (
+    alias TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS institutions (
     institution_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

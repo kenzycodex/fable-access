@@ -20,7 +20,9 @@ os.environ.setdefault("FABLE_SESSION_SECRET", "test-secret")
 os.environ.setdefault("FABLE_OPERATOR_KEY", "test-operator-key")
 os.environ.setdefault("SMTP_USERNAME", "")
 
-USER = "endpointbank_chioma"
+from agents.copilot.demo_customers import user_id_for  # noqa: E402
+
+USER = user_id_for("endpointbank", "chioma")
 PIN = "8317"
 
 
@@ -142,7 +144,7 @@ def test_tenant_cannot_be_switched_by_query_parameter(client):
 def test_any_pin_of_the_right_length_is_accepted(client):
     """By default there are no strength rules: a customer may pick 1234 or 0000.
     The protection is the lock-out on repeated wrong attempts."""
-    user = "endpointbank_tunde"
+    user = user_id_for("endpointbank", "tunde")
     last = None
     for pin in ("1234", "0000", "1111"):
         res = client.post(f"/v1/accounts/{user}/security/pin", json={"pin": pin, "current_pin": last})
@@ -189,7 +191,7 @@ def test_institution_can_clear_its_own_customers_pin_only(client):
     import security
     import sessions
 
-    user = "endpointbank_chioma"
+    user = user_id_for("endpointbank", "chioma")
     client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "9999"}) if not security.status(user)["pin_set"] else None
     assert security.status(user)["pin_set"] is True
 
@@ -258,7 +260,9 @@ def test_renaming_an_institution_id_moves_everything_and_keeps_the_old_one_worki
 
     register_institution("oldbank", "Old Bank", "risk@old.ng")
     seed_institution("oldbank", days=30)
-    assert client.post("/v1/accounts/oldbank_tunde/security/pin", json={"pin": "4821"}).status_code == 200
+    old_tunde = user_id_for("oldbank", "tunde")
+    new_tunde = user_id_for("newbank", "tunde")
+    assert client.post(f"/v1/accounts/{old_tunde}/security/pin", json={"pin": "4821"}).status_code == 200
 
     def counts(conn):
         return {
@@ -272,7 +276,7 @@ def test_renaming_an_institution_id_moves_everything_and_keeps_the_old_one_worki
 
     # A dry run reports the change and makes none.
     dry = ren.rename(conn, "oldbank", "newbank", do_apply=False)
-    assert dry["mapping"]["oldbank_tunde"] == "newbank_tunde"
+    assert dry["mapping"][old_tunde] == new_tunde
     assert counts(conn) == before
 
     ren.rename(conn, "oldbank", "newbank", do_apply=True)
@@ -285,8 +289,8 @@ def test_renaming_an_institution_id_moves_everything_and_keeps_the_old_one_worki
     check.close()
 
     # The customer's PIN came with them, under the new id.
-    assert security.status("newbank_tunde")["pin_set"] is True
-    assert security.status("oldbank_tunde")["pin_set"] is False
+    assert security.status(new_tunde)["pin_set"] is True
+    assert security.status(old_tunde)["pin_set"] is False
 
     # The old id is still understood, so old links and open tabs keep working.
     assert client.get("/v1/branding/resolve/oldbank").json()["institution_id"] == "newbank"

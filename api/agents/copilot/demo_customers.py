@@ -1,8 +1,8 @@
 """Per-institution demo customers.
 
-Every institution gets the same three archetypes, namespaced by tenant
-(`{institution_id}_{key}`), each with a deliberately different spending
-baseline. That difference is the point: the identical ₦250,000 transfer is
+Every institution gets the same three archetypes, namespaced by tenant and named
+after the person (`{institution_id}_{first_name}`, e.g. `ecobank_kelechi`), each
+with a deliberately different spending baseline. That difference is the point: the identical ₦250,000 transfer is
 routine for Tunde the trader, a 5x anomaly for Ada, and wildly out of
 character for Chioma — which is what makes Copilot's per-customer baselines
 visible instead of theoretical.
@@ -10,6 +10,7 @@ visible instead of theoretical.
 import hashlib
 import os
 import random
+import re
 import uuid
 from datetime import datetime, timedelta
 
@@ -112,8 +113,39 @@ def roster_for(size: int | None = None) -> list[dict]:
     return [by_key[k] for k in ROSTER_PRIORITY[:n] if k in by_key]
 
 
+def _slug(first_name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", first_name.lower())
+
+
 def user_id_for(institution_id: str, key: str) -> str:
+    """The customer's id: the institution plus their first name.
+
+    Ids used to be `{institution}_{archetype}` ("ecobank_chioma"), which read as a
+    different person from the name shown beside it ("Kelechi Obi"). They now match
+    the person. The pools have no first name in common, so two customers at one
+    institution never collide. scripts/rename_customers.py moves existing data.
+    """
+    name, _ = customer_identity(institution_id, key)
+    return f"{institution_id}_{_slug(name.split()[0])}"
+
+
+def legacy_user_id_for(institution_id: str, key: str) -> str:
+    """The id this customer had before ids followed names."""
     return f"{institution_id}_{key}"
+
+
+def archetype_of(user_id: str) -> tuple[str, str] | None:
+    """(institution_id, archetype key) for a demo customer id, in either format."""
+    if not user_id or "_" not in user_id:
+        return None
+    institution_id, _, tail = user_id.rpartition("_")
+    keys = {c["key"] for c in DEMO_CUSTOMERS}
+    if tail in keys:  # legacy id
+        return institution_id, tail
+    for key in keys:
+        if user_id == user_id_for(institution_id, key):
+            return institution_id, key
+    return None
 
 
 def customer_name_for(user_id: str) -> str | None:
@@ -126,13 +158,11 @@ def customer_name_for(user_id: str) -> str | None:
     Returns None for anything that is not a demo archetype, so a real
     integrator's customer ids are never given an invented name.
     """
-    if not user_id or "_" not in user_id:
-        return None
-    institution_id, _, key = user_id.rpartition("_")
-    if key not in {c["key"] for c in DEMO_CUSTOMERS}:
+    found = archetype_of(user_id)
+    if not found:
         return None
     try:
-        return customer_identity(institution_id, key)[0]
+        return customer_identity(*found)[0]
     except KeyError:
         return None
 

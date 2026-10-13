@@ -65,12 +65,33 @@ def _customer_ids(conn: sqlite3.Connection, tables: dict[str, list[str]], old: s
             ):
                 found.add(uid)
     try:
-        from agents.copilot.demo_customers import roster_for, user_id_for
-        found.update(user_id_for(old, c["key"]) for c in roster_for())
+        from agents.copilot.demo_customers import legacy_user_id_for, roster_for, user_id_for
+        for c in roster_for():
+            found.add(user_id_for(old, c["key"]))
+            found.add(legacy_user_id_for(old, c["key"]))
     except Exception:  # noqa: BLE001 - the roster is only a safety net
         pass
-    # Only ids in the "{institution}_{key}" shape can be rewritten by prefix.
+    # Only ids in the "{institution}_{suffix}" shape can be rewritten by prefix.
     return {u for u in found if u.startswith(old + "_")}
+
+
+def _new_customer_id(old_id: str, old: str, new: str) -> str:
+    """What a customer of `old` becomes at `new`.
+
+    A demo customer's id follows the person, and the person is chosen from the
+    institution's id, so renaming the institution picks new people. The id has to
+    follow, or it would name someone the roster no longer lists. Any other id just
+    swaps the prefix.
+    """
+    try:
+        from agents.copilot.demo_customers import archetype_of, user_id_for
+
+        found = archetype_of(old_id)
+        if found and found[0] == old:
+            return user_id_for(new, found[1])
+    except Exception:  # noqa: BLE001 - fall back to the plain prefix swap
+        pass
+    return new + old_id[len(old):]
 
 
 def _row_counts(conn: sqlite3.Connection, tables: dict[str, list[str]]) -> dict[str, int]:
@@ -103,7 +124,7 @@ def plan(conn: sqlite3.Connection, old: str, new: str) -> dict:
         raise RenameError(f"Another institution's URL is already '{new}'.")
 
     customers = sorted(_customer_ids(conn, tables, old))
-    mapping = {u: new + u[len(old):] for u in customers}
+    mapping = {u: _new_customer_id(u, old, new) for u in customers}
 
     clash = [n for n in mapping.values() if any(
         conn.execute(f"SELECT 1 FROM {t} WHERE user_id = ? LIMIT 1", (n,)).fetchone()

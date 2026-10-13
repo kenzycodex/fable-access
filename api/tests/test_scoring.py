@@ -15,6 +15,14 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
+def user_id_for(institution_id: str, key: str) -> str:
+    """The seeded customer's id. Imported on use, because Fable modules must not
+    load until the pinned environment below is in place."""
+    from agents.copilot.demo_customers import user_id_for as _user_id_for
+
+    return _user_id_for(institution_id, key)
+
 # Pin the tuning these assertions were written against.
 #
 # These tests exercise the scoring *code*, not whatever a given deployment has
@@ -139,8 +147,8 @@ def test_same_amount_opposite_verdicts_for_different_customers(bank):
     """The product's central claim. A trader's routine transfer must clear while
     the same amount stops a student, and this is the assertion that would fail
     first if baselines ever stopped being per-customer."""
-    trader = score("testbank_tunde", 300_000, bank)
-    student = score("testbank_chioma", 300_000, bank)
+    trader = score(user_id_for("testbank", "tunde"), 300_000, bank)
+    student = score(user_id_for("testbank", "chioma"), 300_000, bank)
 
     assert trader["action"] == "PASS"
     assert student["action"] == "BLOCK"
@@ -150,8 +158,8 @@ def test_same_amount_opposite_verdicts_for_different_customers(bank):
 def test_variance_aware_scoring_tolerates_an_erratic_customer(bank):
     """A raw multiple punished consistency: the trader's ordinary swing between
     ₦80k and ₦400k read as an anomaly on every transfer."""
-    assert score("testbank_tunde", 600_000, bank)["action"] == "PASS"
-    assert score("testbank_tunde", 2_000_000, bank)["action"] in {"FLAG", "BLOCK"}
+    assert score(user_id_for("testbank", "tunde"), 600_000, bank)["action"] == "PASS"
+    assert score(user_id_for("testbank", "tunde"), 2_000_000, bank)["action"] in {"FLAG", "BLOCK"}
 
 
 def test_tenure_discount_applies_and_is_capped(bank):
@@ -159,7 +167,7 @@ def test_tenure_discount_applies_and_is_capped(bank):
     scored identically."""
     from agents.copilot.baseline import get_user_baseline, TENURE_DISCOUNT_MAX
 
-    b = get_user_baseline("testbank_chioma")
+    b = get_user_baseline(user_id_for("testbank", "chioma"))
     assert 0 < b["tenure_discount"] <= TENURE_DISCOUNT_MAX
 
 

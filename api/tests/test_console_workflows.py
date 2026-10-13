@@ -221,7 +221,9 @@ def test_institution_thresholds_change_the_decision(client):
     import policy
     from agents.shield.analyzer import analyze_transaction
 
-    user = f"{BANK}_chioma"
+    from agents.copilot.demo_customers import user_id_for
+
+    user = user_id_for(BANK, "chioma")
     # A transfer that lands mid-range under the defaults, found rather than
     # hardcoded so the test does not break every time a weight is tuned.
     txn, score = None, None
@@ -339,7 +341,9 @@ def test_date_range_filters_transactions(client):
 def test_live_institution_rejects_keyless_writes(client):
     from db import cursor
 
-    payload = {"user_id": f"{BANK}_chioma", "institution_id": BANK,
+    from agents.copilot.demo_customers import user_id_for
+
+    payload = {"user_id": user_id_for(BANK, "chioma"), "institution_id": BANK,
                "transaction": {"amount": 1000, "recipient_id": "r", "recipient_account": "0000000001",
                                "recipient_bank": "Test", "channel": "mobile_app"}}
     try:
@@ -354,7 +358,7 @@ def test_live_institution_rejects_keyless_writes(client):
             cur.execute("UPDATE institutions SET mode = 'sandbox' WHERE institution_id = ?", (BANK,))
 
     # Sandbox banks, like every demo bank, still accept scoring by name.
-    other = {**payload, "user_id": f"{OTHER}_chioma", "institution_id": OTHER}
+    other = {**payload, "user_id": user_id_for(OTHER, "chioma"), "institution_id": OTHER}
     assert client.post("/v1/shield/analyze", json=other).status_code != 401
 
 
