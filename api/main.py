@@ -98,6 +98,19 @@ if config.ENVIRONMENT == "production" and config.WEBAUTHN_RP_ID == "localhost":
         "site's registered domain (no scheme, no port)."
     )
 
+if config.ENVIRONMENT == "production" and config.CORS_ORIGINS == ["*"]:
+    logger.warning(
+        "FABLE_CORS_ORIGINS is '*' in production, so any website can call this "
+        "API from a visitor's browser. Set it to your frontend origins, comma-"
+        "separated (for example https://fablehq.vercel.app)."
+    )
+
+if config.ENVIRONMENT == "production" and os.getenv("FABLE_WEBHOOK_ALLOW_PRIVATE", "").lower() in ("1", "true", "yes"):
+    logger.error(
+        "FABLE_WEBHOOK_ALLOW_PRIVATE is on in production. A console user could "
+        "point a webhook at this server's own network. Turn it off."
+    )
+
 if not config.ADMIN_OPERATOR_KEY:
     logger.info("FABLE_OPERATOR_KEY is not set, so POST /admin/provision is disabled.")
 
