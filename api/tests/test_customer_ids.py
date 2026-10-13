@@ -110,3 +110,43 @@ def test_migration_refuses_to_overwrite_an_existing_id(legacy_bank):
     with pytest.raises(rc.RenameError):
         rc.rename(conn, [inst], do_apply=True)
     assert _counts(conn) == before
+
+
+def test_removing_institutions_keeps_only_the_named_one():
+    import config
+    from agents.copilot.demo_customers import seed_institution
+    from scripts import remove_institutions as rm
+    from tenancy import register_institution
+
+    for inst in ("keepbank", "dropbank", "dropbank2"):
+        register_institution(inst, inst.title(), f"risk@{inst}.ng")
+        seed_institution(inst, days=20)
+    conn = sqlite3.connect(config.DB_PATH, timeout=30)
+    conn.execute("INSERT OR REPLACE INTO admins (email, institution_id, hashed_password) VALUES ('a@drop.ng', 'dropbank', 'x')")
+    conn.execute("INSERT INTO transactions (id, user_id, amount, institution_id) VALUES ('orphan1', 'ghostbank_x', 5, 'ghostbank')")
+    conn.commit()
+
+    def kept(c):
+        return (
+            c.execute("SELECT COUNT(*) FROM transactions WHERE institution_id = 'keepbank'").fetchone()[0],
+            c.execute("SELECT COUNT(*) FROM accounts WHERE institution_id = 'keepbank'").fetchone()[0],
+            c.execute("SELECT COUNT(*) FROM ghost_containers WHERE institution_id = 'keepbank'").fetchone()[0],
+        )
+
+    before = kept(conn)
+    assert before[0] > 0
+
+    dry = rm.remove(conn, ["keepbank"], do_apply=False)
+    assert {"dropbank", "dropbank2", "ghostbank"} <= set(dry["institutions"])
+    assert conn.execute("SELECT COUNT(*) FROM institutions WHERE institution_id = 'dropbank'").fetchone()[0] == 1
+
+    rm.remove(conn, ["keepbank"], do_apply=True)
+    assert [r[0] for r in conn.execute("SELECT institution_id FROM institutions WHERE institution_id IN ('keepbank','dropbank','dropbank2')")] == ["keepbank"]
+    assert conn.execute("SELECT COUNT(*) FROM admins WHERE institution_id = 'dropbank'").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM transactions WHERE institution_id IN ('dropbank','dropbank2','ghostbank')").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM fable_users WHERE institution_id IN ('dropbank','dropbank2')").fetchone()[0] == 0
+    assert kept(conn) == before
+
+    with pytest.raises(rm.RemoveError):
+        rm.remove(conn, ["does_not_exist"], do_apply=True)
+    conn.close()
