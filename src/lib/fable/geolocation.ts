@@ -19,11 +19,17 @@ export interface GeoLocation {
   country_code: string | null;
   ip: string | null;
   source: "gps" | "ip" | "unavailable";
+  /** Why GPS did not produce a fix, so the UI can say what to do about it. */
+  gps_error?: GpsError | null;
   collected_at: number;
 }
 
+export type GpsError = "denied" | "unavailable" | "timeout" | "unsupported";
+
 const CACHE_TTL_MS = 5 * 60 * 1000; // location doesn't change every request
-const GPS_TIMEOUT_MS = 8_000;
+const GPS_TIMEOUT_MS = 12_000;
+/** A fix this tight is as good as it gets; stop waiting for a better one. */
+const GOOD_FIX_M = 50;
 const IP_TIMEOUT_MS = 6_000;
 const REVERSE_GEOCODE_TIMEOUT_MS = 5_000;
 /** Within this radius a fix is precise enough to name a building or road. */
@@ -62,20 +68,47 @@ async function ipLookup(): Promise<IpApiResponse | null> {
   }
 }
 
-function gpsPosition(): Promise<GeolocationPosition | null> {
+/** Watch for a few seconds and keep the best fix, the way ride and delivery apps
+ * do. The first reading from a phone is usually a coarse network fix; the GPS
+ * chip needs a moment to lock on and the accuracy tightens as it does. */
+function gpsPosition(): Promise<{ pos: GeolocationPosition | null; error: GpsError | null }> {
   return new Promise((resolve) => {
-    if (!("geolocation" in navigator)) return resolve(null);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve(pos),
-      () => resolve(null), // denied, unavailable, or timed out
-      // High accuracy on: the whole point of GPS is a precise fix, and an
-      // IP-derived city (the old fallback) is routinely wrong by tens of km on
-      // Nigerian mobile networks, which then triggers false location anomalies.
-      // maximumAge 0: never accept a position the browser or OS remembers from
-      // earlier. A cached fix is how a customer at home was placed at campus.
-      { enableHighAccuracy: true, timeout: GPS_TIMEOUT_MS, maximumAge: 0 }
+    if (!("geolocation" in navigator)) return resolve({ pos: null, error: "unsupported" });
+    let best: GeolocationPosition | null = null;
+    let done = false;
+    let watchId = -1;
+
+    const finish = (error: GpsError | null) => {
+      if (done) return;
+      done = true;
+      if (watchId !== -1) navigator.geolocation.clearWatch(watchId);
+      clearTimeout(timer);
+      resolve({ pos: best, error: best ? null : error });
+    };
+
+    watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        if (!best || pos.coords.accuracy < best.coords.accuracy) best = pos;
+        if (pos.coords.accuracy <= GOOD_FIX_M) finish(null);
+      },
+      (err) => finish(err.code === 1 ? "denied" : err.code === 3 ? "timeout" : "unavailable"),
+      // maximumAge 0: never accept a position the browser or OS remembers, which
+      // is how a customer at home was once placed at campus.
+      { enableHighAccuracy: true, timeout: GPS_TIMEOUT_MS, maximumAge: 0 },
     );
+    const timer = setTimeout(() => finish("timeout"), GPS_TIMEOUT_MS);
   });
+}
+
+/** Whether the browser will show the location prompt, has it granted, or has it
+ * blocked. A blocked site cannot be asked again; the customer has to change it. */
+export async function locationPermission(): Promise<"granted" | "prompt" | "denied" | "unsupported"> {
+  if (typeof navigator === "undefined" || !("geolocation" in navigator)) return "unsupported";
+  try {
+    return (await navigator.permissions.query({ name: "geolocation" })).state;
+  } catch {
+    return "prompt"; // Safari: no Permissions API for geolocation
+  }
 }
 
 interface ReverseGeocode {
@@ -166,7 +199,7 @@ async function reverseGeocode(lat: number, lon: number): Promise<ReverseGeocode 
 async function collect(): Promise<GeoLocation> {
   // Run GPS and the IP lookup in parallel: GPS supplies precise coordinates,
   // the IP lookup supplies city/country labels + the public IP either way.
-  const [pos, ip] = await Promise.all([gpsPosition(), ipLookup()]);
+  const [{ pos, error: gpsError }, ip] = await Promise.all([gpsPosition(), ipLookup()]);
 
   if (pos) {
     // Name the place from the actual coordinates, not the ISP's city. Fall back
@@ -185,6 +218,7 @@ async function collect(): Promise<GeoLocation> {
       country_code: place?.country_code ?? ip?.country_code ?? null,
       ip: ip?.ip ?? null,
       source: "gps",
+      gps_error: null,
       collected_at: Date.now(),
     };
   }
@@ -200,6 +234,7 @@ async function collect(): Promise<GeoLocation> {
       country_code: ip.country_code ?? null,
       ip: ip.ip ?? null,
       source: "ip",
+      gps_error: gpsError,
       collected_at: Date.now(),
     };
   }
@@ -214,13 +249,16 @@ async function collect(): Promise<GeoLocation> {
     country_code: null,
     ip: ip?.ip ?? null,
     source: "unavailable",
+    gps_error: gpsError,
     collected_at: Date.now(),
   };
 }
 
 /** Start (or reuse) location collection. Triggers the browser's GPS
  * permission prompt on first call; caches the result for 5 minutes. */
-export function collectGeolocation(): Promise<GeoLocation> {
+export function collectGeolocation(force = false): Promise<GeoLocation> {
+  // A customer tapping "Use exact location" is a fresh request, not a cache hit.
+  if (force) cache = null;
   if (cache && Date.now() - cache.collected_at < CACHE_TTL_MS) return Promise.resolve(cache);
   if (!inflight) {
     inflight = collect().then((loc) => {

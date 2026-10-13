@@ -95,6 +95,7 @@ export default function TransferPage() {
   // What the Fable SDK has actually collected on this page.
   const [device, setDevice] = useState<DeviceFingerprint | null>(null);
   const [location, setLocation] = useState<GeoLocation | null>(null);
+  const [locating, setLocating] = useState(false);
   const [session, setSession] = useState<BankingSession | null>(null);
   const [sessionSeconds, setSessionSeconds] = useState(0);
 
@@ -103,6 +104,16 @@ export default function TransferPage() {
     () => accountBalance(customer!.user_id, institutionId),
     { refreshInterval: 15_000, keepPreviousData: true },
   );
+
+  // Tapping the button is a user gesture, which is what lets a phone browser
+  // show its location prompt; one raised on page load is easy to miss or is
+  // suppressed.
+  function retryLocation() {
+    setLocating(true);
+    void collectGeolocation(true)
+      .then(setLocation)
+      .finally(() => setLocating(false));
+  }
 
   useEffect(() => {
     const t = new BehavioralTracker();
@@ -511,15 +522,7 @@ export default function TransferPage() {
                   {device ? `${device.os} · ${device.browser}` : "Reading…"}
                 </Signal>
                 <Signal icon={<MapPin size={16} />} title="Location">
-                  {location
-                    ? location.source === "unavailable"
-                      ? "Not available"
-                      : location.source === "gps"
-                        ? `${[location.locality, location.city].filter(Boolean).join(", ") || "Device location"}${
-                            location.accuracy_m ? ` (within ${location.accuracy_m >= 1000 ? `${Math.round(location.accuracy_m / 1000)} km` : `${Math.round(location.accuracy_m)} m`})` : ""
-                          }`
-                        : `${[location.city, location.country].filter(Boolean).join(", ") || "Approximate"} (approximate, turn on device location for an exact fix)`
-                    : "Locating…"}
+                  <LocationStatus location={location} locating={locating} onRetry={retryLocation} />
                 </Signal>
                 <Signal icon={<Timer size={16} />} title="Session">
                   {session
@@ -538,13 +541,45 @@ export default function TransferPage() {
   );
 }
 
+function LocationStatus({
+  location,
+  locating,
+  onRetry,
+}: {
+  location: GeoLocation | null;
+  locating: boolean;
+  onRetry: () => void;
+}) {
+  if (!location || locating) return <>Locating…</>;
+  if (location.source === "gps") {
+    const acc = location.accuracy_m;
+    const place = [location.locality, location.city].filter(Boolean).join(", ") || "Device location";
+    const within = acc ? ` (within ${acc >= 1000 ? `${Math.round(acc / 1000)} km` : `${Math.round(acc)} m`})` : "";
+    return <>{place + within}</>;
+  }
+  const area = [location.city, location.country].filter(Boolean).join(", ");
+  const blocked = location.gps_error === "denied";
+  return (
+    <>
+      {blocked
+        ? "Location is blocked for this site. Allow it in your browser's site settings, then try again."
+        : area
+          ? `Only your network's area is known (${area}).`
+          : "Your location could not be read."}{" "}
+      <button type="button" onClick={onRetry} className="font-semibold text-brand underline-offset-2 hover:underline">
+        {blocked ? "Try again" : "Use my exact location"}
+      </button>
+    </>
+  );
+}
+
 function Signal({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-2.5">
       <span className="mt-0.5 shrink-0 text-brand">{icon}</span>
       <div className="min-w-0">
         <p className="font-semibold text-d-text">{title}</p>
-        <p className="truncate text-d-muted">{children}</p>
+        <div className="break-words text-d-muted">{children}</div>
       </div>
     </div>
   );
