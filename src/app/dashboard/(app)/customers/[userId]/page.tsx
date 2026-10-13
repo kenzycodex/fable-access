@@ -107,6 +107,7 @@ export default function CustomerPage() {
                 <Fact label="Known cities" value={customer.known_cities?.length ? customer.known_cities.join(", ") : "None yet"} />
                 <Fact label="Avg session" value={customer.avg_session_duration_s != null ? `${Math.round(customer.avg_session_duration_s)}s` : "-"} />
                 <Fact label="Avg time to submit" value={customer.avg_time_to_submit_s != null ? `${customer.avg_time_to_submit_s}s` : "-"} />
+                <Fact label="Customer ID" value={userId} mono />
               </div>
               <div className="mt-4 border-t border-d-border pt-4">
                 <p className="mb-2 text-[12px] font-semibold text-d-muted">Verification</p>
@@ -225,11 +226,11 @@ function BackLink() {
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="rounded-xl bg-d-surface-2 px-3 py-2.5">
       <p className="text-[11px] font-medium text-d-muted">{label}</p>
-      <p className="truncate text-[13px] font-semibold text-d-text">{value}</p>
+      <p className={`truncate text-[13px] font-semibold text-d-text ${mono ? "font-mono text-[12px]" : ""}`} title={value}>{value}</p>
     </div>
   );
 }

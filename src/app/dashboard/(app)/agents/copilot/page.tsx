@@ -90,7 +90,6 @@ export default function CopilotAgentPage() {
                       >
                         {nameFor(c.user_id)}
                       </Link>
-                      <p className="font-mono text-[11px] text-d-faint">{c.user_id}</p>
                       <p className="text-[12px] text-d-muted">
                         {c.transactions_analyzed.toLocaleString("en-NG")} transactions analyzed · {c.live_transactions} live
                       </p>

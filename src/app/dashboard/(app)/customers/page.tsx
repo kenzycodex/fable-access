@@ -145,7 +145,9 @@ export default function CustomersPage() {
                           <Avatar name={nameFor(c.user_id)} size="sm" />
                           <span className="min-w-0">
                             <span className="block truncate font-semibold text-d-text hover:text-brand">{nameFor(c.user_id)}</span>
-                            <span className="block truncate font-mono text-[11px] text-d-faint">{c.user_id}</span>
+                            <span className="block truncate text-[11px] text-d-faint">
+                              {c.known_cities?.[0] ?? (c.has_baseline ? "Baseline built" : "Still learning")}
+                            </span>
                           </span>
                         </Link>
                       </td>
