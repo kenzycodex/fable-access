@@ -172,7 +172,7 @@ fable/
 - **Identity:** WebAuthn passkeys (`py_webauthn`), hashed PINs, emailed one-time codes
 - **Frontend App:** Next.js 16 (App Router), React 19, Tailwind CSS v4
 - **UI Components:** Phosphor Icons, Sonner, react-markdown
-- **Third-party services:** Paystack (account-name resolution), ipapi.co, OpenStreetMap Nominatim and BigDataCloud (location), SMTP (verification and provisioning email)
+- **Third-party services:** Paystack (account-name resolution), Google Maps Geocoding, ipapi.co, OpenStreetMap Nominatim and BigDataCloud (location), SMTP (verification and provisioning email)
 - **Hosting:** Vercel (frontend), a Docker Compose deployment on a VPS (backend). See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 
 <br />

@@ -155,7 +155,7 @@ export const privacyNotice: LegalDocument = {
           ["Our cloud or VPS host (currently DigitalOcean)", "Runs the API and stores the database", "All platform data, stored on the server"],
           ["Paystack", "Resolves a recipient's name from an account number and bank code", "The recipient account number and bank code"],
           ["Anthropic and OpenAI", "Write the plain-language explanation and answer assistant questions (section 6)", "The limited data described above"],
-          ["IP-location and map services (ipapi.co, OpenStreetMap Nominatim, BigDataCloud)", "Turn an IP address or GPS coordinates into a city or place name", "The IP address or coordinates, sent from the customer's browser or our server"],
+          ["IP-location and map services (Google Maps Geocoding, ipapi.co, OpenStreetMap Nominatim, BigDataCloud)", "Turn an IP address or GPS coordinates into a street address, city or place name", "The IP address or coordinates, sent from the customer's browser or our server"],
           ["Our email provider (SMTP)", "Sends sign-in credentials, password resets and one-time codes", "The recipient's email address and the message"],
           ["An error-monitoring service, if enabled", "Helps us find and fix faults", "Technical error details, scrubbed of personal data where we can"],
           ["Regulators, courts and law enforcement", "Where the law requires or a valid order compels it", "Only what is lawfully demanded"],
