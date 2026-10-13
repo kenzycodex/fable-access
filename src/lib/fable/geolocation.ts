@@ -13,6 +13,11 @@ export interface GeoLocation {
    * Kept separate from `city` so the location-anomaly signal still compares
    * at city granularity (matching the seed) while the UI can show the area. */
   locality: string | null;
+  /** Street and house number, e.g. "14 Adebayo Street", when the address
+   * service knows one. Shown to the customer only; never sent for scoring. */
+  address: string | null;
+  /** Google Plus Code, precise to a few metres where a street has no numbers. */
+  plus_code: string | null;
   city: string | null;
   region: string | null;
   country: string | null;
@@ -113,11 +118,17 @@ export async function locationPermission(): Promise<"granted" | "prompt" | "deni
 
 interface ReverseGeocode {
   locality: string | null;
+  address?: string | null;
+  plus_code?: string | null;
   city: string | null;
   region: string | null;
   country: string | null;
   country_code: string | null;
 }
+
+// Same base the API client uses. Not imported from api.ts, which imports this
+// module; a cycle between the two is not worth one line.
+const API_BASE = (process.env.NEXT_PUBLIC_FABLE_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
 
 function timedFetch(url: string): Promise<Response> {
   const controller = new AbortController();
@@ -160,6 +171,38 @@ async function reverseGeocodeNominatim(lat: number, lon: number): Promise<Revers
   }
 }
 
+/** Street-level address from Google, through Fable's API so the key stays on
+ * the server. Google's address data is what ride and delivery apps show; it
+ * knows house numbers that OpenStreetMap does not. A 503 (no key configured)
+ * or 404 (no address there) falls through to OpenStreetMap. */
+async function reverseGeocodeGoogle(lat: number, lon: number): Promise<ReverseGeocode | null> {
+  try {
+    const res = await timedFetch(`${API_BASE}/v1/geo/reverse?lat=${lat}&lon=${lon}`);
+    if (!res.ok) return null;
+    const g = (await res.json()) as {
+      street_line?: string | null;
+      area?: string | null;
+      city?: string | null;
+      region?: string | null;
+      country?: string | null;
+      country_code?: string | null;
+      plus_code?: string | null;
+    };
+    if (!g.city && !g.street_line && !g.area) return null;
+    return {
+      locality: g.area && g.area !== g.city ? g.area : null,
+      address: g.street_line ?? null,
+      plus_code: g.plus_code ?? null,
+      city: g.city ?? null,
+      region: g.region ?? null,
+      country: g.country ?? null,
+      country_code: g.country_code ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** BigDataCloud fallback — keyless and very reliable, but only neighbourhood
  * level. Used when Nominatim is rate-limited or unreachable. */
 async function reverseGeocodeBigDataCloud(lat: number, lon: number): Promise<ReverseGeocode | null> {
@@ -193,7 +236,11 @@ async function reverseGeocodeBigDataCloud(lat: number, lon: number): Promise<Rev
  * makes "new city" mean the customer moved, not that their carrier rerouted.
  * Nominatim for building-level detail, BigDataCloud as a reliable fallback. */
 async function reverseGeocode(lat: number, lon: number): Promise<ReverseGeocode | null> {
-  return (await reverseGeocodeNominatim(lat, lon)) ?? (await reverseGeocodeBigDataCloud(lat, lon));
+  return (
+    (await reverseGeocodeGoogle(lat, lon)) ??
+    (await reverseGeocodeNominatim(lat, lon)) ??
+    (await reverseGeocodeBigDataCloud(lat, lon))
+  );
 }
 
 async function collect(): Promise<GeoLocation> {
@@ -212,6 +259,8 @@ async function collect(): Promise<GeoLocation> {
       // A laptop has no GPS chip; its fix comes from nearby Wi-Fi and can be
       // kilometres out. A building name is only believable from a tight fix.
       locality: pos.coords.accuracy <= PRECISE_M ? (place?.locality ?? null) : null,
+      address: pos.coords.accuracy <= PRECISE_M ? (place?.address ?? null) : null,
+      plus_code: pos.coords.accuracy <= PRECISE_M ? (place?.plus_code ?? null) : null,
       city: place?.city ?? ip?.city ?? null,
       region: place?.region ?? ip?.region ?? null,
       country: place?.country ?? ip?.country_name ?? null,
@@ -228,6 +277,8 @@ async function collect(): Promise<GeoLocation> {
       longitude: ip.longitude ?? null,
       accuracy_m: null,
       locality: null, // IP geolocation resolves to a city at best
+      address: null,
+      plus_code: null,
       city: ip.city ?? null,
       region: ip.region ?? null,
       country: ip.country_name ?? null,
@@ -243,6 +294,8 @@ async function collect(): Promise<GeoLocation> {
     longitude: null,
     accuracy_m: null,
     locality: null,
+    address: null,
+    plus_code: null,
     city: null,
     region: null,
     country: null,

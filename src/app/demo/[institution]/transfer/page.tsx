@@ -553,9 +553,13 @@ function LocationStatus({
   if (!location || locating) return <>Locating…</>;
   if (location.source === "gps") {
     const acc = location.accuracy_m;
-    const place = [location.locality, location.city].filter(Boolean).join(", ") || "Device location";
+    // A street address is only stated outright when the fix is tight enough to
+    // stand behind it; a looser fix says "near", which is the honest reading.
+    const exact = acc !== null && acc <= 50;
+    const street = location.address ?? (exact ? location.plus_code?.split(" ")[0] : null);
+    const place = [street, location.locality, location.city].filter(Boolean).join(", ") || "Device location";
     const within = acc ? ` (within ${acc >= 1000 ? `${Math.round(acc / 1000)} km` : `${Math.round(acc)} m`})` : "";
-    return <>{place + within}</>;
+    return <>{(street && !exact ? "Near " : "") + place + within}</>;
   }
   const area = [location.city, location.country].filter(Boolean).join(", ");
   const blocked = location.gps_error === "denied";
