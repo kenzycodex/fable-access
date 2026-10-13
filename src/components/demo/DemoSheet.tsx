@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "@phosphor-icons/react";
 
 /**
  * Responsive dialog: a bottom sheet on phones (thumb-reachable, the pattern
  * every banking app uses) and a centred modal from `sm` up. Locks body scroll,
  * closes on Escape and on backdrop click.
+ *
+ * Rendered into document.body. Opened from the sticky top bar, whose backdrop-blur
+ * makes it the containing block for `fixed`, the sheet was clipped to the bar.
  */
 export function DemoSheet({
   open,
@@ -37,7 +41,7 @@ export function DemoSheet({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center">
       <button
         type="button"
@@ -75,6 +79,7 @@ export function DemoSheet({
 
         <div className="overflow-y-auto px-5 pb-[max(20px,env(safe-area-inset-bottom))]">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
