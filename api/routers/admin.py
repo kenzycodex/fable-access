@@ -30,7 +30,9 @@ def generate_temp_password(length=12):
     return "".join(secrets.choice(alphabet) for i in range(length))
 
 def generate_api_key():
-    return f"fbl_live_{secrets.token_hex(16)}"
+    import apikeys
+
+    return apikeys.generate()
 
 def send_provision_email(admin_email: str, institution_name: str, temp_password: str, api_key: str, institution_id: str):
     if not config.SMTP_USERNAME or not config.SMTP_PASSWORD:
@@ -144,10 +146,11 @@ def provision_institution(req: ProvisionRequest, background_tasks: BackgroundTas
 
     # Save the generated API key and Admin User to the DB
     with cursor() as cur:
-        cur.execute(
-            "INSERT INTO api_keys (key, institution_name, admin_email, institution_id) VALUES (?, ?, ?, ?)",
-            (api_key, req.institution_name, req.admin_email, institution_id)
-        )
+        # Only the hash is stored. The full key goes out once: in this response
+        # and in the welcome email.
+        import apikeys
+
+        apikeys.insert(cur, api_key, institution_id, req.institution_name, req.admin_email)
         cur.execute(
             "INSERT OR REPLACE INTO admins (email, institution_id, hashed_password) VALUES (?, ?, ?)",
             (req.admin_email, institution_id, hashed_pw)

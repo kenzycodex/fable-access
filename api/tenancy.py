@@ -16,10 +16,12 @@ def institution_from_api_key(key: str | None) -> str | None:
     """Resolve a provisioned API key to its institution_id."""
     if not key:
         return None
+    import apikeys
+
     with cursor() as cur:
         cur.execute(
             "SELECT institution_id, institution_name FROM api_keys WHERE key = ? AND is_active = 1",
-            (key,),
+            (apikeys.hash_key(key),),
         )
         row = cur.fetchone()
     if not row:

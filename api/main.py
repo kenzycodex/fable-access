@@ -197,17 +197,12 @@ def ensure_default_admin() -> None:
                 # made the name function-local, so the earlier use of
                 # secrets.token_urlsafe() above raised UnboundLocalError and
                 # the whole seeding step failed with a confusing message.
-                cur.execute(
-                    """INSERT INTO api_keys (key, institution_name, admin_email, institution_id)
-                       VALUES (?, ?, ?, ?)""",
-                    (
-                        f"fbl_live_{secrets.token_hex(16)}",
-                        "Meridian MFB",
-                        DEFAULT_ADMIN_EMAIL,
-                        DEFAULT_ADMIN_INSTITUTION,
-                    ),
-                )
-                logger.info("Issued API key for the default institution.")
+                import apikeys
+
+                # Stored as a hash, and never logged. The owner rotates it in
+                # the console to get a key they can see and copy.
+                apikeys.insert(cur, apikeys.generate(), DEFAULT_ADMIN_INSTITUTION, "Meridian MFB", DEFAULT_ADMIN_EMAIL)
+                logger.info("Issued an API key for the default institution. Rotate it in the console to view it.")
     except Exception as exc:  # noqa: BLE001 — never let seeding crash boot
         logger.warning("Could not seed default admin: %s", exc)
 

@@ -97,7 +97,7 @@ def credentials(institution_id: str, request: Request):
 
     with cursor() as cur:
         cur.execute(
-            """SELECT key, created_at FROM api_keys
+            """SELECT key_prefix, key_last4, created_at FROM api_keys
                WHERE institution_id = ? AND is_active = 1
                ORDER BY created_at DESC LIMIT 1""",
             (institution_id,),
@@ -110,12 +110,14 @@ def credentials(institution_id: str, request: Request):
         return {"institution_id": institution_id, "api_key": None, "masked_key": None,
                 "created_at": None, "mode": mode, "can_manage": is_owner}
 
+    import apikeys
+
     return {
         "institution_id": institution_id,
-        # Only an owner can read the secret itself; analysts and viewers see
-        # enough to recognise which key is in use.
-        "api_key": row["key"] if is_owner else None,
-        "masked_key": _mask(row["key"]),
+        # Never the key itself: only a hash is stored, so there is nothing to
+        # return. The full key is shown once, when it is issued or rotated.
+        "api_key": None,
+        "masked_key": apikeys.mask(row["key_prefix"], row["key_last4"]),
         "created_at": row["created_at"],
         "mode": mode,
         "can_manage": is_owner,
@@ -302,17 +304,14 @@ def rotate_key(institution_id: str, request: Request):
     leaked, and keeping it alive "for a migration period" is exactly what an
     attacker holding it would want. The new key is returned once.
     """
-    from routers.admin import generate_api_key
+    import apikeys
 
     who = _own_institution(institution_id, request, "owner")
     inst = get_institution(institution_id)
-    new_key = generate_api_key()
+    new_key = apikeys.generate()
     with cursor() as cur:
         cur.execute("UPDATE api_keys SET is_active = 0 WHERE institution_id = ?", (institution_id,))
-        cur.execute(
-            "INSERT INTO api_keys (key, institution_name, admin_email, institution_id) VALUES (?, ?, ?, ?)",
-            (new_key, inst["name"], who["email"], institution_id),
-        )
+        apikeys.insert(cur, new_key, institution_id, inst["name"], who["email"])
     audit.record(audit.KEY_ROTATED, None, institution_id=institution_id, by=who["email"], key=_mask(new_key))
     return {"institution_id": institution_id, "api_key": new_key, "masked_key": _mask(new_key)}
 

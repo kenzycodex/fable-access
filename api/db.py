@@ -420,6 +420,10 @@ MIGRATIONS = {
     },
     "api_keys": {
         "institution_id": "TEXT",
+        # Keys are stored as a hash (see apikeys.py). These keep enough of the
+        # original to recognise it in the console: "fbl_live_9c2a" and "4a91".
+        "key_prefix": "TEXT",
+        "key_last4": "TEXT",
     },
     "institutions": {
         # Which add-on agents this bank has enabled. The per-customer columns
@@ -510,6 +514,15 @@ def _migrate(conn):
             "UPDATE api_keys SET institution_id = ? WHERE key = ?",
             (slugify_institution(row[1]), row[0]),
         )
+
+    # Keys used to be stored in plain text, so a copy of the database or any
+    # backup held every institution's working key. Convert them to hashes in
+    # place. Integrations keep working: the same key hashes to the same value.
+    import apikeys
+
+    converted = apikeys.hash_existing(conn)
+    if converted:
+        logger.info("Stored %d API key(s) as hashes instead of plain text.", converted)
 
     conn.execute(
         """UPDATE transactions SET review_state = 'open'

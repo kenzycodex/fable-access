@@ -59,8 +59,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # If not in static config, check the database for provisioned keys
+        import apikeys
+
         conn = get_conn()
-        cur = conn.execute("SELECT 1 FROM api_keys WHERE key = ? AND is_active = 1", (key,))
+        cur = conn.execute("SELECT 1 FROM api_keys WHERE key = ? AND is_active = 1", (apikeys.hash_key(key),))
         if cur.fetchone() is not None:
             return await call_next(request)
 

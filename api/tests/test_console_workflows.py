@@ -161,10 +161,10 @@ def test_branding_writes_need_the_owning_bank(client):
     assert client.patch(f"/v1/branding/{BANK}", json={"tagline": "Ours"}, headers=_headers(OWNER)).status_code == 200
 
 
-def test_only_owners_see_the_full_api_key(client):
+def test_credentials_never_return_the_key_itself(client):
     owner = client.get(f"/v1/institutions/{BANK}/credentials", headers=_headers(OWNER)).json()
     analyst = client.get(f"/v1/institutions/{BANK}/credentials", headers=_headers(ANALYST)).json()
-    assert analyst["api_key"] is None
+    assert owner["api_key"] is None and analyst["api_key"] is None
     assert owner["can_manage"] is True and analyst["can_manage"] is False
 
 
@@ -390,3 +390,46 @@ def test_a_renamed_admin_is_not_recreated_on_restart():
     with cursor() as cur:
         cur.execute("SELECT 1 FROM admins WHERE email = ?", (main.DEFAULT_ADMIN_EMAIL,))
         assert cur.fetchone() is None
+
+
+# --- API keys are stored as hashes -----------------------------------------
+
+def test_an_existing_plain_text_key_keeps_working_after_conversion(client):
+    """Keys issued before hashing were stored as-is. Converting them must not
+    break the integrations already using them."""
+    import db
+    from tenancy import institution_from_api_key
+
+    raw = "fbl_live_" + "ab" * 16
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO api_keys (key, institution_name, admin_email, institution_id) VALUES (?, 'Work Bank', ?, ?)",
+            (raw, OWNER, BANK),
+        )
+    db._migrate(db.get_conn())
+
+    with db.cursor() as cur:
+        cur.execute("SELECT key, key_prefix, key_last4 FROM api_keys WHERE key_last4 = 'abab' AND key_prefix = ?", (raw[:13],))
+        row = cur.fetchone()
+    assert row is not None and row["key"].startswith("sha256:") and raw not in row["key"]
+    assert institution_from_api_key(raw) == BANK
+    db._migrate(db.get_conn())  # a second run changes nothing
+    assert institution_from_api_key(raw) == BANK
+
+
+def test_no_raw_key_is_ever_stored(client):
+    import db
+
+    key = client.post(f"/v1/institutions/{BANK}/keys/rotate", headers=_headers(OWNER)).json()["api_key"]
+    assert key.startswith("fbl_live_")
+    with db.cursor() as cur:
+        cur.execute("SELECT key FROM api_keys")
+        stored = [r["key"] for r in cur.fetchall()]
+    assert all(s.startswith("sha256:") for s in stored)
+    assert key not in stored
+    masked = client.get(f"/v1/institutions/{BANK}/credentials", headers=_headers(OWNER)).json()["masked_key"]
+    assert masked.startswith(key[:13]) and masked.endswith(key[-4:])
+    # The key works for the integration, and an old one stops working after rotation.
+    payload = {"user_id": "x", "transaction_id": "none", "was_fraud": False}
+    assert client.post("/v1/shield/feedback", json=payload, headers={"X-API-Key": key}).status_code == 404
+    assert client.post("/v1/shield/feedback", json=payload, headers={"X-API-Key": "fbl_live_" + "0" * 32}).status_code == 401
