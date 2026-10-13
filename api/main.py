@@ -58,7 +58,7 @@ app.add_middleware(
 # Register routers resiliently: a missing or broken router module logs a
 # warning and is skipped, so one bad module never takes down the whole API.
 # `_optional` names are allowed to be absent without a warning.
-_ROUTERS = ["shield", "ghost", "copilot", "demo", "dashboard", "assistant", "admin", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "notifications", "review", "team", "webhooks_admin"]
+_ROUTERS = ["shield", "ghost", "copilot", "demo", "dashboard", "assistant", "admin", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "notifications", "review", "team", "webhooks_admin", "geo"]
 _OPTIONAL: set[str] = set()
 _loaded: list[str] = []
 
