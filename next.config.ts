@@ -20,7 +20,21 @@ import type { NextConfig } from "next";
  * connect-src has to allow the API origin plus the two free geocoders the SDK
  * falls back to.
  */
-const API_ORIGIN = process.env.NEXT_PUBLIC_FABLE_API_URL ?? "";
+const API_ORIGIN = (() => {
+  try {
+    // Just the origin: a path or trailing slash in the env value must not
+    // narrow what the policy allows.
+    return process.env.NEXT_PUBLIC_FABLE_API_URL ? new URL(process.env.NEXT_PUBLIC_FABLE_API_URL).origin : "";
+  } catch {
+    return "";
+  }
+})();
+
+// While developing, any local API port is allowed. This file is read once when
+// the dev server starts, so a policy built from one port blocks the API the
+// moment .env.local points at another, until a restart nobody thinks to do.
+// Never applied to a production build.
+const LOCAL_API = process.env.NODE_ENV === "production" ? [] : ["http://localhost:*", "http://127.0.0.1:*"];
 
 const CSP = [
   "default-src 'self'",
@@ -37,6 +51,7 @@ const CSP = [
   [
     "connect-src 'self'",
     API_ORIGIN,
+    ...LOCAL_API,
     "https://nominatim.openstreetmap.org",
     "https://api.bigdatacloud.net",
     "https://ipapi.co",
