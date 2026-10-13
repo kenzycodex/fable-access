@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowLeft, CaretDown, CheckCircle } from "@phosphor-icons/react";
+import { CaretDown, CheckCircle, SignOut } from "@phosphor-icons/react";
 import { Avatar } from "@/components/app-kit";
 import { DemoSheet } from "@/components/demo/DemoSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
@@ -36,7 +36,7 @@ export function SwitchCustomerSheet({ open, onClose }: { open: boolean; onClose:
                 selectCustomer(c);
                 onClose();
               }}
-              className={`flex items-start gap-3 rounded-2xl border p-3.5 text-left transition-colors ${
+              className={`flex items-center gap-3 rounded-2xl border p-3 text-left sm:items-start sm:p-3.5 transition-colors ${
                 active ? "border-brand/40 bg-brand/[0.07]" : "border-d-border hover:bg-d-surface-2"
               }`}
             >
@@ -46,8 +46,13 @@ export function SwitchCustomerSheet({ open, onClose }: { open: boolean; onClose:
                   <span className="truncate text-[14px] font-semibold text-d-text">{c.name}</span>
                   {active && <CheckCircle size={18} weight="fill" className="shrink-0 text-brand" />}
                 </span>
-                <span className="mt-0.5 block text-[12px] leading-relaxed text-d-muted">{c.description}</span>
-                <span className="mt-2 inline-flex rounded-md bg-d-surface-2 px-2 py-0.5 text-[11px] font-semibold text-d-muted">
+                {/* A phone gets the name and one line; the story and the range chip are for
+                    larger screens, where there is room to read them. */}
+                <span className="mt-0.5 block truncate text-[12px] text-d-muted sm:hidden">
+                  {c.persona} · {c.typical_range}
+                </span>
+                <span className="mt-0.5 hidden text-[12px] leading-relaxed text-d-muted sm:block">{c.description}</span>
+                <span className="mt-2 hidden rounded-md bg-d-surface-2 px-2 py-0.5 text-[11px] font-semibold text-d-muted sm:inline-flex">
                   {c.persona} - typically {c.typical_range}
                 </span>
               </span>
@@ -56,15 +61,15 @@ export function SwitchCustomerSheet({ open, onClose }: { open: boolean; onClose:
         })}
       </div>
 
-      <p className="mt-3 text-[12px] leading-relaxed text-d-muted">
+      <p className="mt-3 hidden text-[12px] leading-relaxed text-d-muted sm:block">
         Send the same amount as different customers and compare: Shield judges each against their own history.
       </p>
 
       <Link
         href="/"
-        className="mt-4 flex h-11 items-center justify-center gap-2 rounded-xl border border-d-border text-[13px] font-semibold text-d-muted transition-colors hover:bg-d-surface-2 hover:text-d-text"
+        className="mt-4 flex h-11 items-center justify-center gap-2 rounded-xl bg-red-500/10 text-[13px] font-semibold text-red-600 transition-colors hover:bg-red-500 hover:text-white dark:text-red-400 dark:hover:text-white"
       >
-        <ArrowLeft size={15} weight="bold" />
+        <SignOut size={15} weight="bold" />
         Exit demo
       </Link>
     </DemoSheet>
