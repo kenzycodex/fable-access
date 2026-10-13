@@ -75,7 +75,10 @@ export function InstitutionProvider({
     // rather than the home screen) would otherwise leave `customer` null —
     // which surfaced as an empty user id in the verification dialog, e.g.
     // GET /v1/accounts//security. Every screen now resolves a real customer.
-    if (!getTenant().customerId && customers.length > 0) {
+    // Also when the stored customer is no longer on the roster, for example after
+    // a customer's id was renamed, so the screen never sits on a customer nobody has.
+    const stored = getTenant().customerId;
+    if ((!stored || !customers.some((c) => c.user_id === stored)) && customers.length > 0) {
       setTenantCustomer(customers[0].user_id, customers[0].name, institutionId);
     }
   }, [institutionId, customers]);
