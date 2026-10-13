@@ -144,8 +144,8 @@ export function useCompliance(pollMs = CADENCE.slow) {
  * rather than a single hardcoded demo user. */
 export function useCopilotBaseline(userId?: string | null) {
   return useSWR<CopilotBaseline>(
-    ["fable:copilot-baseline", userId ?? null],
-    () => copilotBaseline(userId ?? undefined),
+    userId ? ["fable:copilot-baseline", userId] : null,
+    () => copilotBaseline(userId as string),
     { keepPreviousData: true },
   );
 }

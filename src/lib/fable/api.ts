@@ -18,7 +18,6 @@ export const API_BASE = (process.env.NEXT_PUBLIC_FABLE_API_URL ?? "http://localh
 /** Legacy single-tenant user id. Still the fallback for dashboard reads that
  * predate multi-tenancy; live demo transfers use the customer picked in the
  * demo bank (see tenant.ts). */
-export const DEMO_USER_ID = "demo_user_001";
 
 // Dashboard reads used to take 4-7 seconds, which was treated as a network
 // budget problem and worked around by raising this timeout to 20s. It was not:
@@ -944,7 +943,7 @@ export interface CopilotBaseline {
 }
 
 /** GET /v1/copilot/transparency/{user} — what Copilot has actually learned. */
-export async function copilotBaseline(userId = DEMO_USER_ID): Promise<CopilotBaseline> {
+export async function copilotBaseline(userId: string): Promise<CopilotBaseline> {
   const res = await fetchJson<{ what_we_know: CopilotBaseline }>(`/v1/copilot/transparency/${userId}`);
   return res.what_we_know;
 }
