@@ -26,4 +26,11 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 # Shell form so $PORT expands at runtime, with `exec` so uvicorn replaces the
 # shell as PID 1. Without it the stop signal never reached uvicorn and every
 # `docker compose stop` waited 10 seconds, then killed it.
-CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT}
+#
+# --proxy-headers makes the client address the real caller's (from Nginx's
+# X-Forwarded-For) instead of the proxy's own. Without it every request looked
+# like one client: everyone shared one rate-limit bucket and login throttling
+# could not tell callers apart. Trusting any forwarder is safe only because the
+# port is published on 127.0.0.1 alone (docker-compose.yml), so nothing but the
+# local proxy can reach it.
+CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips '*'
