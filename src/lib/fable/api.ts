@@ -592,27 +592,6 @@ export async function dashboardTransactionPage(
   return { total: res.total, transactions: res.transactions.map(mapApiRow) };
 }
 
-interface ApiTransparency {
-  what_we_know: { transactions_analyzed: number };
-}
-
-let seedAttempted = false;
-
-/** Seed the FastAPI backend's 90-day history once per session, only if it has
- * no baseline yet (so live transfers are never wiped). No-op if the API is down. */
-export async function ensureBackendSeeded(): Promise<void> {
-  if (seedAttempted) return;
-  seedAttempted = true;
-  try {
-    if (!(await apiAvailable())) return;
-    const t = await fetchJson<ApiTransparency>(`/v1/copilot/transparency/${DEMO_USER_ID}`, undefined, 3_000);
-    if (t.what_we_know.transactions_analyzed >= 10) return;
-    await fetchJson("/v1/demo/seed", { method: "POST", body: JSON.stringify({ user_id: DEMO_USER_ID, days: 90 }) }, 20_000);
-  } catch {
-    // Backend unreachable; the client-side engine covers the demo.
-  }
-}
-
 /** Human-readable channel label for an API channel string (dashboard rows). */
 export function apiChannelLabel(channel: string): string {
   const mapped = CHANNEL_FROM_API[channel];

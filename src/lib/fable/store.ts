@@ -16,7 +16,6 @@ import { useSyncExternalStore } from "react";
 import {
   apiAvailable,
   approveTransfer,
-  ensureBackendSeeded,
   finalizeTransaction,
   ghostCreate as apiGhostCreate,
   ghostResolve,
@@ -164,9 +163,6 @@ function mutate(fn: (state: StoreState) => StoreState): StoreState {
 
 function subscribe(cb: () => void): () => void {
   if (!canUseDom()) return () => {};
-  // First subscriber on an app surface: make sure the backend has Ada's
-  // 90-day baseline (no-op when the API is down or already seeded).
-  void ensureBackendSeeded();
   // Replay anything captured while the API was unreachable.
   const stopAutoSync = startAutoSync();
   const onChange = () => {
