@@ -137,13 +137,17 @@ fable/
 │   │   └── ghost/                 # Containment holds and release
 │   ├── intelligence/              # Scam patterns and fraud context
 │   ├── middleware/                # API-key auth, rate limiting, latency
-│   ├── routers/                   # /v1/shield, /v1/ghost, /v1/stepup, /auth, ...
-│   ├── tests/                     # Scoring and endpoint tests
+│   ├── routers/                   # /v1/shield, /v1/ghost, /v1/review, /v1/team, /v1/webhooks, /auth, ...
+│   ├── scripts/                   # Operator tools: rename or remove institutions, PIN reset, admin email
+│   ├── tests/                     # Scoring, endpoint, console-workflow and migration tests
 │   ├── main.py                    # Uvicorn entry point
 │   ├── db.py                      # SQLite schema and migrations
+│   ├── policy.py                  # Per-institution thresholds and Ghost hold windows
+│   ├── webhooks.py                # Signed outbound webhooks
 │   ├── Dockerfile                 # Production image
 │   ├── docker-compose.yml
-│   └── requirements.txt
+│   ├── requirements.txt           # What the app needs
+│   └── requirements-dev.txt       # Plus pytest, for running the tests
 │
 ├── src/                           # 💻 Next.js 16 Frontend
 │   ├── app/
@@ -156,6 +160,7 @@ fable/
 │   ├── lib/fable/                 # Fable client SDK: fingerprint, geolocation, scoring fallback
 │   └── middleware.ts              # Console route guard
 │
+├── sdk/                           # Reference clients for Node and Python (no dependencies)
 ├── docs/                          # Internal guides: deployment, system guide, plans
 ├── public/                        # Static assets and brand logos
 └── LICENSE                        # Proprietary, all rights reserved
@@ -182,7 +187,7 @@ Spin up the entire Fable ecosystem locally with just a few commands. The system 
 - Optional: an Anthropic or OpenAI key for AI-written explanations. With no key set, Shield still returns full scores and signals and falls back to a local template.
 
 ### 1. Start the Intelligence API (Backend)
-The backend runs on port `8010` and handles all scoring logic.
+The backend runs on port `8000` locally and handles all scoring logic. (The Docker image listens on `8010`; see the deployment guide.)
 
 ```bash
 cd api
@@ -191,14 +196,16 @@ cd api
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # the app's requirements, plus pytest
 
 # Environment (every key is optional for local use)
 cp .env.example .env
+# Set a session secret, or console sign-ins reset every time the API reloads:
+#   python -c "import secrets; print(secrets.token_urlsafe(48))"  ->  FABLE_SESSION_SECRET in .env
 
-uvicorn main:app --port 8010 --reload
+uvicorn main:app --port 8000 --reload
 ```
-*📚 Interactive API documentation is generated at `http://localhost:8010/docs`.*
+*📚 Interactive API documentation is generated at `http://localhost:8000/docs`. Run the tests with `pytest`.*
 
 ### 2. Start the Fable Platform (Frontend)
 The Next.js frontend runs on port `3000` and hosts the marketing site, the console and the demo bank.
@@ -207,31 +214,32 @@ The Next.js frontend runs on port `3000` and hosts the marketing site, the conso
 # In a new terminal at the repository root
 pnpm install
 
-# Point the frontend at the API (default is http://127.0.0.1:8010)
-echo "NEXT_PUBLIC_FABLE_API_URL=http://127.0.0.1:8010" > .env.local
+# Point the frontend at the API (it defaults to http://localhost:8000)
+echo "NEXT_PUBLIC_FABLE_API_URL=http://localhost:8000" > .env.local
+# Restart `pnpm dev` after changing it: the security headers are built at startup.
 # Optional: add PAYSTACK_SECRET_KEY=sk_test_... for real account-name resolution
 
 pnpm dev
 ```
 *🌐 The platform is now at `http://localhost:3000`. Data lives in `api/fable.db` (SQLite), created on first run.*
 
-If the API is unreachable, the demo bank falls back to a local scoring engine and queues transfers for sync, so a healthy-looking screen does not prove the backend is up. Check `http://localhost:8010/health`.
+If the API is unreachable, the demo bank falls back to a local scoring engine and queues transfers for sync, so a healthy-looking screen does not prove the backend is up. Check `http://localhost:8000/health`.
 
 <br />
 
 ## 🎮 The 90-Second Demo
 
-Fable ships a simulated mobile banking app. Each institution gets its own at `/demo/{institution}`, pre-loaded with three customers and 90 days of history. Try the seeded `meridian` institution, or provision your own (see the [quickstart](src/content/docs/02-quickstart.md)).
+Fable ships a simulated mobile banking app. Each institution gets its own at `/demo/{institution}`, pre-loaded with two customers (a trader and a student; set `FABLE_DEMO_CUSTOMERS=3` for a third) and 90 days of history. Provision an institution to try it (see the [quickstart](src/content/docs/02-quickstart.md)). Customer names differ from one institution to the next, but the two profiles are always the same.
 
 ### ✅ Scenario 1: Same amount, different customers
 *Per-customer baselines in action.*
-1. Open `http://localhost:3000/demo/meridian` and pick **Tunde** (a trader) from the customer switcher.
+1. Open `http://localhost:3000/demo/{your-institution}` and pick the **trader** from the customer switcher.
 2. Send **₦250,000** to a new 10-digit account. Result: **PASS**, silently.
-3. Switch to **Chioma** (a student) and send the same ₦250,000. Result: **FLAG**, because it is far outside her normal.
+3. Switch to the **student** and send the same ₦250,000. Result: **BLOCK**, because it is roughly fifty times her normal. A salaried customer in between gets a **FLAG** and a verification step.
 
 ### 🚨 Scenario 2: Suspicious transfer (BLOCK)
 *Shield catching a social-engineering shape.*
-1. As Chioma, send **₦500,000** to a new account over **USSD**.
+1. As the student, send **₦500,000** to a new account over **USSD**.
 2. Narration: `urgent help abeg` (matches the Pidgin urgency script).
 3. Result: Shield intercepts it and explains, in plain language, why.
 
@@ -243,6 +251,18 @@ Fable ships a simulated mobile banking app. Each institution gets its own at `/d
 
 ### 🖥️ Scenario 4: The console
 Sign in at `/dashboard/login` and see the same transfers from the institution's side, scoped to that institution only.
+
+| Page | What it is for |
+|---|---|
+| **Overview** | Live decisions, money kept from fraud, decision time, and what needs review |
+| **Review queue** | Every flagged or blocked transfer as a case: assign, add notes, escalate, and resolve as fraud or legitimate. Labelling a case never moves money |
+| **Transactions** | The full log with 7, 30 and 90 day ranges and CSV export |
+| **Customers** | Each customer's baseline, verification status, history and cases |
+| **Agents, Insights** | What Copilot, Shield and Ghost are doing, and which scams and signals recur |
+| **Compliance** | The audit trail, an incident log, CSV export and a printable board report |
+| **Settings** | Profile, branding, risk policy (your own thresholds and hold windows), team and roles, API key and webhooks |
+
+Console users have a role, enforced by the API: **owner** (everything), **analyst** (works the review queue) or **viewer** (read only).
 
 <br />
 
@@ -304,15 +324,18 @@ Authenticate with `X-API-Key: fbl_live_...`.
 
 | Guide | What it covers |
 |---|---|
-| [Public docs](src/content/docs) | Overview, quickstart, scoring, identity assurance, API reference |
+| [Public docs](src/content/docs) | Overview, quickstart, scoring, identity assurance, API reference, integration guide |
+| [sdk/README.md](sdk/README.md) | Node and Python reference clients, including webhook verification |
 | [docs/SYSTEM-GUIDE.md](docs/SYSTEM-GUIDE.md) | How the whole system fits together, and its honest limits |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Vercel plus a Docker Compose backend on a VPS |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Vercel plus a Docker Compose backend on a VPS, updates, backups and maintenance scripts |
+| [docs/PIN-RECOVERY.md](docs/PIN-RECOVERY.md) | Clearing a customer's PIN, and backing up the database safely |
+| [api/eval/README.md](api/eval/README.md) | Measuring Shield's weights against labelled outcomes |
 
 <br />
 
 ## 🗄️ Data Model
 
-The backend stores everything in SQLite (`api/fable.db`), with the schema and in-place migrations in [api/db.py](api/db.py). Core tables: `transactions`, `ghost_containers`, `fable_users`, `institutions`, `accounts` and `ledger_entries`, `user_security` and `user_credentials` (PIN hash and passkey public keys), `stepup_challenges`, `device_profiles`, `user_locations`, `notifications` and `audit_log`. Every row is scoped to an institution.
+The backend stores everything in SQLite (`api/fable.db`), with the schema and in-place migrations in [api/db.py](api/db.py). Core tables: `transactions` (with review state, outcome and assignee), `case_notes`, `ghost_containers`, `fable_users`, `institutions`, `institution_settings` (risk policy), `institution_branding`, `admins` (with roles), `api_keys`, `webhooks` and `webhook_deliveries`, `accounts` and `ledger_entries`, `user_security` and `user_credentials` (PIN hash and passkey public keys), `stepup_challenges`, `device_profiles`, `user_locations`, `notifications`, `audit_log`, and `institution_aliases` and `user_aliases` (former ids after a rename). Every row is scoped to an institution.
 
 <br />
 

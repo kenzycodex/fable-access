@@ -34,7 +34,7 @@ docker compose exec -T api python -c "import sqlite3;[print(r) for r in sqlite3.
 
 - One row per customer. `pin_set` is `1` when they have a PIN.
 - `failed_attempts` of 5 with a `locked_until` time means they are locked out.
-- Customer ids look like `meridian_ada` or `union_bank_chioma`.
+- Customer ids are the institution id plus the customer's first name, for example `ecobank_kelechi`. The id is shown on the customer's profile in the console (Customers, then their name), which also has a **Reset PIN** button.
 
 ## 4. Clear PINs
 

@@ -89,7 +89,13 @@ you are reaching for `systemctl`, you are on the wrong path.
    mkdir -p data
    cp .env.example .env
    # Edit .env. FABLE_DB_PATH=/data/fable.db is required, and must match
-   # the bind mount in docker-compose.yml.
+   # the bind mount in docker-compose.yml. Also set, for production:
+   #   FABLE_SESSION_SECRET   signs console sessions; unset, everyone is signed
+   #                          out whenever the API restarts
+   #   FABLE_OPERATOR_KEY     lets you provision institutions; unset disables it
+   #   FABLE_CORS_ORIGINS     your Vercel origins instead of "*"
+   #   FRONTEND_URL, WEBAUTHN_RP_ID / WEBAUTHN_ORIGINS, and SMTP_* for email
+   # api/.env.example documents every setting and its default.
    ```
 3. **Build and start:**
    ```bash
@@ -125,8 +131,10 @@ cd /var/www/fable/api
 git pull origin main
 
 # 2. Back up the database first. Cheap, and the only thing that is not
-#    reproducible if a migration goes wrong.
-cp data/fable.db data/fable.db.bak-$(date +%Y%m%d-%H%M%S)
+#    reproducible if a migration goes wrong. Use SQLite's own backup, never a
+#    plain `cp`: the database runs in WAL mode, so a copied file can silently
+#    miss recent writes.
+docker compose exec api python -c "import sqlite3; s=sqlite3.connect('/data/fable.db'); d=sqlite3.connect('/data/backup-$(date +%Y%m%d-%H%M%S).db'); s.backup(d); d.close(); print('backup ok')"
 
 # 3. Rebuild the image and recreate the container
 docker compose up -d --build
@@ -146,7 +154,7 @@ new code rejects and the old code accepts:
 ```bash
 curl -s http://127.0.0.1:8010/v1/shield/analyze -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"user_id":"meridian_ada","transaction":{"amount":-5000,"recipient_account":"0123456789"}}'
+  -d '{"user_id":"cust_1","transaction":{"amount":-5000,"recipient_account":"0123456789"}}'
 ```
 
 A `422` with `"Input should be greater than 0"` means the new code is live. A
@@ -164,14 +172,50 @@ git checkout <previous-good-sha>
 cd api && docker compose up -d --build
 ```
 
+The container reports `(healthy)` in `docker compose ps` once `/health` answers.
+`docker compose stop` now returns in a second or two.
+
 If a migration corrupted data, restore the backup **before** rebuilding:
 
 ```bash
 cd /var/www/fable/api
 docker compose down
-cp data/fable.db.bak-<timestamp> data/fable.db
+cp data/backup-<timestamp>.db data/fable.db
+rm -f data/fable.db-wal data/fable.db-shm   # stale write-ahead files belong to the old database
 docker compose up -d --build
 ```
+
+### Maintenance scripts
+
+One-off tools in `api/scripts/`. They change live data, so each one previews by
+default and only acts when you add `--apply`. Stop the API first so nothing
+writes mid-change, and take a backup (section 4). Run them from
+`/var/www/fable/api`:
+
+```bash
+docker compose stop api
+
+# Rename a demo customer's id so it follows their name (ecobank_tunde -> ecobank_segun)
+docker compose run --rm api python scripts/rename_customers.py
+docker compose run --rm api python scripts/rename_customers.py --apply
+
+# Remove every institution except the ones you name (irreversible; read the preview)
+docker compose run --rm api python scripts/remove_institutions.py --keep ecobank
+docker compose run --rm api python scripts/remove_institutions.py --keep ecobank --apply
+
+# Change an institution's internal id
+docker compose run --rm api python scripts/rename_institution.py old_id new_id --apply
+
+docker compose up -d api
+```
+
+`scripts/pin_tool.py` clears a customer's PIN (see PIN-RECOVERY.md) and
+`scripts/change_admin_email.py` changes a console login email. Each script's
+docstring has the details. After a code change that touches the schema, a
+restart migrates the database in place.
+
+To run the tests, install the dev requirements first (the production image does
+not include pytest): `pip install -r requirements-dev.txt`, then `pytest`.
 
 ---
 
@@ -235,12 +279,26 @@ carries no information that reseeding doesn't reproduce.
 
 ### Option B — carry the local data across
 
-Only worth it if you've made transfers you want to keep. Staying on SQLite, the simplest move is to securely copy the file straight onto the VPS:
+Only worth it if you've made transfers you want to keep. **This overwrites the
+server's database**, so take a backup on the server first (section 4). Stop the
+local API, snapshot the file with SQLite's backup (not a plain copy), and send
+that:
 
 ```bash
-scp api/fable.db user@your_vps_ip:/var/www/fable/api/data/fable.db
-# Then rebuild so the container picks it up: cd api && docker compose up -d --build
+# On your machine, with the local API stopped
+cd api
+.venv/Scripts/python.exe -c "import sqlite3; s=sqlite3.connect('fable.db'); d=sqlite3.connect('fable.snapshot.db'); s.backup(d); d.close()"
+scp fable.snapshot.db user@your_vps_ip:/var/www/fable/api/data/fable.db
+
+# On the server
+cd /var/www/fable/api
+docker compose stop api
+rm -f data/fable.db-wal data/fable.db-shm
+docker compose up -d --build
 ```
+
+The database holds every institution's API key and customer data. Delete the
+snapshot afterwards, and never commit one (`*.db` is already git-ignored).
 
 ⚠️ **Passkeys will not survive**, whichever option you pick. A credential is
 bound to the Relying Party ID it was registered against, so anything enrolled
@@ -260,13 +318,13 @@ curl -s $API/health
 # Paystack reachable from Vercel (not from your laptop)
 curl -s https://fablehq.vercel.app/api/paystack-status
 
-# Tenant isolation still holds
-curl -s "$API/v1/agents/overview?institution=meridian"
+# Console data is closed to anyone without a session: expect 401
+curl -s -o /dev/null -w "%{http_code}\n" "$API/v1/agents/overview"
 ```
 
 In the browser:
 
-- [ ] `/demo/meridian` loads with the tenant's own branding
+- [ ] `/demo/<your-institution>` loads with the tenant's own branding
 - [ ] Console login at `/dashboard/login` works
 - [ ] A transfer appears in the console within ~4 seconds
 - [ ] `/dashboard/settings` shows the institution's real API key
@@ -306,7 +364,8 @@ baselines, so a demo gets duller the more you rehearse. Reset before pitching:
 ```bash
 curl -X POST $API/v1/demo/seed-institution \
   -H "Content-Type: application/json" \
-  -d '{"institution_id":"meridian","days":90}'
+  -H "X-Fable-Operator-Key: $FABLE_OPERATOR_KEY" \
+  -d '{"institution_id":"<your-institution>","days":90}'
 ```
 
 ---

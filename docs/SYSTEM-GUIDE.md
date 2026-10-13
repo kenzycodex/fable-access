@@ -48,9 +48,16 @@ POST /admin/provision  { institution_name, admin_email }
         ├─ generate API key    →  fbl_live_da3c8f21...
         ├─ generate password   →  temp password, hashed
         ├─ register tenant     →  institutions table
-        ├─ SEED the tenant     →  3 customers × 90 days of history + threats
+        ├─ SEED the tenant     →  2 customers × 90 days of history + threats
         └─ email the admin     →  dashboard login + API key + demo URL
 ```
+
+Provisioning is an operator action, not a public endpoint: it needs the
+`X-Fable-Operator-Key` header, and is switched off when no operator key is set.
+Customer ids are the institution id plus the customer's first name
+(`zenith_test_bank_segun`). Each institution gets different people, but always
+the same two profiles, a trader and a student (`FABLE_DEMO_CUSTOMERS=3` adds a
+salaried one).
 
 The welcome email contains three things:
 
@@ -119,9 +126,11 @@ This is the core loop. Every numbered step is real, not simulated.
 
 ---
 
-## 5. Shield's 12 signal layers
+## 5. Shield's 14 signal layers
 
-Signals are additive. `FLAG` at ≥ 0.5, `BLOCK` at ≥ 0.8.
+Signals are additive. The default cutoffs are `FLAG` at 0.50 and `BLOCK` at 0.80,
+adjusted per channel (see the scoring doc), and an institution can move them in
+Settings, Risk policy.
 
 | # | Signal | Fires when | Max |
 |---|---|---|---|
@@ -137,6 +146,8 @@ Signals are additive. `FLAG` at ≥ 0.5, `BLOCK` at ≥ 0.8.
 | 10 | `session_freshness` | Large transfer within 30s of login | 0.12 |
 | 11 | `behavioral_anomaly` | Pasted account number + near-zero hesitation | 0.15 |
 | 12 | `timezone_mismatch` | Device timezone ≠ usual timezone | 0.08 |
+| 13 | `failed_verification` | Recent failed identity checks | 0.25 |
+| 14 | `velocity` | A burst of transfers in a short window | 0.20 |
 
 **Why narration is deliberately weak (layer 6):** most people leave it blank.
 Basing fraud detection on it would be theatre. It contributes when present, but
@@ -154,38 +165,61 @@ tiers.
 | Agent | Job | Where its data lives |
 |---|---|---|
 | **Copilot** | Learns each customer's normal: amounts, hours, recipients, devices, cities, session habits | Derived live from `transactions` (90-day window) |
-| **Shield** | Scores every transfer through the 12 layers | Writes `transactions` with signals |
+| **Shield** | Scores every transfer through the 14 layers | Writes `transactions` with signals |
 | **Ghost** | Holds risky transfers in a recoverable cooling window | `ghost_containers` |
 | **Watch** | Continuous monitoring between transactions | Not built — honestly marked "coming soon" |
 
 Each has a dashboard deep-dive at `/dashboard/agents/{agent}`:
 
 - **Copilot** — per-customer baselines, searchable. What Fable knows about whom.
-- **Shield** — the 12-layer pipeline with weights, plus recent decisions you can
+- **Shield** — the 14-layer pipeline with weights, plus recent decisions you can
   expand to see every signal and the device/location/session context behind it.
 - **Ghost** — active and historical containers, cancellation rate, money saved.
+
+The rest of the console, in the order a risk team uses it:
+
+- **Overview** — live decisions, money kept from fraud, decision time, and how
+  many cases need review.
+- **Review queue** — every flagged or blocked transfer is a case. An analyst
+  assigns it, adds notes, escalates it, and resolves it as fraud or legitimate.
+  This labels the transfer and teaches Copilot; it never moves money, which only
+  moves through the customer's own verification or Ghost.
+- **Transactions** and **Customers** — the full log with date ranges and CSV
+  export, and a profile per customer with their baseline, verification status,
+  history and cases.
+- **Compliance** — the audit trail, incident log, CSV export and a printable
+  board report.
+- **Settings** — profile, branding, risk policy, team and roles, API key and
+  webhooks.
+
+Roles are enforced by the API: an **owner** can do everything, an **analyst**
+works the review queue, a **viewer** can only read.
 
 ---
 
 ## 7. Why the customer picker matters
 
-Three seeded customers per institution, with deliberately different baselines:
+Two seeded customers per institution (three with `FABLE_DEMO_CUSTOMERS=3`), with
+deliberately different baselines. The names change from one institution to the
+next; the profiles do not:
 
-| Customer | Persona | Typical range |
+| Profile | Typical range |
+|---|---|
+| Student | ₦1,500 – ₦9,000 |
+| Salaried professional (the optional third) | ₦8,000 – ₦55,000 |
+| Trader / business owner | ₦80,000 – ₦400,000 |
+
+Send **the same ₦250,000** to a new recipient on the mobile app as each
+(measured with the current engine, with no device or location context, so a
+real session moves the scores slightly):
+
+| Profile | Result | Why |
 |---|---|---|
-| Chioma Nnamdi | Student | ₦1,500 – ₦9,000 |
-| Ada Obi | Salaried professional | ₦8,000 – ₦55,000 |
-| Tunde Bello | Trader | ₦80,000 – ₦400,000 |
+| Trader | **PASS** 0.40 | Routine for them |
+| Salaried | **FLAG** 0.76 | Several times their baseline |
+| Student | **BLOCK** 0.90 | Roughly fifty times their baseline |
 
-Send **the same ₦250,000** as each (verified):
-
-| Customer | Result | Why |
-|---|---|---|
-| Tunde | **PASS** 0.24 | Routine for him |
-| Ada | **FLAG** 0.564 | 8× her baseline |
-| Chioma | **FLAG** 0.552 | 20× her baseline |
-
-Same amount, same recipient, same device — three different verdicts. That is the
+Same amount, same recipient, same device: three different verdicts. That is the
 entire pitch for per-customer behavioural baselines, and it is the single most
 convincing thing to demo.
 
@@ -197,7 +231,7 @@ Every transaction and ghost container carries `institution_id`. Every read is
 filtered by the institution the console logged in as (`/auth/login` returns it;
 it is no longer hardcoded).
 
-Verified: Zenith sees 3 customers / 174 data points; Meridian sees 1 / 46.
+This is covered by tests: a session for one institution gets a 404 on another's cases and customers, its exports contain only its own rows, and a removed team member loses access on their next request.
 Neither can see the other.
 
 Data that predates multi-tenancy was migrated and backfilled to `meridian`, so
@@ -234,32 +268,34 @@ broken integration hides.
    ```bash
    curl -X POST http://localhost:8000/admin/provision \
      -H "Content-Type: application/json" \
+     -H "X-Fable-Operator-Key: $FABLE_OPERATOR_KEY" \
      -d '{"institution_name":"Zenith Test Bank","admin_email":"risk@zenithtest.ng"}'
    ```
 
    Note the `demo_url`, `api_key` and `temp_password` from the response.
 
 2. **Open the demo bank** at the returned `demo_url`. Confirm the sidebar shows
-   the bank's name and the customer picker lists three people.
+   the bank's name and the customer picker lists two people.
 
-3. **Switch to Chioma** (the student). Transfer **₦250,000** to any 10-digit
-   account. It should **FLAG**.
+3. **Switch to the student.** Transfer **₦250,000** to any 10-digit
+   account. It should **BLOCK**.
 
-4. **Switch to Tunde** (the trader). Send the same ₦250,000. It should **PASS**.
+4. **Switch to the trader.** Send the same ₦250,000. It should **PASS**.
    That contrast is the demo.
 
-5. **Trigger a block:** as Chioma, ₦500,000 over USSD with narration
+5. **Trigger a block:** as the student, ₦500,000 over USSD with narration
    `urgent help abeg`, to a new account. Then choose "send anyway" to see Ghost
    hold it, and cancel to recover the money.
 
 6. **Log into the dashboard** with the provisioned email + temp password. You
    should see *only* that bank's transfers.
 
-7. **Open `/dashboard/agents`** → drill into Shield to see your transfer's full
-   signal breakdown, and Copilot to see the three customers' baselines.
+7. **Open the console.** The **Review queue** now holds the blocked transfer:
+   assign it to yourself, add a note, and resolve it. **Agents, Shield** shows
+   its full signal breakdown, and **Customers** shows each customer's baseline.
 
-8. **Prove isolation:** log in as `risk@meridian.ng` / `fable-demo`. Completely
-   different numbers.
+8. **Prove isolation:** provision a second bank and sign in as its admin.
+   Completely different numbers, and the first bank's cases return 404.
 
 ### Reseed between runs
 
@@ -269,6 +305,7 @@ baseline — real behaviour, but it drifts the demo. Reset before pitching:
 ```bash
 curl -X POST http://localhost:8000/v1/demo/seed-institution \
   -H "Content-Type: application/json" \
+  -H "X-Fable-Operator-Key: $FABLE_OPERATOR_KEY" \
   -d '{"institution_id":"zenith_test_bank","days":90}'
 ```
 
@@ -286,6 +323,17 @@ curl -X POST http://localhost:8000/v1/demo/seed-institution \
   `/api/paystack-status` exists to diagnose it in one call.
 - **Ghost is simulated containment.** It models the cooling window in SQLite;
   production would wire it to a real Open Banking holds endpoint.
+- **API keys are stored in plain text** in the `api_keys` table, because the
+  console lets an owner view and copy theirs. Anyone with a copy of the database
+  or a backup can use them. Hashing them (and showing a key only once, when it
+  is created or rotated) is the planned fix; until then, treat the database file
+  and every backup as secret.
+- **Analyst actions label, they do not move money.** Resolving a case as
+  legitimate does not release a blocked transfer. Money moves only through the
+  customer's own verification or a Ghost release.
+- **There is no cross-institution intelligence.** Each institution's data is
+  strictly its own. Sharing hashed signals between banks is on the roadmap, not
+  built.
 - **`fable.db` is SQLite.** Fine for a demo and for real load in the small; the
   schema deliberately mirrors Postgres, but swapping it requires driver and query
   rewrites, rather than being a drop-in configuration change.

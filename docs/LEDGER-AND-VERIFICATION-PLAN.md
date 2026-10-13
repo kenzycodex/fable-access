@@ -1,5 +1,9 @@
 # Implementation plan: money that behaves like money
 
+> **Status: built.** The ledger, balances, top-ups and the verification tiers
+> described here are in the product. This is kept for the reasoning behind the
+> design. For how it works today, see SYSTEM-GUIDE.md and the public docs.
+
 Four changes, in dependency order. The ledger comes first because Add Money is
 meaningless without it and the verification tier gates it.
 

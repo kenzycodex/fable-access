@@ -33,10 +33,25 @@ cutoffs. Unknown channels fall back to the default.
 
 | Channel | `FLAG` at | `BLOCK` at |
 |---|---|---|
-| `mobile_app`, `qr` (default) | 0.50 | 0.80 |
-| `ussd`, `internet` | 0.45 | 0.75 |
-| `pos`, `atm` | 0.48 | 0.78 |
+| `internet` | 0.45 | 0.75 |
+| `pos`, `atm`, `mobile_app` | 0.48 | 0.78 |
+| `qr`, and any unknown channel (the default) | 0.50 | 0.80 |
+| `ussd` | 0.52 | 0.82 |
 | `branch` | 0.55 | 0.85 |
+
+`ussd` gets more room than the default on purpose. It carries little reported
+fraud, and a customer on a feature phone is the least able to complete a
+verification step, so friction is not concentrated on them.
+
+### Your own thresholds
+
+An institution can move these lines. In the console, **Settings, Risk policy**
+sets a base flag and block cutoff (and the Ghost hold windows), and shows how
+many of your recent transfers would change before you save. Each channel keeps
+its offset from the default, so a bank that loosens its flag line still has USSD
+treated more gently than internet banking. An institution that never opens the
+page scores exactly as above. Changes are owner-only and recorded in the audit
+trail.
 
 `risk_level` follows the same cutoffs: `LOW` below `FLAG`, `MEDIUM` from `FLAG`,
 `HIGH` from `BLOCK`.

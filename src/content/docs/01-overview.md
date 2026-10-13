@@ -29,7 +29,7 @@ flag for a student.
 ## Architecture
 
 ```text
-Bank's app ──► Fable SDK ──► POST /v1/shield/analyze
+Bank's server ──► POST /v1/shield/analyze
                                     │
                           ┌─────────┴─────────┐
                      Copilot baseline    14 signal layers
@@ -38,7 +38,7 @@ Bank's app ──► Fable SDK ──► POST /v1/shield/analyze
                                           │
                                     Ghost containment
                                           │
-                              Institution console
+                    Institution console + webhooks
 ```
 
 Two runtimes: a Next.js frontend and a FastAPI intelligence layer. The frontend
@@ -51,9 +51,12 @@ Being precise about this matters more than a longer feature list.
 
 **Real:** device fingerprinting, GPS/IP geolocation, behavioural biometrics,
 Paystack NUBAN resolution, WebAuthn passkeys with verified signatures, the
-14-layer scoring pipeline, multi-tenant isolation, offline sync.
+14-layer scoring pipeline, multi-tenant isolation, offline sync, an analyst
+review queue, signed webhooks, console roles (owner, analyst, viewer), and risk
+thresholds and hold windows each institution can set for itself.
 
-**Not built:** Watch (marked "coming soon" rather than faked), SMS delivery of
+**Not built:** cross-institution intelligence sharing (each institution's data is
+strictly its own today), Watch (marked "coming soon" rather than faked), SMS delivery of
 verification codes (email only today), and the liveness/face-check tier, which
 returns `501` with its provider contract rather than a fake pass. Making the strongest tier the least trustworthy would defeat
 its purpose.

@@ -28,7 +28,7 @@ Returns, and emails to the admin address, four things:
 }
 ```
 
-The tenant is seeded with three customers and 90 days of history, so the console
+The tenant is seeded with two customers (a trader and a student) and 90 days of history, so the console
 opens onto real data rather than an empty state. A name that collides with an
 existing institution returns `409` instead of touching the existing tenant.
 

@@ -172,7 +172,7 @@ time_to_submit_seconds, client_timestamp, client_timezone`. New tables `device_p
 - `GET /v1/agents/copilot/customers` — per-customer baselines (range, hours, recipients,
   devices, cities, data freshness, live vs seed counts).
 - `GET /v1/agents/shield/decisions?limit=` — recent decisions with parsed signal
-  breakdowns + pipeline metadata (all 12 layers with weights) + accuracy proxies.
+  breakdowns + pipeline metadata (all 14 layers with weights) + accuracy proxies.
 - `GET /v1/agents/ghost/containers` — container history, cancellation rate, money saved,
   cooling-window config.
 
