@@ -150,3 +150,28 @@ def test_removing_institutions_keeps_only_the_named_one():
     with pytest.raises(rm.RemoveError):
         rm.remove(conn, ["does_not_exist"], do_apply=True)
     conn.close()
+
+
+def test_restart_does_not_bring_back_a_removed_default_institution():
+    """The default institution and admin are for an empty database only. Seeding
+    them on every start undid removing Meridian the moment the API restarted."""
+    import config
+    import db
+    import main
+    from agents.copilot.demo_customers import seed_institution
+    from tenancy import register_institution
+
+    conn = sqlite3.connect(config.DB_PATH, timeout=30)
+    register_institution("onlybank", "Only Bank", "risk@only.ng")
+    seed_institution("onlybank", days=10)
+    conn.execute("INSERT OR REPLACE INTO admins (email, institution_id, hashed_password) VALUES ('boss@only.ng', 'onlybank', 'x')")
+    for table in ("institutions", "admins", "api_keys"):
+        conn.execute(f"DELETE FROM {table} WHERE institution_id = ?", (main.DEFAULT_ADMIN_INSTITUTION,))
+    conn.commit()
+    db._migrate(db.get_conn())
+    main.ensure_default_admin()
+
+    assert conn.execute("SELECT COUNT(*) FROM institutions WHERE institution_id = ?", (main.DEFAULT_ADMIN_INSTITUTION,)).fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM admins WHERE institution_id = ?", (main.DEFAULT_ADMIN_INSTITUTION,)).fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM api_keys WHERE institution_id = ?", (main.DEFAULT_ADMIN_INSTITUTION,)).fetchone()[0] == 0
+    conn.close()

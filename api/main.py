@@ -145,10 +145,11 @@ def ensure_default_admin() -> None:
             # email alone, so after an admin's email was changed the next restart
             # quietly recreated the old address with the .env password, and both
             # addresses could sign in to the same bank.
-            cur.execute(
-                "SELECT 1 FROM admins WHERE email = ? OR institution_id = ? LIMIT 1",
-                (DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_INSTITUTION),
-            )
+            #
+            # Only a deployment with no console admin at all is new. Checking for
+            # the default institution's admin recreated a login for an institution
+            # that had been removed on purpose.
+            cur.execute("SELECT 1 FROM admins LIMIT 1")
             if not cur.fetchone():
                 password = DEFAULT_ADMIN_PASSWORD or secrets.token_urlsafe(12)
                 cur.execute(
@@ -174,7 +175,13 @@ def ensure_default_admin() -> None:
             cur.execute(
                 "SELECT 1 FROM api_keys WHERE institution_id = ?", (DEFAULT_ADMIN_INSTITUTION,)
             )
-            if not cur.fetchone():
+            has_key = cur.fetchone() is not None
+            cur.execute(
+                "SELECT 1 FROM institutions WHERE institution_id = ?", (DEFAULT_ADMIN_INSTITUTION,)
+            )
+            # Only for a default institution that still exists; one that was
+            # removed on purpose does not get a key issued for it on restart.
+            if cur.fetchone() is not None and not has_key:
                 # `secrets` is imported at module scope. A second import here
                 # made the name function-local, so the earlier use of
                 # secrets.token_urlsafe() above raised UnboundLocalError and
