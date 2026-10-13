@@ -34,11 +34,11 @@ export default function WhyFablePage() {
       <section className="relative bg-white px-[var(--gutter)] pb-[var(--section-space-m)] pt-[var(--spacing-m)] text-black">
         <div className="pointer-events-none absolute right-0 top-0 hidden w-full max-w-[400px] justify-end lg:flex">
           <Image
-            src="/images/why-fable/banner-platform.webp"
+            src="/images/why-fable/dashboard-monitor.webp"
             alt=""
             aria-hidden="true"
-            width={1154}
-            height={1400}
+            width={1136}
+            height={1384}
             priority
             className="h-auto w-[88%]"
           />
