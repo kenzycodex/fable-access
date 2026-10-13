@@ -26,6 +26,10 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // location doesn't change every request
 const GPS_TIMEOUT_MS = 8_000;
 const IP_TIMEOUT_MS = 6_000;
 const REVERSE_GEOCODE_TIMEOUT_MS = 5_000;
+/** Within this radius a fix is precise enough to name a building or road. */
+const PRECISE_M = 500;
+/** Beyond this it is too coarse to say which city the customer is in. */
+export const TRUSTED_CITY_M = 5_000;
 
 let cache: GeoLocation | null = null;
 let inflight: Promise<GeoLocation> | null = null;
@@ -67,7 +71,9 @@ function gpsPosition(): Promise<GeolocationPosition | null> {
       // High accuracy on: the whole point of GPS is a precise fix, and an
       // IP-derived city (the old fallback) is routinely wrong by tens of km on
       // Nigerian mobile networks, which then triggers false location anomalies.
-      { enableHighAccuracy: true, timeout: GPS_TIMEOUT_MS, maximumAge: CACHE_TTL_MS }
+      // maximumAge 0: never accept a position the browser or OS remembers from
+      // earlier. A cached fix is how a customer at home was placed at campus.
+      { enableHighAccuracy: true, timeout: GPS_TIMEOUT_MS, maximumAge: 0 }
     );
   });
 }
@@ -170,7 +176,9 @@ async function collect(): Promise<GeoLocation> {
       latitude: pos.coords.latitude,
       longitude: pos.coords.longitude,
       accuracy_m: pos.coords.accuracy,
-      locality: place?.locality ?? null,
+      // A laptop has no GPS chip; its fix comes from nearby Wi-Fi and can be
+      // kilometres out. A building name is only believable from a tight fix.
+      locality: pos.coords.accuracy <= PRECISE_M ? (place?.locality ?? null) : null,
       city: place?.city ?? ip?.city ?? null,
       region: place?.region ?? ip?.region ?? null,
       country: place?.country ?? ip?.country_name ?? null,

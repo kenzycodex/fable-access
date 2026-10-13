@@ -8,7 +8,7 @@
 
 import type { BehavioralProfile } from "./biometrics";
 import type { DeviceFingerprint } from "./fingerprint";
-import type { GeoLocation } from "./geolocation";
+import { TRUSTED_CITY_M, type GeoLocation } from "./geolocation";
 import { cacheBaseline, CHANNEL_LABELS } from "./scoring";
 import type { SessionContext } from "./session";
 import { activeInstitution, activeUserId, authHeaders } from "./tenant";
@@ -276,7 +276,7 @@ export async function shieldAnalyze(
         // An IP address names the carrier's city, often tens of km from the
         // customer, so only a GPS fix is allowed to say "new city". Country is
         // reliable either way.
-        city: location?.source === "gps" ? location.city : null,
+        city: location?.source === "gps" && (location.accuracy_m ?? 0) <= TRUSTED_CITY_M ? location.city : null,
         region: location?.region ?? null,
         country: location?.country ?? null,
         country_code: location?.country_code ?? null,

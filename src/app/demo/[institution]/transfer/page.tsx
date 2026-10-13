@@ -515,7 +515,9 @@ export default function TransferPage() {
                     ? location.source === "unavailable"
                       ? "Not available"
                       : location.source === "gps"
-                        ? [location.locality, location.city].filter(Boolean).join(", ") || "Exact location"
+                        ? `${[location.locality, location.city].filter(Boolean).join(", ") || "Device location"}${
+                            location.accuracy_m ? ` (within ${location.accuracy_m >= 1000 ? `${Math.round(location.accuracy_m / 1000)} km` : `${Math.round(location.accuracy_m)} m`})` : ""
+                          }`
                         : `${[location.city, location.country].filter(Boolean).join(", ") || "Approximate"} (approximate, turn on device location for an exact fix)`
                     : "Locating…"}
                 </Signal>
