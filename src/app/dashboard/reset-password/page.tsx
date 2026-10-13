@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { Button, Field, Notice, TextInput } from "@/components/app-kit";
-import { AuthShell } from "@/components/dashboard/AuthShell";
+import { AuthNotice, AuthShell, AuthSpinner, authButton, authInput } from "@/components/dashboard/AuthShell";
 import { API_BASE } from "@/lib/fable/api";
 
 function ResetPasswordForm({ invited = false }: { invited?: boolean }) {
@@ -62,24 +61,55 @@ function ResetPasswordForm({ invited = false }: { invited?: boolean }) {
 
   if (success) {
     return (
-      <Notice tone="success">
-        {invited ? "You're in. Taking you to sign in..." : "Your password has been reset. Taking you to sign in..."}
-      </Notice>
+      <div className="w-full text-center">
+        <AuthNotice tone="success">{invited ? "You're in. Taking you to sign in..." : "Your password has been successfully reset!"}</AuthNotice>
+        <p className="mt-2 text-[12px] text-gray-400">Redirecting you to login...</p>
+      </div>
     );
   }
 
   return (
-    <form className="flex flex-col gap-4" onSubmit={handleReset}>
-      {error && <Notice tone="danger">{error}</Notice>}
-      <Field label="New password" hint="At least 8 characters.">
-        <TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required />
-      </Field>
-      <Field label="Confirm new password">
-        <TextInput type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" required />
-      </Field>
-      <Button type="submit" size="lg" full loading={submitting}>
-        {submitting ? "Saving" : invited ? "Accept invitation" : "Set new password"}
-      </Button>
+    <form className="flex w-full flex-col gap-4" onSubmit={handleReset}>
+      {error && <AuthNotice tone="danger">{error}</AuthNotice>}
+      <div className="flex w-full flex-col gap-3">
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className={authInput}
+          placeholder="New Password"
+          aria-label="New Password"
+          autoComplete="new-password"
+          required
+        />
+        <input
+          type="password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          className={authInput}
+          placeholder="Confirm New Password"
+          aria-label="Confirm New Password"
+          autoComplete="new-password"
+          required
+        />
+      </div>
+      <button type="submit" disabled={submitting} className={`mt-4 ${authButton}`}>
+        {submitting ? (
+          <>
+            <AuthSpinner />
+            Saving...
+          </>
+        ) : invited ? (
+          "Accept invitation"
+        ) : (
+          "Set new password"
+        )}
+      </button>
+      <div className="mt-2 text-center text-[13px]">
+        <Link href="/dashboard/login" className="text-[#7C3AED] transition-colors hover:text-[#8b5cf6] hover:underline">
+          Back to login
+        </Link>
+      </div>
     </form>
   );
 }
@@ -97,13 +127,8 @@ function ResetPasswordScreen() {
   const invited = useSearchParams().get("invite") === "1";
   return (
     <AuthShell
-      title={invited ? "Join your team on Fable" : "Create a new password"}
-      description={invited ? "Choose a password to accept your invitation to the console." : "Choose a new password for your console access."}
-      footer={
-        <Link href="/dashboard/login" className="font-semibold text-brand hover:underline">
-          Back to sign in
-        </Link>
-      }
+      title={invited ? "Join your team on Fable" : "Create new password"}
+      description={invited ? "Choose a password to accept your invitation to the console." : "Enter a new secure password for your dashboard access."}
     >
       <ResetPasswordForm invited={invited} />
     </AuthShell>

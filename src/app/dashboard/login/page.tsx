@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Eye, EyeSlash } from "@phosphor-icons/react";
 import { toast } from "sonner";
-import { AuthShell } from "@/components/dashboard/AuthShell";
-import { Button, Field, TextInput } from "@/components/app-kit";
+import { AuthShell, AuthSpinner, authButton, authInput } from "@/components/dashboard/AuthShell";
 import { API_BASE } from "@/lib/fable/api";
 import { login, useFableStore } from "@/lib/fable/store";
 
@@ -78,101 +77,98 @@ export default function DashboardLoginPage() {
   }
 
   return (
-    <AuthShell
-      title="Welcome back"
-      description="Sign in to the Fable console."
-      footer={
-        <>
-          <p>
-            No account yet?{" "}
-            <Link href="/pricing" className="font-semibold text-brand hover:underline">
-              See pricing and talk to us
-            </Link>
-          </p>
-          <p className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[12px]">
-            <Link href="/privacy" className="hover:text-d-text hover:underline">Privacy Notice</Link>
-            <Link href="/terms" className="hover:text-d-text hover:underline">Terms of Service</Link>
-            <Link href="/terms#intellectual-property" className="hover:text-d-text hover:underline">IP Notice</Link>
-          </p>
-        </>
-      }
-    >
+    <AuthShell>
       <form
-        className="flex flex-col gap-4"
+        className="flex w-full flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           handleSignIn();
         }}
       >
-        <Field label="Email">
-          <TextInput
+        <div className="flex w-full flex-col gap-3">
+          <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            className={authInput}
+            placeholder="Email"
+            aria-label="Email"
             autoComplete="username"
-            placeholder="you@institution.ng"
             required
           />
-        </Field>
-
-        <Field
-          label="Password"
-          right={
-            <Link href="/dashboard/forgot-password" className="text-[12px] font-semibold text-brand hover:underline">
-              Forgot password?
-            </Link>
-          }
-        >
           <div className="relative">
-            <TextInput
+            <input
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              className={`${authInput} pr-10`}
+              placeholder="Password"
+              aria-label="Password"
               autoComplete="current-password"
-              className="pr-12"
               required
             />
             <button
               type="button"
               onClick={() => setShowPassword((v) => !v)}
               aria-label={showPassword ? "Hide password" : "Show password"}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-d-faint transition-colors hover:text-d-text"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-white"
+              tabIndex={-1}
             >
               {showPassword ? <EyeSlash size={18} /> : <Eye size={18} />}
             </button>
           </div>
-        </Field>
+        </div>
 
-        <Button type="submit" size="lg" full loading={submitting} className="mt-1">
-          {submitting ? "Signing in" : "Sign in"}
-        </Button>
-
-        {DEMO_EMAIL && DEMO_PASSWORD && (
-          <div className="rounded-xl bg-brand/[0.07] p-4 text-[13px]">
-            <p className="font-semibold text-brand">Demo account</p>
-            <p className="mt-1.5 text-d-muted">
-              Email <span className="font-mono text-d-text">{DEMO_EMAIL}</span>
-            </p>
-            <p className="text-d-muted">
-              Password <span className="font-mono text-d-text">{DEMO_PASSWORD}</span>
-            </p>
+        <div className="mt-1 flex w-full items-center justify-between gap-3">
+          <Link href="/dashboard/forgot-password" className="text-[14px] text-[#7C3AED] transition-colors hover:text-[#8b5cf6] hover:underline">
+            Forgot your password?
+          </Link>
+          {/* Fills the form without printing the password on the page. */}
+          {DEMO_EMAIL && DEMO_PASSWORD && (
             <button
               type="button"
               onClick={() => {
                 setEmail(DEMO_EMAIL);
                 setPassword(DEMO_PASSWORD);
               }}
-              className="mt-2 text-[12px] font-semibold text-brand hover:underline"
+              className="text-[13px] text-gray-400 transition-colors hover:text-white hover:underline"
             >
-              Fill these in
+              Use the demo account
             </button>
-          </div>
-        )}
+          )}
+        </div>
 
-        <p className="text-center text-[12px] leading-relaxed text-d-faint">
-          By signing in you agree to the{" "}
-          <Link href="/terms" className="underline hover:text-d-text">Terms of Service</Link> and acknowledge the{" "}
-          <Link href="/privacy" className="underline hover:text-d-text">Privacy Notice</Link>.
+        <button type="submit" disabled={submitting} className={`mt-2 ${authButton}`}>
+          {submitting ? (
+            <>
+              <AuthSpinner />
+              Authenticating...
+            </>
+          ) : (
+            "Log in"
+          )}
+        </button>
+
+        <div className="mt-4 text-center text-[13px] font-normal text-gray-400">
+          Don&apos;t have an account?{" "}
+          <Link href="/pricing" className="text-[#7C3AED] transition-colors hover:text-[#8b5cf6] hover:underline">
+            Contact Sales
+          </Link>
+          .
+        </div>
+
+        <div className="mt-6 flex items-center justify-center gap-2 text-[12px] text-[#7C3AED]">
+          <Link href="/privacy" className="transition-colors hover:text-[#8b5cf6] hover:underline">Privacy Notice</Link>
+          <span className="text-gray-700">|</span>
+          <Link href="/terms" className="transition-colors hover:text-[#8b5cf6] hover:underline">Terms of Service</Link>
+          <span className="text-gray-700">|</span>
+          <Link href="/terms#intellectual-property" className="transition-colors hover:text-[#8b5cf6] hover:underline">IP Notice</Link>
+        </div>
+
+        <p className="mt-4 px-4 text-center text-[12px] leading-relaxed text-gray-500">
+          By accessing the Fable Console and related services you agree to the{" "}
+          <Link href="/terms" className="underline hover:text-white/80">Terms of Service</Link> and acknowledge the{" "}
+          <Link href="/privacy" className="underline hover:text-white/80">Privacy Notice</Link>.
         </p>
       </form>
     </AuthShell>

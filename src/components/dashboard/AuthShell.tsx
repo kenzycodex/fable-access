@@ -2,60 +2,77 @@ import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+/** The sign-in screens' input and button styles, shared so all three match. */
+export const authInput =
+  "w-full rounded border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-[14px] text-white outline-none transition-all placeholder:text-gray-500 hover:bg-white/[0.04] focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED]";
+
+export const authButton =
+  "flex w-full items-center justify-center gap-2 rounded bg-[#7C3AED] py-3 text-[15px] font-medium text-white shadow-lg shadow-[#7C3AED]/20 transition-all hover:bg-[#6d28d9] disabled:opacity-70";
+
+export function AuthSpinner() {
+  return <span className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />;
+}
+
 /**
- * The frame around the console's sign-in screens: the brand image on the left on
- * wide screens, and a centred card on the console palette on the right. Follows
- * the light or dark theme like the rest of the console.
+ * The frame around the console's sign-in screens: the brand image on the left
+ * on wide screens, and the form on plain black on the right. Always dark,
+ * whatever the theme, so it reads as one piece with the image.
  */
 export function AuthShell({
   title,
   description,
   children,
-  footer,
 }: {
-  title: string;
+  title?: string;
   description?: string;
   children: ReactNode;
-  footer?: ReactNode;
 }) {
   return (
-    <div data-surface="app" className="console-shell min-h-dvh w-full bg-d-bg text-d-text">
-      <div className="grid min-h-dvh w-full lg:grid-cols-2">
-        <div className="relative hidden overflow-hidden bg-[#1E1145] lg:block">
+    <div data-surface="app" className="min-h-dvh w-full bg-black">
+      <div className="animate-card-entrance grid min-h-dvh w-full bg-black lg:grid-cols-2">
+        <div className="relative hidden h-full w-full overflow-hidden bg-[#1E1145] lg:block">
           <Image src="/images/brand/login-bg.jpg" alt="" fill priority className="object-cover" />
         </div>
 
-        <div className="flex flex-col items-center justify-center px-5 py-10 sm:px-10 dark:bg-black">
-          <div className="w-full max-w-[400px]">
-            <Link href="/" aria-label="Fable home" className="mb-8 inline-flex">
-              <Image
-                src="/images/brand/fable-logo.png"
-                alt="Fable"
-                width={1671}
-                height={547}
-                priority
-                className="block h-10 w-auto dark:hidden"
-              />
-              <Image
-                src="/images/brand/fable-logo-white.png"
-                alt="Fable"
-                width={1671}
-                height={547}
-                priority
-                className="hidden h-10 w-auto dark:block"
-              />
-            </Link>
-
-            <div className="demo-card rounded-[24px] border border-d-border bg-d-surface p-6 sm:p-8">
-              <h1 className="text-[24px] font-bold tracking-tight text-d-text">{title}</h1>
-              {description && <p className="mt-1.5 text-[14px] leading-relaxed text-d-muted">{description}</p>}
-              <div className="mt-6">{children}</div>
+        <div className="relative z-10 flex flex-col justify-center bg-black px-6 py-8 sm:px-12 lg:px-16">
+          <div className="mx-auto flex w-full max-w-[340px] flex-col items-center">
+            <div className={`flex justify-center ${title ? "mb-8" : "mb-10"}`}>
+              <Link href="/" aria-label="Fable home" className="relative flex w-fit items-center">
+                <Image
+                  src="/images/brand/fable-logo-white.png"
+                  alt="Fable"
+                  width={1671}
+                  height={547}
+                  priority
+                  className="h-14 w-auto drop-shadow-md"
+                />
+              </Link>
             </div>
 
-            {footer && <div className="mt-6 text-center text-[13px] text-d-muted">{footer}</div>}
+            {title && (
+              <div className="mb-8 w-full text-center">
+                <h1 className="mb-2 text-xl font-bold text-white">{title}</h1>
+                {description && <p className="text-sm text-gray-400">{description}</p>}
+              </div>
+            )}
+
+            <div className="w-full">{children}</div>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** A status box in the sign-in screens' own style. */
+export function AuthNotice({ tone, children }: { tone: "success" | "danger"; children: ReactNode }) {
+  return (
+    <div
+      className={`w-full rounded border px-3 py-2.5 text-[13px] ${
+        tone === "success" ? "border-[#00f5a0]/30 bg-[#00f5a0]/10 text-white" : "border-red-500/30 bg-red-500/10 text-red-400"
+      }`}
+    >
+      {children}
     </div>
   );
 }

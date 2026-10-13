@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Button, Field, Notice, TextInput } from "@/components/app-kit";
-import { AuthShell } from "@/components/dashboard/AuthShell";
+import { AuthNotice, AuthShell, AuthSpinner, authButton, authInput } from "@/components/dashboard/AuthShell";
 import { API_BASE } from "@/lib/fable/api";
 
 export default function ForgotPasswordPage() {
@@ -33,35 +32,46 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <AuthShell
-      title="Reset your password"
-      description="Enter your admin email and we will send you a link to get back in."
-      footer={
-        <Link href="/dashboard/login" className="font-semibold text-brand hover:underline">
-          Back to sign in
-        </Link>
-      }
-    >
+    <AuthShell title="Reset your password" description="Enter your email and we'll send you a link to get back into your account.">
       {success ? (
-        <Notice tone="success">
-          If an account exists for <span className="font-semibold">{email}</span>, we have sent instructions to reset your
-          password.
-        </Notice>
+        <div className="w-full">
+          <AuthNotice tone="success">
+            If an account exists for <span className="font-bold text-[#00f5a0]">{email}</span>, we&apos;ve sent instructions to reset your
+            password.
+          </AuthNotice>
+          <div className="mt-6 text-center">
+            <Link href="/dashboard/login" className="text-sm font-bold text-[#00f5a0] hover:underline">
+              Return to login
+            </Link>
+          </div>
+        </div>
       ) : (
-        <form className="flex flex-col gap-4" onSubmit={handleReset}>
-          <Field label="Admin email">
-            <TextInput
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@institution.ng"
-              autoComplete="username"
-              required
-            />
-          </Field>
-          <Button type="submit" size="lg" full loading={submitting} disabled={!email}>
-            {submitting ? "Sending" : "Send reset link"}
-          </Button>
+        <form className="flex w-full flex-col gap-4" onSubmit={handleReset}>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className={authInput}
+            placeholder="Admin Email"
+            aria-label="Admin Email"
+            autoComplete="username"
+            required
+          />
+          <button type="submit" disabled={submitting || !email} className={`mt-4 ${authButton}`}>
+            {submitting ? (
+              <>
+                <AuthSpinner />
+                Sending...
+              </>
+            ) : (
+              "Send reset link"
+            )}
+          </button>
+          <div className="mt-6 text-center text-[13px]">
+            <Link href="/dashboard/login" className="text-[#7C3AED] transition-colors hover:text-[#8b5cf6] hover:underline">
+              Back to login
+            </Link>
+          </div>
         </form>
       )}
     </AuthShell>
