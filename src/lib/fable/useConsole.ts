@@ -5,7 +5,7 @@
 // so signing in as another bank never shows the previous bank's cached data.
 
 import useSWR from "swr";
-import { dashboardTransactionPage } from "./api";
+import { dashboardTransactionPage, getBranding } from "./api";
 import {
   boardReport,
   caseDetail,
@@ -107,6 +107,16 @@ export function useTransactionRange(filters: { from?: string; to?: string; user?
     () => dashboardTransactionPage(filters.limit ?? 200, inst, filters),
     livePolling(CADENCE.standard),
   );
+}
+
+/** The institution's branding. Saving in Settings updates this cache, so the
+ * sidebar logo changes the moment a new one is uploaded. */
+export function useBranding() {
+  const inst = useTenant();
+  return useSWR(inst ? ["console:branding", inst] : null, () => getBranding(inst as string), {
+    revalidateOnFocus: false,
+    keepPreviousData: true,
+  });
 }
 
 export function useBoardReport(range: { from?: string; to?: string }) {

@@ -8,7 +8,7 @@ import { CaretUp, GearSix, SignOut, X } from "@phosphor-icons/react";
 import { Avatar } from "@/components/app-kit";
 import { DASHBOARD_FOOTER_NAV, DASHBOARD_NAV_GROUPS } from "@/components/dashboard/nav";
 import { logout } from "@/lib/fable/store";
-import { useMe, useReviewCounts } from "@/lib/fable/useConsole";
+import { useBranding, useMe, useReviewCounts } from "@/lib/fable/useConsole";
 import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 
 const ROLE_LABEL = { owner: "Owner", analyst: "Analyst", viewer: "Viewer", service: "API key" } as const;
@@ -142,6 +142,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
 function AccountMenu() {
   const { institution } = useSignedInInstitution();
   const { data: who } = useMe();
+  const { data: branding } = useBranding();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -170,6 +171,17 @@ function AccountMenu() {
           role="menu"
           className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-2xl border border-d-border bg-d-surface shadow-[0_18px_40px_-12px_rgba(0,0,0,0.25)]"
         >
+          {who && (
+            <div className="border-b border-d-border px-4 py-3">
+              <p className="truncate text-[13px] font-semibold text-d-text">{who.name || who.email}</p>
+              {who.name && <p className="truncate text-[12px] text-d-muted">{who.email}</p>}
+              <p className="mt-1.5">
+                <span className="rounded-full bg-brand/12 px-2 py-0.5 text-[11px] font-semibold text-brand">
+                  {ROLE_LABEL[who.role]}
+                </span>
+              </p>
+            </div>
+          )}
           <Link
             href="/dashboard/settings"
             role="menuitem"
@@ -198,12 +210,17 @@ function AccountMenu() {
         aria-expanded={open}
         className={`flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition-colors hover:bg-d-surface-2 ${open ? "bg-d-surface-2" : ""}`}
       >
-        <Avatar name={name} size="sm" />
+        {branding?.logo_url ? (
+          <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-d-border bg-white p-1">
+            {/* eslint-disable-next-line @next/next/no-img-element -- a data URI from Branding settings */}
+            <img src={branding.logo_url} alt={`${name} logo`} className="size-full object-contain" />
+          </span>
+        ) : (
+          <Avatar name={name} size="sm" />
+        )}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-semibold leading-tight text-d-text">{name}</span>
-          <span className="block truncate text-[11px] leading-tight text-d-muted">
-            {who ? `${who.name || who.email} · ${ROLE_LABEL[who.role]}` : "Console"}
-          </span>
+          <span className="block truncate text-[11px] leading-tight text-d-muted">{who ? who.name || who.email : "Console"}</span>
         </span>
         <CaretUp size={14} className={`shrink-0 text-d-faint transition-transform ${open ? "" : "rotate-180"}`} />
       </button>

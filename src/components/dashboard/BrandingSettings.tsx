@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { mutate as swrMutate } from "swr";
 import { LockSimple, Trash, UploadSimple } from "@phosphor-icons/react";
 import { Badge, Button, Card, CardHeader, Field, Notice, TextInput } from "@/components/dashboard/primitives";
 import {
@@ -35,6 +36,12 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
   const fileRef = useRef<HTMLInputElement>(null);
   const { canManage } = usePermissions();
 
+  /** Keep the local copy and the shared cache (the sidebar logo) in step. */
+  function publish(next: Branding) {
+    setBranding(next);
+    if (institutionId) void swrMutate(["console:branding", institutionId], next, { revalidate: false });
+  }
+
   useEffect(() => {
     if (!institutionId) return;
     let cancelled = false;
@@ -68,7 +75,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
       if (branding && form.slug === branding.slug) delete patch.slug;
 
       const next = await updateBranding(institutionId, patch);
-      setBranding(next);
+      publish(next);
       setMessage({ kind: "success", text: "Branding saved. Your demo bank reflects it immediately." });
     } catch (err) {
       setMessage({ kind: "danger", text: err instanceof Error ? err.message : "Could not save branding." });
@@ -83,7 +90,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
     setUploading(true);
     setMessage(null);
     try {
-      setBranding(await uploadLogo(institutionId, file));
+      publish(await uploadLogo(institutionId, file));
       setMessage({ kind: "success", text: "Logo updated." });
     } catch (err) {
       setMessage({ kind: "danger", text: err instanceof Error ? err.message : "Upload failed." });
@@ -96,7 +103,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
   async function clearLogo() {
     if (!institutionId) return;
     try {
-      setBranding(await removeLogo(institutionId));
+      publish(await removeLogo(institutionId));
     } catch {
       setMessage({ kind: "danger", text: "Could not remove the logo." });
     }
