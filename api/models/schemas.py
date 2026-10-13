@@ -154,7 +154,7 @@ class FeedbackRequest(BaseModel):
 
 
 class DemoSeedRequest(BaseModel):
-    user_id: str = "demo_user_001"
+    user_id: str
     days: int = 90
     # Which tenant this history belongs to. Was hardcoded to a phantom
     # institution id, orphaning everything seeded through this endpoint.
