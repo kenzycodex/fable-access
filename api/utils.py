@@ -20,6 +20,20 @@ new format on the next successful login, so nobody is locked out by the change.
 import hashlib
 import hmac
 import secrets
+from datetime import datetime, timezone
+
+
+
+def utcnow() -> datetime:
+    """The current UTC time as a naive datetime.
+
+    Replaces datetime.utcnow(), which Python deprecated. The behaviour is
+    identical on purpose: the database stores naive UTC strings, and comparing
+    those against a timezone-aware value (or one whose isoformat ends in +00:00)
+    would break every time-window query that already works.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 
 PBKDF2_ROUNDS = 200_000
 _ALGO = "pbkdf2_sha256"

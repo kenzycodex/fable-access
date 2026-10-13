@@ -8,7 +8,8 @@ import os
 import statistics
 from datetime import datetime, timedelta
 
-from db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict, loads
+from db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict
+from utils import utcnow
 
 MIN_TRANSACTIONS_FOR_BASELINE = 3
 
@@ -40,7 +41,7 @@ POPULATION_MIN_TRANSACTIONS = 20
 
 
 def get_user_baseline(user_id: str) -> dict | None:
-    ninety_days_ago = (datetime.utcnow() - timedelta(days=90)).isoformat()
+    ninety_days_ago = (utcnow() - timedelta(days=90)).isoformat()
 
     with cursor() as cur:
         cur.execute(
@@ -61,7 +62,7 @@ def get_user_baseline(user_id: str) -> dict | None:
     # Someone paid quarterly or annually is not a stranger, but a 90-day window
     # said they were, so every termly school fee and yearly renewal re-paid the
     # new-recipient penalty.
-    recipient_cutoff = (datetime.utcnow() - timedelta(days=RECIPIENT_MEMORY_DAYS)).isoformat()
+    recipient_cutoff = (utcnow() - timedelta(days=RECIPIENT_MEMORY_DAYS)).isoformat()
     with cursor() as cur:
         cur.execute(
             """SELECT DISTINCT recipient_account FROM transactions
@@ -132,7 +133,7 @@ def get_user_baseline(user_id: str) -> dict | None:
         "tenure": round(tenure, 3),
         "tenure_discount": round(tenure * TENURE_DISCOUNT_MAX, 4),
         "device_trust": _device_trust(user_id),
-        "last_updated": datetime.utcnow().isoformat(),
+        "last_updated": utcnow().isoformat(),
     }
 
 
@@ -168,7 +169,7 @@ def get_population_baseline(institution_id: str | None) -> dict | None:
     silently skipped and a new account could move almost any amount.
     """
     where = "WHERE confirmed_legitimate = 1 AND created_at >= ?"
-    params: list = [(datetime.utcnow() - timedelta(days=90)).isoformat()]
+    params: list = [(utcnow() - timedelta(days=90)).isoformat()]
     if institution_id:
         where += " AND institution_id = ?"
         params.append(institution_id)
@@ -209,14 +210,14 @@ def get_population_baseline(institution_id: str | None) -> dict | None:
         "avg_time_to_submit": None,
         "preferred_channel": "mobile_app",
         "transaction_count": len(rows),
-        "last_updated": datetime.utcnow().isoformat(),
+        "last_updated": utcnow().isoformat(),
     }
 
 
 def get_user_history_arrays(user_id: str) -> tuple[list[float], list[int]]:
     """Raw amount/hour arrays for the user's confirmed-legitimate history,
     used by the Isolation Forest anomaly scorer."""
-    ninety_days_ago = (datetime.utcnow() - timedelta(days=90)).isoformat()
+    ninety_days_ago = (utcnow() - timedelta(days=90)).isoformat()
     with cursor() as cur:
         cur.execute(
             """SELECT amount, hour_of_day FROM transactions
@@ -269,7 +270,7 @@ def log_transaction(
     device = device or {}
     context = context or {}
 
-    ts = created_at or datetime.utcnow().isoformat()
+    ts = created_at or utcnow().isoformat()
     # Time-of-day baseline learns from the *device's* local time when the SDK
     # sends it (server UTC misplaces Lagos evenings by an hour).
     hour = _client_hour(context) if context.get("client_timestamp") else datetime.fromisoformat(ts).hour
@@ -348,7 +349,7 @@ def _client_hour(context: dict) -> int:
     try:
         return datetime.fromisoformat(str(context["client_timestamp"]).replace("Z", "+00:00")).hour
     except (ValueError, KeyError):
-        return datetime.utcnow().hour
+        return utcnow().hour
 
 
 def record_device_profile(user_id: str, device: dict) -> None:

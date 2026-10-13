@@ -11,6 +11,8 @@ the behavioral/device/location layers carry the weight users can't opt out of.
 """
 from datetime import datetime
 
+from utils import utcnow
+
 from agents.copilot.baseline import (
     COLD_START_PREMIUM,
     get_population_baseline,
@@ -155,7 +157,7 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
 
     # Step 12 groundwork: judge time-of-day on the device's clock, not server UTC.
     client_hour = _client_local_hour(context)
-    now_hour = client_hour if client_hour is not None else datetime.utcnow().hour
+    now_hour = client_hour if client_hour is not None else utcnow().hour
 
     is_large = amount >= LARGE_ABSOLUTE_FLOOR or (
         baseline is not None and amount > baseline["avg_amount"] * 3

@@ -14,6 +14,7 @@ from agents.ghost.account import calculate_cooling_window
 from db import DEFAULT_INSTITUTION_ID, cursor, loads, row_to_dict
 from models.schemas import DemoSeedRequest, InstitutionSeedRequest
 from tenancy import resolve_institution
+from utils import utcnow
 
 router = APIRouter(prefix="/v1/demo", tags=["demo"])
 
@@ -169,7 +170,7 @@ def seed(payload: DemoSeedRequest, request: Request):
             (user_id, institution_id),
         )
 
-    now = datetime.utcnow()
+    now = utcnow()
     count = 0
 
     for i in range(days):
@@ -225,7 +226,7 @@ def seed_threat_history(user_id: str, days: int, institution_id: str = DEFAULT_I
     """
     rnd = rng or random
     created = 0
-    now = datetime.utcnow()
+    now = utcnow()
     for _ in range(count):
         tmpl = rnd.choice(THREAT_TEMPLATES)
         day_offset = rnd.randint(0, max(days - 1, 1))

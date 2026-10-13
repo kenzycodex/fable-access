@@ -15,6 +15,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from db import cursor
+from utils import utcnow
 
 # Each institution gets its own people. Sharing one cast across tenants made
 # every bank look like the same bank: identical names, identical balances, and
@@ -229,7 +230,7 @@ def seed_customer(institution_id: str, customer: dict, days: int,
     rnd = rng or random
     user_id = user_id_for(institution_id, customer["key"])
     _, opening_balance = customer_identity(institution_id, customer["key"])
-    now = datetime.utcnow()
+    now = utcnow()
     count = 0
 
     with cursor() as cur:
