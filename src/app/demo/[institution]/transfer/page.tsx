@@ -95,7 +95,6 @@ export default function TransferPage() {
   // What the Fable SDK has actually collected on this page.
   const [device, setDevice] = useState<DeviceFingerprint | null>(null);
   const [location, setLocation] = useState<GeoLocation | null>(null);
-  const [locating, setLocating] = useState(false);
   const [session, setSession] = useState<BankingSession | null>(null);
   const [sessionSeconds, setSessionSeconds] = useState(0);
 
@@ -104,16 +103,6 @@ export default function TransferPage() {
     () => accountBalance(customer!.user_id, institutionId),
     { refreshInterval: 15_000, keepPreviousData: true },
   );
-
-  // Tapping the button is a user gesture, which is what lets a phone browser
-  // show its location prompt; one raised on page load is easy to miss or is
-  // suppressed.
-  function retryLocation() {
-    setLocating(true);
-    void collectGeolocation(true)
-      .then(setLocation)
-      .finally(() => setLocating(false));
-  }
 
   useEffect(() => {
     const t = new BehavioralTracker();
@@ -522,7 +511,7 @@ export default function TransferPage() {
                   {device ? `${device.os} · ${device.browser}` : "Reading…"}
                 </Signal>
                 <Signal icon={<MapPin size={16} />} title="Location">
-                  <LocationStatus location={location} locating={locating} onRetry={retryLocation} />
+                  <LocationStatus location={location} />
                 </Signal>
                 <Signal icon={<Timer size={16} />} title="Session">
                   {session
@@ -541,16 +530,10 @@ export default function TransferPage() {
   );
 }
 
-function LocationStatus({
-  location,
-  locating,
-  onRetry,
-}: {
-  location: GeoLocation | null;
-  locating: boolean;
-  onRetry: () => void;
-}) {
-  if (!location || locating) return <>Locating…</>;
+/** Whatever location was detected, stated plainly. The customer is not asked
+ * to do anything here; the browser's own permission prompt runs on page load. */
+function LocationStatus({ location }: { location: GeoLocation | null }) {
+  if (!location) return <>Locating…</>;
   if (location.source === "gps") {
     const acc = location.accuracy_m;
     // A street address is only stated outright when the fix is tight enough to
@@ -558,23 +541,9 @@ function LocationStatus({
     const exact = acc !== null && acc <= 50;
     const street = location.address ?? (exact ? location.plus_code?.split(" ")[0] : null);
     const place = [street, location.locality, location.city].filter(Boolean).join(", ") || "Device location";
-    const within = acc ? ` (within ${acc >= 1000 ? `${Math.round(acc / 1000)} km` : `${Math.round(acc)} m`})` : "";
-    return <>{(street && !exact ? "Near " : "") + place + within}</>;
+    return <>{(street && !exact ? "Near " : "") + place}</>;
   }
-  const area = [location.city, location.country].filter(Boolean).join(", ");
-  const blocked = location.gps_error === "denied";
-  return (
-    <>
-      {blocked
-        ? "Location is blocked for this site. Allow it in your browser's site settings, then try again."
-        : area
-          ? `Only your network's area is known (${area}).`
-          : "Your location could not be read."}{" "}
-      <button type="button" onClick={onRetry} className="font-semibold text-brand underline-offset-2 hover:underline">
-        {blocked ? "Try again" : "Use my exact location"}
-      </button>
-    </>
-  );
+  return <>{[location.city, location.country].filter(Boolean).join(", ") || "Not available"}</>;
 }
 
 function Signal({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
