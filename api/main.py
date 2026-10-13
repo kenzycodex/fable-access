@@ -2,6 +2,7 @@ import importlib
 import logging
 import os
 import secrets
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,7 +22,19 @@ if config.SENTRY_DSN:
     except Exception:
         pass
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Work to do once at startup. FastAPI deprecated @app.on_event for this.
+
+    The two functions are defined further down; they exist by the time this runs.
+    """
+    sweep_expired_containments()
+    ensure_default_admin()
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Fable API",
     description="AI security and intelligence infrastructure layer for African finance. "
                 "Shield stops scams in real time. Ghost contains the blast radius when a "
@@ -45,8 +58,8 @@ app.add_middleware(
 # Register routers resiliently: a missing or broken router module logs a
 # warning and is skipped, so one bad module never takes down the whole API.
 # `_optional` names are allowed to be absent without a warning.
-_ROUTERS = ["shield", "ghost", "copilot", "demo", "dashboard", "assistant", "admin", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "notifications", "review", "team", "webhooks_admin", "watch"]
-_OPTIONAL = {"watch"}
+_ROUTERS = ["shield", "ghost", "copilot", "demo", "dashboard", "assistant", "admin", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "notifications", "review", "team", "webhooks_admin"]
+_OPTIONAL: set[str] = set()
 _loaded: list[str] = []
 
 for name in _ROUTERS:
@@ -115,7 +128,6 @@ DEFAULT_ADMIN_PASSWORD = os.getenv("FABLE_DEMO_ADMIN_PASSWORD", "").strip()
 DEFAULT_ADMIN_INSTITUTION = os.getenv("FABLE_DEMO_ADMIN_INSTITUTION", "meridian")
 
 
-@app.on_event("startup")
 def sweep_expired_containments() -> None:
     """Resolve holds whose cooling window closed while the API was down.
 
@@ -133,7 +145,6 @@ def sweep_expired_containments() -> None:
         logger.warning("Could not sweep expired containments: %s", exc)
 
 
-@app.on_event("startup")
 def ensure_default_admin() -> None:
     try:
         from db import cursor
