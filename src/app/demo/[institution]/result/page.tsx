@@ -42,9 +42,9 @@ function usePolishedExplanation(transactionId: string | undefined, isPending: bo
     let attempts = 0;
 
     async function poll() {
-      // About an 18s ceiling. Past that the template is the final answer.
+      // About a 7s ceiling. Past that the template is the final answer.
       if (cancelled) return;
-      if (attempts >= 12) {
+      if (attempts >= 5) {
         setResolvedId(transactionId!);
         return;
       }
@@ -252,17 +252,29 @@ function FlagBlockResult() {
 
           <Card className="animate-fade-in-up [animation-delay:0.1s]">
             <CardHeader
-              title="Why this was stopped"
+              title={isBlock ? "Why this was paused" : "Why we are asking you to confirm"}
               action={
                 writing ? (
                   <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-brand">
                     <span className="size-1.5 animate-pulse rounded-full bg-brand" />
-                    Adding detail
+                    Writing summary
                   </span>
                 ) : undefined
               }
             />
-            <p className="text-[14px] leading-relaxed text-d-muted">{pending.explanation}</p>
+            {/* One explanation, shown once. The instant template used to appear and
+                then be replaced by the written summary a moment later, which read
+                as a flicker, so a short placeholder holds the space until the
+                summary is ready, and the template is the fallback if it is not. */}
+            {writing ? (
+              <div className="flex flex-col gap-2.5" aria-hidden>
+                <span className="h-3.5 w-full animate-pulse rounded bg-d-surface-2" />
+                <span className="h-3.5 w-[92%] animate-pulse rounded bg-d-surface-2" />
+                <span className="h-3.5 w-[60%] animate-pulse rounded bg-d-surface-2" />
+              </div>
+            ) : (
+              <p className="animate-fade-in-up text-[14px] leading-relaxed text-d-muted">{pending.explanation}</p>
+            )}
           </Card>
         </div>
 

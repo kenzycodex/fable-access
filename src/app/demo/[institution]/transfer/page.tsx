@@ -514,7 +514,9 @@ export default function TransferPage() {
                   {location
                     ? location.source === "unavailable"
                       ? "Not available"
-                      : [location.city, location.country].filter(Boolean).join(", ") || "Approximate"
+                      : location.source === "gps"
+                        ? [location.locality, location.city].filter(Boolean).join(", ") || "Exact location"
+                        : `${[location.city, location.country].filter(Boolean).join(", ") || "Approximate"} (approximate, turn on device location for an exact fix)`
                     : "Locating…"}
                 </Signal>
                 <Signal icon={<Timer size={16} />} title="Session">
