@@ -42,7 +42,7 @@ export function PageHeader({
     <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
         <h1 className="text-[26px] font-bold leading-tight tracking-tight text-d-text lg:text-[30px]">{title}</h1>
-        {description && <p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-d-muted">{description}</p>}
+        {description && <p className="mt-1.5 max-w-[46rem] text-[14px] leading-relaxed text-d-muted">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 flex-wrap items-center gap-3">{actions}</div>}
     </header>

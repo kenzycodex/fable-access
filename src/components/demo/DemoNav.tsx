@@ -260,7 +260,7 @@ function BottomNav() {
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-d-border bg-d-surface/95 backdrop-blur-xl lg:hidden">
-      <div className="mx-auto flex max-w-md items-end justify-around px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-2">
+      <div className="mx-auto flex max-w-[28rem] items-end justify-around px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-2">
         {TAB_ITEMS.map((item) => {
           const active = isActive(item);
           const Icon = item.icon;

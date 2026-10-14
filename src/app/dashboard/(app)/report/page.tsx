@@ -53,7 +53,7 @@ export default function BoardReportPage() {
       </div>
 
       {range === "custom" && (
-        <div className="grid max-w-md grid-cols-2 gap-3 print:hidden">
+        <div className="grid max-w-[28rem] grid-cols-2 gap-3 print:hidden">
           <Field label="From">
             <TextInput type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} />
           </Field>
