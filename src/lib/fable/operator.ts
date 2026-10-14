@@ -149,6 +149,11 @@ export interface InstitutionRow {
   decisions_30d: number;
   last_decision: string | null;
   members: number;
+  invites_pending: number;
+  owners: number;
+  setup_done: number;
+  setup_total: number;
+  ready_to_go_live: boolean;
 }
 
 export interface ChecklistItem {
@@ -171,6 +176,18 @@ export interface InstitutionDetail {
   onboarding: Checklist;
   members: { email: string; name: string | null; role: string; status: string; created_at: string | null }[];
   recent_events: { event_type: string; payload: Record<string, unknown>; created_at: string }[];
+  assistant: {
+    override: AssistantOverride;
+    usage: { questions_today: number; model_answers_today: number; questions: number; model_answers: number; input_tokens: number; output_tokens: number };
+    platform: { ai_enabled: boolean; institution_daily_answers: number };
+  };
+}
+
+export interface AssistantOverride {
+  enabled: boolean | null;
+  daily_answers: number | null;
+  updated_by: string | null;
+  updated_at: string | null;
 }
 
 export interface Invite {
@@ -242,6 +259,73 @@ export interface PlatformEvent {
 
 export const usePlatformAudit = () =>
   useSWR(["operator:audit"], () => call<{ events: PlatformEvent[] }>("/operator/audit?limit=200"));
+
+// ── Overview ─────────────────────────────────────────────────────────────────
+
+export interface PlatformOverview {
+  institutions: number;
+  stages: { setting_up: number; ready: number; live: number; suspended: number };
+  customers: number;
+  real_customers: number;
+  decisions_30d: number;
+  decisions_by_day: { day: string; n: number; blocked: number; flagged: number }[];
+  operators: number;
+  attention: { institution_id: string; name: string; reason: string; setup_done: number; setup_total: number }[];
+  recent_events: PlatformEvent[];
+  assistant: { today: UsageTotals; week: UsageTotals };
+}
+
+export const usePlatformOverview = () =>
+  useSWR(["operator:overview"], () => call<PlatformOverview>("/operator/overview"), { refreshInterval: 60_000 });
+
+// ── Ask Fable controls ───────────────────────────────────────────────────────
+
+export interface UsageTotals {
+  questions: number;
+  model_answers: number;
+  cached_answers: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+export interface AssistantSettings {
+  ai_enabled: boolean;
+  per_person_per_minute: number;
+  per_person_per_day: number;
+  institution_daily_answers: number;
+  max_output_tokens: number;
+  max_history_turns: number;
+  max_question_chars: number;
+  cache_minutes: number;
+}
+
+export interface AssistantAdmin {
+  settings: AssistantSettings;
+  fields: Record<keyof AssistantSettings, { default: number | boolean; min: number | boolean; max: number | boolean; help: string }>;
+  providers: Record<"openai" | "anthropic", { configured: boolean; model: string }>;
+  usage: {
+    days: number;
+    today: UsageTotals;
+    totals: UsageTotals;
+    by_day: (UsageTotals & { day: string })[];
+    by_institution: (UsageTotals & {
+      institution_id: string;
+      name: string | null;
+      questions_today: number;
+      model_answers_today: number;
+      people: number;
+    })[];
+  };
+}
+
+export const useAssistantAdmin = (days = 30) =>
+  useSWR(["operator:assistant", days], () => call<AssistantAdmin>(`/operator/assistant?days=${days}`));
+
+export const saveAssistantSettings = (changes: Partial<AssistantSettings>) =>
+  call<{ settings: AssistantSettings }>("/operator/assistant", { method: "PUT", body: JSON.stringify(changes) });
+
+export const setInstitutionAssistant = (id: string, body: { enabled: boolean | null; daily_answers: number | null }) =>
+  call<AssistantOverride>(`/operator/institutions/${encodeURIComponent(id)}/assistant`, { method: "PUT", body: JSON.stringify(body) });
 
 /** Whether a role may do something: support reads, admins act on banks, owners do everything. */
 export function can(role: OperatorRole | undefined, minimum: OperatorRole): boolean {
