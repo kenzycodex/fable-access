@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LinkRow } from "@/components/dashboard/LinkRow";
 import { useMemo, useState } from "react";
 import { CaretRight, Fingerprint, MagnifyingGlass, ShieldWarning, UsersThree, Brain } from "@phosphor-icons/react";
 import {
@@ -139,7 +140,11 @@ export default function CustomersPage() {
                 {rows.map((c) => {
                   const v = c.verification;
                   return (
-                    <tr key={c.user_id} className={table.row}>
+                    <LinkRow
+                      key={c.user_id}
+                      href={`/dashboard/customers/${encodeURIComponent(c.user_id)}`}
+                      label={`Open ${nameFor(c.user_id)}`}
+                    >
                       <td className={table.td}>
                         <Link href={`/dashboard/customers/${encodeURIComponent(c.user_id)}`} className="flex items-center gap-3">
                           <Avatar name={nameFor(c.user_id)} size="sm" />
@@ -174,11 +179,9 @@ export default function CustomersPage() {
                         {c.balance != null ? formatNaira(c.balance) : "-"}
                       </td>
                       <td className="pr-4">
-                        <Link href={`/dashboard/customers/${encodeURIComponent(c.user_id)}`} aria-label={`Open ${nameFor(c.user_id)}`}>
-                          <CaretRight size={14} className="text-d-faint" />
-                        </Link>
+                        <CaretRight size={14} className="text-d-faint" aria-hidden />
                       </td>
-                    </tr>
+                    </LinkRow>
                   );
                 })}
               </tbody>

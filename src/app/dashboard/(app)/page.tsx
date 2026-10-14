@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LinkRow } from "@/components/dashboard/LinkRow";
 import { ArrowRight, ArrowSquareOut, Brain, Flag, Ghost, Lightning, ShieldCheck, Tray } from "@phosphor-icons/react";
 import { BarChart, DonutChart } from "@/components/dashboard/charts";
 import {
@@ -215,7 +216,17 @@ export default function OverviewPage() {
                 </thead>
                 <tbody>
                   {recent.map((t) => (
-                    <tr key={t.id} className={table.row}>
+                    <LinkRow
+                      key={t.id}
+                      href={
+                        t.action !== "PASS"
+                          ? `/dashboard/review?case=${encodeURIComponent(t.id)}`
+                          : t.userId
+                            ? `/dashboard/customers/${encodeURIComponent(t.userId)}`
+                            : null
+                      }
+                      label={t.action !== "PASS" ? `Open the case for ${t.customerName}` : `Open ${t.customerName}`}
+                    >
                       <td className={table.td}>
                         <div className="flex items-center gap-3">
                           <Avatar name={t.customerName} size="sm" />
@@ -236,7 +247,7 @@ export default function OverviewPage() {
                         </div>
                       </td>
                       <td className={`${table.td} whitespace-nowrap text-right text-d-muted`}>{formatRelativeTime(t.timestamp)}</td>
-                    </tr>
+                    </LinkRow>
                   ))}
                 </tbody>
               </table>

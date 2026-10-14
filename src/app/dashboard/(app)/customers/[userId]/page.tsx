@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LinkRow } from "@/components/dashboard/LinkRow";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
 import { ArrowLeft, Brain, Prohibit, Receipt, Tray, Wallet, Warning } from "@phosphor-icons/react";
@@ -181,7 +182,11 @@ export default function CustomerPage() {
               </thead>
               <tbody>
                 {txns.slice(0, 60).map((t) => (
-                  <tr key={t.id} className={table.row}>
+                  <LinkRow
+                    key={t.id}
+                    href={t.review ? `/dashboard/review?case=${encodeURIComponent(t.id)}` : null}
+                    label={`Open the case for ${t.recipientName}`}
+                  >
                     <td className={table.td}>
                       <p className="font-medium text-d-text">{t.recipientName}</p>
                       <p className="text-[12px] text-d-muted">{t.recipientBank}</p>
@@ -206,7 +211,7 @@ export default function CustomerPage() {
                       )}
                     </td>
                     <td className={`${table.td} whitespace-nowrap text-right text-d-muted`}>{formatRelativeTime(t.timestamp)}</td>
-                  </tr>
+                  </LinkRow>
                 ))}
               </tbody>
             </table>
