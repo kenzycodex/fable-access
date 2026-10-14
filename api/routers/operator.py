@@ -235,6 +235,13 @@ def overview(request: Request):
         events = [row_to_dict(r) for r in cur.fetchall()]
         cur.execute("SELECT COUNT(*) AS n FROM operators WHERE COALESCE(active, 1) = 1")
         team = cur.fetchone()["n"]
+        # Attempts to reach another bank's data, the clearest sign of probing.
+        cur.execute(
+            """SELECT SUM(created_at >= datetime('now', '-1 day')) AS day, COUNT(*) AS week
+               FROM audit_log WHERE event_type = ? AND created_at >= datetime('now', '-7 days')""",
+            (audit.ACCESS_DENIED,),
+        )
+        denied = cur.fetchone()
     for e in events:
         e["payload"] = loads(e.get("payload"), {}) or {}
 
@@ -261,6 +268,13 @@ def overview(request: Request):
         "attention": attention,
         "recent_events": events,
         "assistant": {"today": ai["today"], "week": ai["totals"]},
+        "security": {"access_denied_24h": int(denied["day"] or 0), "access_denied_7d": int(denied["week"] or 0)},
+        "newest": [
+            {"institution_id": r["institution_id"], "name": r["name"], "created_at": r["created_at"],
+             "setup_done": r["setup_done"], "setup_total": r["setup_total"], "mode": r["mode"], "status": r["status"],
+             "ready_to_go_live": r["ready_to_go_live"]}
+            for r in rows[:5]
+        ],
     }
 
 
@@ -647,24 +661,139 @@ PLATFORM_EVENTS = (
     audit.INSTITUTION_PROVISIONED, audit.INSTITUTION_SUSPENDED, audit.INSTITUTION_REACTIVATED,
     audit.OWNER_INVITED, audit.OPERATOR_LOGIN, audit.OPERATOR_INVITED, audit.OPERATOR_CHANGED,
     "institution.exported", "institution.data_cleared", "institution.deleted",
-    audit.ASSISTANT_SETTINGS_CHANGED, audit.INSTITUTION_ASSISTANT_CHANGED,
+    audit.ASSISTANT_SETTINGS_CHANGED, audit.INSTITUTION_ASSISTANT_CHANGED, "operator.audit_exported",
 )
 
 
+# Which events each view of the audit log shows. "operators" is every action a
+# Fable operator took; "security" is what a platform team watches for; "all" is
+# every event from every institution.
+SECURITY_EVENTS = (audit.ACCESS_DENIED, audit.STEPUP_FAILED, "operator.secret_stepup_failed",
+                   "operator.secret_locked", audit.INSTITUTION_SUSPENDED, "institution.deleted",
+                   "institution.data_cleared", audit.KEY_ROTATED, audit.PASSWORD_CHANGED)
+AUDIT_SCOPES = ("operators", "all", "security")
+
+
+def _audit_where(scope: str, institution: str | None, event_type: str | None, q: str | None,
+                 before: int | None, since: str | None) -> tuple[str, list]:
+    clauses, args = [], []
+    if scope == "operators":
+        marks = ",".join("?" * len(PLATFORM_EVENTS))
+        clauses.append(f"(event_type IN ({marks}) OR json_extract(payload, '$.operator') IS NOT NULL)")
+        args += list(PLATFORM_EVENTS)
+    elif scope == "security":
+        marks = ",".join("?" * len(SECURITY_EVENTS))
+        clauses.append(f"event_type IN ({marks})")
+        args += list(SECURITY_EVENTS)
+    if institution:
+        clauses.append("institution_id = ?")
+        args.append(institution)
+    if event_type:
+        clauses.append("(event_type = ? OR event_type LIKE ?)")
+        args += [event_type, f"{event_type}.%"]
+    if q:
+        clauses.append("(payload LIKE ? OR user_id LIKE ? OR institution_id LIKE ?)")
+        args += [f"%{q}%"] * 3
+    if before:
+        clauses.append("id < ?")
+        args.append(before)
+    if since:
+        clauses.append("created_at >= ?")
+        args.append(since)
+    return (" WHERE " + " AND ".join(clauses)) if clauses else "", args
+
+
+def _actor(row: dict) -> str:
+    p = row["payload"]
+    return str(p.get("operator") or p.get("by") or p.get("actor") or p.get("email") or row.get("user_id") or "System")
+
+
 @router.get("/audit")
-def platform_audit(request: Request, limit: int = Query(100, ge=1, le=500)):
-    """What operators have done: sign-ins, provisioning, suspensions, team changes."""
-    operators.require(request, "support")
+def platform_audit(
+    request: Request,
+    scope: str = Query("operators"),
+    institution: str | None = Query(None, max_length=80),
+    type: str | None = Query(None, max_length=60),
+    q: str | None = Query(None, max_length=80),
+    before: int | None = Query(None, ge=1),
+    since: str | None = Query(None, max_length=20),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """The audit log, newest first, a page at a time.
+
+    Support sees what operators did. Every institution's events, and the
+    security view, need a platform admin: they include bank staff and customer
+    references, so they are kept to the people who act on them.
+    """
     from core.db import loads
 
-    marks = ",".join("?" * len(PLATFORM_EVENTS))
+    if scope not in AUDIT_SCOPES:
+        raise HTTPException(status_code=400, detail="scope must be operators, all or security.")
+    operators.require(request, "support" if scope == "operators" else "platform_admin")
+    where, args = _audit_where(scope, institution, type, (q or "").strip() or None, before, since)
     with cursor() as cur:
         cur.execute(
-            f"""SELECT id, institution_id, event_type, payload, created_at FROM audit_log
-                WHERE event_type IN ({marks}) ORDER BY id DESC LIMIT ?""",
-            (*PLATFORM_EVENTS, limit),
+            f"""SELECT id, user_id, institution_id, event_type, payload, created_at FROM audit_log{where}
+                ORDER BY id DESC LIMIT ?""",
+            (*args, limit + 1),
         )
         rows = [row_to_dict(r) for r in cur.fetchall()]
+        # What kinds of event this view holds, for the filter. Counted over the
+        # whole view, not just this page.
+        base_where, base_args = _audit_where(scope, institution, None, None, None, None)
+        cur.execute(
+            f"""SELECT event_type, COUNT(*) AS n FROM audit_log{base_where}
+                GROUP BY event_type ORDER BY n DESC LIMIT 60""",
+            base_args,
+        )
+        types = [row_to_dict(r) for r in cur.fetchall()]
+    more = len(rows) > limit
+    rows = rows[:limit]
     for r in rows:
         r["payload"] = loads(r.get("payload"), {}) or {}
-    return {"events": rows}
+        r["actor"] = _actor(r)
+    return {"events": rows, "next_before": rows[-1]["id"] if more and rows else None, "types": types}
+
+
+@router.get("/audit/export.csv")
+def export_audit(
+    request: Request,
+    scope: str = Query("operators"),
+    institution: str | None = Query(None, max_length=80),
+    type: str | None = Query(None, max_length=60),
+    q: str | None = Query(None, max_length=80),
+    since: str | None = Query(None, max_length=20),
+):
+    """The same view as CSV (up to 20,000 rows). The export itself is audited."""
+    import csv
+    import io
+    import json
+
+    from fastapi.responses import Response
+
+    from core.db import loads
+
+    if scope not in AUDIT_SCOPES:
+        raise HTTPException(status_code=400, detail="scope must be operators, all or security.")
+    op = operators.require(request, "support" if scope == "operators" else "platform_admin")
+    where, args = _audit_where(scope, institution, type, (q or "").strip() or None, None, since)
+    with cursor() as cur:
+        cur.execute(
+            f"""SELECT id, user_id, institution_id, event_type, payload, created_at FROM audit_log{where}
+                ORDER BY id DESC LIMIT 20000""",
+            args,
+        )
+        rows = [row_to_dict(r) for r in cur.fetchall()]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["id", "time_utc", "event", "institution", "actor", "details"])
+    for r in rows:
+        r["payload"] = loads(r.get("payload"), {}) or {}
+        cells = [r["id"], r["created_at"], r["event_type"], r["institution_id"] or "", _actor(r),
+                 json.dumps(r["payload"], ensure_ascii=False, sort_keys=True)]
+        # A cell a spreadsheet would run as a formula is neutralised.
+        w.writerow([f"'{c}" if isinstance(c, str) and c[:1] in ("=", "+", "-", "@") else c for c in cells])
+    operators.record("operator.audit_exported", op["email"], institution, scope=scope, rows=len(rows))
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="fable-audit-{scope}.csv"',
+                             "Cache-Control": "no-store"})

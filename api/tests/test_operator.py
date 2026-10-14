@@ -234,3 +234,35 @@ def test_an_admin_overrides_ask_fable_for_one_bank(client):
     detail = client.get("/operator/institutions/quiet_bank", headers=op).json()
     assert detail["assistant"]["override"]["daily_answers"] == 25
     assert client.put("/operator/institutions/nobody/assistant", headers=op, json={"enabled": True}).status_code == 404
+
+
+def test_the_audit_log_pages_filters_and_keeps_bank_events_from_support(client):
+    from core import operators
+    from core.db import cursor
+    from scripts.create_operator import create
+
+    op = _sign_in(client)
+    with cursor() as cur:
+        for n in range(7):
+            cur.execute("INSERT INTO audit_log (user_id, institution_id, event_type, payload) VALUES (?, 'auditbank', ?, ?)",
+                        (f"cus_{n}", "security.access_denied" if n % 2 else "policy.changed", '{"by": "risk@auditbank.ng"}'))
+
+    first = client.get("/operator/audit?scope=all&institution=auditbank&limit=3", headers=op).json()
+    assert len(first["events"]) == 3 and first["next_before"]
+    rest = client.get(f"/operator/audit?scope=all&institution=auditbank&limit=10&before={first['next_before']}", headers=op).json()
+    assert len(rest["events"]) == 4 and rest["next_before"] is None
+    assert {t["event_type"] for t in first["types"]} == {"security.access_denied", "policy.changed"}
+    security = client.get("/operator/audit?scope=security&institution=auditbank", headers=op).json()["events"]
+    assert {e["event_type"] for e in security} == {"security.access_denied"}
+    assert security[0]["actor"] == "risk@auditbank.ng"
+
+    create("audit-support@fable.test", "Support", "support", PASSWORD)
+    with cursor() as cur:
+        cur.execute("UPDATE operators SET totp_enabled = 1 WHERE email = 'audit-support@fable.test'")
+    support = {"X-Fable-Operator": operators.issue_session("audit-support@fable.test", 0)["token"]}
+    assert client.get("/operator/audit?scope=all", headers=support).status_code == 403
+    assert client.get("/operator/audit?scope=operators", headers=support).status_code == 200
+
+    csv_ = client.get("/operator/audit/export.csv?scope=all&institution=auditbank", headers=op)
+    assert csv_.status_code == 200 and csv_.text.count("\n") == 8
+    assert client.get("/operator/audit?scope=operators", headers=op).json()["events"][0]["event_type"] == "operator.audit_exported"
