@@ -109,11 +109,12 @@ function Body({ data, owner, onSaved }: { data: AssistantAdmin; owner: boolean; 
               { key: "cached", label: "Cache", color: "#10b981" },
               { key: "figures", label: "Figures only", color: "#a1a1aa" },
             ]}
+            height={250}
             empty="No questions in this period"
           />
         </Card>
         <Card className="lg:col-span-2">
-          <CardHeader title="Who answers" subtitle="Tried in this order. The keys live in the server's environment." />
+          <CardHeader title="Who answers" subtitle="Tried in this order. Keys are managed under Integrations." />
           <ul className="flex flex-col gap-2">
             <Provider name="OpenAI" model={data.providers.openai.model} on={data.providers.openai.configured} />
             <Provider name="Anthropic" model={data.providers.anthropic.model} on={data.providers.anthropic.configured} />
