@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Code, GearSix, Key, Palette, Sliders, UsersThree } from "@phosphor-icons/react";
+import { Code, Database, GearSix, Key, Palette, Sliders, UsersThree } from "@phosphor-icons/react";
 import { PageHeader } from "@/components/dashboard/primitives";
 
 const TABS = [
@@ -10,6 +10,7 @@ const TABS = [
   { href: "/dashboard/settings/branding", label: "Branding", icon: Palette },
   { href: "/dashboard/settings/policy", label: "Risk policy", icon: Sliders },
   { href: "/dashboard/settings/team", label: "Team", icon: UsersThree },
+  { href: "/dashboard/settings/data", label: "Data", icon: Database },
   { href: "/dashboard/settings/developers", label: "API & webhooks", icon: Code },
   { href: "/dashboard/settings/security", label: "Security", icon: Key },
 ];
