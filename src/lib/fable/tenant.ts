@@ -12,13 +12,10 @@
 // Fable with the key it was issued at provisioning, and the backend derives
 // the institution from the key rather than trusting the URL.
 
-import { DEFAULT_INSTITUTION } from "./constants";
 import { writeStored } from "../useStoredValue";
 
 const CUSTOMER_KEY = "fable_active_customer";
 const API_KEY_KEY = "fable_institution_api_key";
-
-export { DEFAULT_INSTITUTION };
 
 interface TenantState {
   institutionId: string;
@@ -27,7 +24,8 @@ interface TenantState {
 }
 
 let state: TenantState = {
-  institutionId: DEFAULT_INSTITUTION,
+  // Empty until the demo layout reads the institution from the URL.
+  institutionId: "",
   customerId: null,
   customerName: null,
 };

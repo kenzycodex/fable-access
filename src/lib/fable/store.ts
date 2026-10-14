@@ -25,7 +25,6 @@ import {
 } from "./api";
 import { scoreTransaction } from "./scoring";
 import { enqueue, startAutoSync } from "./syncQueue";
-import { DEFAULT_INSTITUTION } from "./constants";
 import { getTenant, subscribeTenant } from "./tenant";
 import type {
   GhostContainer,
@@ -81,11 +80,11 @@ function writeSession(session: SessionState): void {
  * when two tenants had a customer with the same name. Tenants are supposed to
  * be isolated; the local mirror has to honour that too.
  *
- * The dashboard reads before any institution is known, so an unscoped call
- * falls back to the default tenant's bucket rather than a nameless one.
+ * The dashboard reads before any institution is known; those calls share an
+ * "unscoped" bucket that no institution's data is ever written to.
  */
 function storageKey(): string {
-  const tenant = getTenant().institutionId || DEFAULT_INSTITUTION;
+  const tenant = getTenant().institutionId || "unscoped";
   return `${STORAGE_PREFIX}:${tenant}`;
 }
 
@@ -265,7 +264,7 @@ export async function submitTransfer(input: TransactionInput, sdk?: Partial<SdkT
     recipientBank: input.recipient.bank,
     recipientAccount: input.recipient.accountNumber,
     customerName: getTenant().customerName ?? "Unknown customer",
-    userId: getTenant().customerId ?? `${getTenant().institutionId}_ada`,
+    userId: getTenant().customerId ?? `${getTenant().institutionId}_guest`,
     live: true,
     remote,
   };
