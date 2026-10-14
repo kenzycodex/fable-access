@@ -14,7 +14,8 @@ from core.db import get_conn
 PUBLIC_PATHS = ("/", "/health", "/docs", "/redoc", "/openapi.json", "/favicon.ico")
 # Signing in, recovering a password and accepting an invite happen before the
 # caller has any credential, so they can never require one.
-PUBLIC_PREFIXES = ("/auth/login", "/auth/forgot-password", "/auth/reset-password")
+PUBLIC_PREFIXES = ("/auth/login", "/auth/forgot-password", "/auth/reset-password",
+                   "/operator/auth/")
 
 
 def _has_valid_session(request) -> bool:
@@ -26,7 +27,9 @@ def _has_valid_session(request) -> bool:
         sessions.verify(sessions.extract_token(request))
         return True
     except sessions.SessionError:
-        return False
+        pass
+    # A Fable operator presents their own session; the operator routes check it fully.
+    return (request.headers.get("x-fable-operator") or "").startswith("op.")
 
 
 def _extract_key(request) -> str | None:

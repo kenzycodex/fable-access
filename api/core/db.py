@@ -424,6 +424,29 @@ CREATE TABLE IF NOT EXISTS import_jobs (
     finished_at TEXT
 );
 
+-- Fable's own staff, who provision and look after institutions. Separate from
+-- any bank's console members. The authenticator secret is stored encrypted.
+CREATE TABLE IF NOT EXISTS operators (
+    email TEXT PRIMARY KEY,
+    name TEXT,
+    role TEXT NOT NULL DEFAULT 'support',
+    hashed_password TEXT NOT NULL,
+    totp_secret TEXT,
+    totp_enabled INTEGER NOT NULL DEFAULT 0,
+    totp_last_step INTEGER,
+    active INTEGER NOT NULL DEFAULT 1,
+    session_version INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    last_login_at TEXT
+);
+
+-- One-time links for a new operator to set their password. Stored hashed.
+CREATE TABLE IF NOT EXISTS operator_invites (
+    token TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+
 -- Rows that passed validation, waiting for the bank to confirm the import.
 -- Deleted once the job is applied or discarded.
 CREATE TABLE IF NOT EXISTS import_rows (
@@ -518,6 +541,12 @@ MIGRATIONS = {
         # active, or suspended by a Fable operator. A suspended bank's console,
         # keys and sandbox are refused until it is reactivated.
         "status": "TEXT DEFAULT 'active'",
+        "suspended_reason": "TEXT",
+        "suspended_at": "TEXT",
+        # When an owner confirmed the data processing agreement and the DPIA,
+        # which going live requires (NDPA 2023, GAID 2025).
+        "agreements_confirmed_at": "TEXT",
+        "agreements_confirmed_by": "TEXT",
     },
     "admins": {
         # owner: everything. analyst: review work and reads. viewer: reads.

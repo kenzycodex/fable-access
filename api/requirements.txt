@@ -8,5 +8,7 @@ openai>=1.51.0
 python-dotenv>=1.0.1
 sentry-sdk>=2.0.0
 webauthn>=2.0.0
+# Encrypts operators' authenticator secrets at rest (Fernet). Also a webauthn dependency.
+cryptography>=42.0.0
 # Needed by FastAPI for file uploads (the branding logo).
 python-multipart>=0.0.9

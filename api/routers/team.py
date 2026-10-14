@@ -89,36 +89,47 @@ class InviteBody(BaseModel):
     role: str = "analyst"
 
 
-@router.post("/invite")
-def invite(body: InviteBody, request: Request, background: BackgroundTasks):
-    who = require_role(request, "owner")
-    email = body.email.strip().lower()
+def issue_invite(
+    institution_id: str,
+    email: str,
+    role: str,
+    name: str | None,
+    invited_by: str,
+    background: BackgroundTasks,
+) -> dict:
+    """Create (or renew) an invited member and send them a set-password link.
+
+    Shared by an owner inviting a colleague and by a Fable operator creating a
+    new institution's first owner, so every console account starts the same
+    way: no password anyone else knows, and a one-time link that expires.
+    """
+    email = email.strip().lower()
     if not _EMAIL_RE.match(email):
         raise HTTPException(status_code=422, detail="Enter a valid email address.")
-    if body.role not in ROLES:
+    if role not in ROLES:
         raise HTTPException(status_code=422, detail="Role must be owner, analyst or viewer.")
 
     with cursor() as cur:
         cur.execute("SELECT institution_id, COALESCE(active, 1) AS active FROM admins WHERE email = ?", (email,))
         existing = cur.fetchone()
-    if existing and existing["institution_id"] != who["inst"]:
+    if existing and existing["institution_id"] != institution_id:
         # The address belongs to another bank's console. Saying so would leak
         # who uses Fable, so this reads like any other conflict.
         raise HTTPException(status_code=409, detail="That email cannot be invited.")
     if existing and existing["active"] == ACTIVE:
-        raise HTTPException(status_code=409, detail="That person is already on your team.")
+        raise HTTPException(status_code=409, detail="That person is already on the team.")
 
     # A random password nobody knows, so the row is never usable until the
     # invite link sets a real one.
     placeholder = hash_password(secrets.token_urlsafe(24))
-    name = (body.name or "").strip() or None
+    name = (name or "").strip() or None
     with cursor() as cur:
         cur.execute(
             """INSERT INTO admins (email, institution_id, hashed_password, role, name, active)
                VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(email) DO UPDATE SET role = excluded.role, name = excluded.name,
                                                 active = excluded.active, hashed_password = excluded.hashed_password""",
-            (email, who["inst"], placeholder, body.role, name, INVITED),
+            (email, institution_id, placeholder, role, name, INVITED),
         )
         token = secrets.token_urlsafe(32)
         cur.execute("DELETE FROM password_resets WHERE email = ?", (email,))
@@ -129,20 +140,26 @@ def invite(body: InviteBody, request: Request, background: BackgroundTasks):
             (token_hash(token), email, int(time.time()) + INVITE_TTL_SECONDS),
         )
 
-    inst = get_institution(who["inst"]) or {}
+    inst = get_institution(institution_id) or {}
     link = _invite_link(token)
     emailed = bool(config.SMTP_USERNAME and config.SMTP_PASSWORD)
-    background.add_task(_send_invite, email, who["email"], inst.get("name", who["inst"]), body.role, link)
-    audit.record(audit.TEAM_INVITED, None, institution_id=who["inst"], member=email, role=body.role, by=who["email"])
+    background.add_task(_send_invite, email, invited_by, inst.get("name", institution_id), role, link)
+    audit.record(audit.TEAM_INVITED, None, institution_id=institution_id, member=email, role=role, by=invited_by)
     return {
         "email": email,
-        "role": body.role,
+        "role": role,
         "status": "invited",
         "emailed": emailed,
-        # Without email delivery the owner has no other way to get the link to
-        # their colleague, so it is returned to them. With email it is not.
+        # Without email delivery the inviter has no other way to get the link
+        # to the person, so it is returned to them. With email it is not.
         "invite_link": None if emailed else link,
     }
+
+
+@router.post("/invite")
+def invite(body: InviteBody, request: Request, background: BackgroundTasks):
+    who = require_role(request, "owner")
+    return issue_invite(who["inst"], body.email, body.role, body.name, who["email"], background)
 
 
 class RoleBody(BaseModel):

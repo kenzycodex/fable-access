@@ -58,7 +58,7 @@ app.add_middleware(
 # Register routers resiliently: a missing or broken router module logs a
 # warning and is skipped, so one bad module never takes down the whole API.
 # `_optional` names are allowed to be absent without a warning.
-_ROUTERS = ["shield", "ghost", "copilot", "demo", "dashboard", "assistant", "admin", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "notifications", "review", "team", "webhooks", "geo", "sandbox", "customers", "imports"]
+_ROUTERS = ["shield", "ghost", "copilot", "dashboard", "assistant", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "notifications", "review", "team", "webhooks", "geo", "sandbox", "customers", "imports", "onboarding", "operator"]
 _OPTIONAL: set[str] = set()
 _loaded: list[str] = []
 
@@ -111,9 +111,6 @@ if config.ENVIRONMENT == "production" and os.getenv("FABLE_WEBHOOK_ALLOW_PRIVATE
         "point a webhook at this server's own network. Turn it off."
     )
 
-if not config.ADMIN_OPERATOR_KEY:
-    logger.info("FABLE_OPERATOR_KEY is not set, so POST /admin/provision is disabled.")
-
 _REQUIRED = {"shield", "ghost", "copilot"}
 _missing = _REQUIRED - set(_loaded)
 if _missing:
@@ -159,9 +156,9 @@ def note_if_no_admins() -> None:
             if cur.fetchone():
                 return
         logger.info(
-            "No console admin exists yet. Create the first institution and its owner "
-            "with POST /admin/provision (send the X-Fable-Operator-Key header; needs "
-            "FABLE_OPERATOR_KEY set)."
+            "No institution exists yet. Create a Fable operator on the server with "
+            "`python scripts/create_operator.py`, sign in at /operator, and provision "
+            "the first institution there."
         )
     except Exception as exc:  # noqa: BLE001 - never block boot
         logger.warning("Could not check for console admins: %s", exc)
