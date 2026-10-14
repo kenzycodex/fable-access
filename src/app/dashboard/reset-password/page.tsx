@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { AuthNotice, AuthShell, AuthSpinner, authButton, authInput } from "@/components/dashboard/AuthShell";
+import { AuthNotice, AuthShell, AuthSpinner, AuthSuccess, authButton, authInput } from "@/components/dashboard/AuthShell";
 import { API_BASE } from "@/lib/fable/api";
 
-function ResetPasswordForm({ invited = false }: { invited?: boolean }) {
+function ResetPasswordForm({ invited = false, onDone }: { invited?: boolean; onDone: () => void }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
@@ -15,7 +15,6 @@ function ResetPasswordForm({ invited = false }: { invited?: boolean }) {
   const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
 
   async function handleReset(e: React.FormEvent) {
     e.preventDefault();
@@ -49,7 +48,7 @@ function ResetPasswordForm({ invited = false }: { invited?: boolean }) {
         return;
       }
 
-      setSuccess(true);
+      onDone();
       setTimeout(() => {
         router.push("/dashboard/login");
       }, 3000);
@@ -57,15 +56,6 @@ function ResetPasswordForm({ invited = false }: { invited?: boolean }) {
       setError("Failed to connect to Fable API.");
       setSubmitting(false);
     }
-  }
-
-  if (success) {
-    return (
-      <div className="w-full text-center">
-        <AuthNotice tone="success">{invited ? "You're in. Taking you to sign in..." : "Your password has been successfully reset!"}</AuthNotice>
-        <p className="mt-2 text-[12px] text-gray-400">Redirecting you to login...</p>
-      </div>
-    );
   }
 
   return (
@@ -125,12 +115,31 @@ export default function ResetPasswordPage() {
 /** The same screen sets a first password for an invited teammate, so it says so. */
 function ResetPasswordScreen() {
   const invited = useSearchParams().get("invite") === "1";
+  const [done, setDone] = useState(false);
+
+  if (done) {
+    return (
+      <AuthShell>
+        <AuthSuccess
+          title={invited ? "You're in" : "Password updated"}
+          action={
+            <Link href="/dashboard/login" className={authButton}>
+              Sign in now
+            </Link>
+          }
+        >
+          {invited ? "Your account is ready." : "Your new password is set."} Taking you to sign in.
+        </AuthSuccess>
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell
       title={invited ? "Join your team on Fable" : "Create new password"}
       description={invited ? "Choose a password to accept your invitation to the console." : "Enter a new secure password for your dashboard access."}
     >
-      <ResetPasswordForm invited={invited} />
+      <ResetPasswordForm invited={invited} onDone={() => setDone(true)} />
     </AuthShell>
   );
 }

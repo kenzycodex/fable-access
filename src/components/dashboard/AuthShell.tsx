@@ -65,13 +65,39 @@ export function AuthShell({
 }
 
 /** A status box in the sign-in screens' own style. */
-export function AuthNotice({ tone, children }: { tone: "success" | "danger"; children: ReactNode }) {
+/**
+ * A finished step on the sign-in screens: a check, a heading, one plain line,
+ * and what to do next. It replaces the form rather than sitting above it, and
+ * only the check carries the success colour, so the screen keeps the brand's
+ * look instead of turning green.
+ */
+export function AuthSuccess({
+  title,
+  children,
+  action,
+}: {
+  title: string;
+  children: ReactNode;
+  action?: ReactNode;
+}) {
   return (
-    <div
-      className={`w-full rounded border px-3 py-2.5 text-[13px] ${
-        tone === "success" ? "border-[#00f5a0]/30 bg-[#00f5a0]/10 text-white" : "border-red-500/30 bg-red-500/10 text-red-400"
-      }`}
-    >
+    <div role="status" className="flex w-full flex-col items-center text-center animate-fade-in-up">
+      <span className="mb-6 flex size-14 items-center justify-center rounded-full bg-emerald-500/10 ring-1 ring-emerald-400/25">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden className="size-7 text-emerald-400">
+          <path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+      <h1 className="mb-2 text-xl font-bold text-white">{title}</h1>
+      <p className="text-sm leading-relaxed text-gray-400">{children}</p>
+      {action && <div className="mt-8 flex w-full flex-col items-center gap-4">{action}</div>}
+    </div>
+  );
+}
+
+/** An error on a sign-in form. Success uses AuthSuccess, which replaces the form. */
+export function AuthNotice({ children }: { tone: "danger"; children: ReactNode }) {
+  return (
+    <div role="alert" className="w-full rounded border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-[13px] text-red-400">
       {children}
     </div>
   );
