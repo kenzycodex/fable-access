@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query, Request
 
-import policy
+from services import policy
 
 
 def _thresholds(institution: str) -> dict:
@@ -25,10 +25,10 @@ def _cooling(institution: str) -> dict:
         "low_risk_minutes": p["hold_low_minutes"],
     }
 
-from db import cursor, row_to_dict, loads
-from tenancy import tenant_for_console
+from agents.copilot.baseline import format_hours, get_user_baseline
+from core.db import cursor, loads, row_to_dict
+from core.tenancy import tenant_for_console
 from intelligence.context import tenant_clause
-from agents.copilot.baseline import get_user_baseline, format_hours
 
 router = APIRouter(prefix="/v1/agents", tags=["agents"])
 
@@ -172,7 +172,7 @@ def copilot_customers(request: Request, limit: int = Query(50, ge=1, le=200), in
     # they have a PIN, whether it is locked, which factors they have enrolled,
     # and what they hold. Read-only on purpose. Asking the ledger for a balance
     # would create an account row for anyone it had not seen.
-    import security
+    from core import security
 
     with cursor() as cur:
         ids = [u["user_id"] for u in users]

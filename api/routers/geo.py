@@ -5,7 +5,7 @@ asks here for the address, so provider keys never leave the server.
 """
 from fastapi import APIRouter, HTTPException, Query
 
-import geocoding
+from services import geocoding
 
 router = APIRouter(prefix="/v1/geo", tags=["geo"])
 

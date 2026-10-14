@@ -19,8 +19,8 @@ import logging
 import smtplib
 from email.message import EmailMessage
 
-import config
-from db import cursor
+from core import config
+from core.db import cursor
 
 logger = logging.getLogger("fable.notifications")
 
@@ -91,7 +91,7 @@ def notify_decision(user_id: str, institution_id: str | None, transaction_id: st
 
 def for_user(user_id: str, limit: int = 30) -> list[dict]:
     """This customer's notifications, newest first."""
-    from db import row_to_dict
+    from core.db import row_to_dict
 
     with cursor() as cur:
         cur.execute(
@@ -123,7 +123,7 @@ def notify_containment(user_id: str, institution_id: str | None, ghost_id: str,
     money is already protected, so a delivery problem degrades the warning, not
     the containment.
     """
-    import security
+    from core import security
 
     title = "We're holding a transfer on your account"
     body = (

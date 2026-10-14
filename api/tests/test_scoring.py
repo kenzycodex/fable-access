@@ -54,8 +54,8 @@ os.environ.update(_PINNED)
 @pytest.fixture(scope="module")
 def bank():
     """One seeded institution, reused across the module."""
-    from tenancy import register_institution
     from agents.copilot.demo_customers import seed_institution
+    from core.tenancy import register_institution
 
     register_institution("testbank", "Test Bank", "risk@test.ng")
     seed_institution("testbank", days=90)
@@ -80,6 +80,7 @@ def test_amount_out_of_range_is_rejected(amount):
     """Zero and negative amounts tripped no signal, scored 0.0, passed the funds
     check because -1000 > available is false, and reached debit as a PASS."""
     from pydantic import ValidationError
+
     from models.schemas import Transaction
 
     with pytest.raises(ValidationError):
@@ -89,6 +90,7 @@ def test_amount_out_of_range_is_rejected(amount):
 def test_currency_is_pinned_to_naira():
     """A USD transfer of 100 was scored and debited as ₦100."""
     from pydantic import ValidationError
+
     from models.schemas import Transaction
 
     with pytest.raises(ValidationError):
@@ -165,7 +167,7 @@ def test_variance_aware_scoring_tolerates_an_erratic_customer(bank):
 def test_tenure_discount_applies_and_is_capped(bank):
     """Past cold start the friction model was flat: 3 clean transfers and 500
     scored identically."""
-    from agents.copilot.baseline import get_user_baseline, TENURE_DISCOUNT_MAX
+    from agents.copilot.baseline import TENURE_DISCOUNT_MAX, get_user_baseline
 
     b = get_user_baseline(user_id_for("testbank", "chioma"))
     assert 0 < b["tenure_discount"] <= TENURE_DISCOUNT_MAX
@@ -188,7 +190,7 @@ def test_otp_is_never_returned_in_the_response():
     """debug_code was attached whenever delivery failed, and with no SMS
     provider wired delivery fails by default — handing the out-of-band factor to
     whoever held the session."""
-    import config
+    from core import config
 
     assert config.ALLOW_DEBUG_OTP is False
 
@@ -198,7 +200,7 @@ def test_otp_is_never_returned_in_the_response():
 def test_unscoped_tenant_query_raises_rather_than_aggregating():
     """An empty clause turned a per-tenant rollup into a platform-wide one, so
     simply omitting the parameter returned every bank's numbers together."""
-    from intelligence.context import tenant_clause, UnscopedQuery
+    from intelligence.context import UnscopedQuery, tenant_clause
 
     with pytest.raises(UnscopedQuery):
         tenant_clause(None)
@@ -241,7 +243,8 @@ def test_session_token_fails_closed(monkeypatch):
     """Every rejection path, including a tampered institution."""
     import base64
     import json
-    import sessions
+
+    from core import sessions
 
     good = sessions.issue("a@b.c", "testbank")["token"]
     assert sessions.verify(good)["inst"] == "testbank"

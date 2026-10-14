@@ -18,8 +18,8 @@ the distinction the whole containment story rests on.
 """
 from datetime import datetime, timezone
 
-import config
-from db import cursor, row_to_dict
+from core import config
+from core.db import cursor, row_to_dict
 
 
 class InsufficientFunds(Exception):

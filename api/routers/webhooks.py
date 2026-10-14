@@ -1,17 +1,15 @@
 """Managing an institution's webhook endpoints from the console.
 
-Named webhooks_admin so it does not shadow the top-level `webhooks` module that
-does the sending.
+The sending, signing and retries live in services/webhooks.py.
 """
 import secrets
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-import audit
-import webhooks
-from db import cursor, row_to_dict
-from tenancy import require_role
+from core.db import cursor, row_to_dict
+from core.tenancy import require_role
+from services import audit, webhooks
 
 router = APIRouter(prefix="/v1/webhooks", tags=["webhooks"])
 

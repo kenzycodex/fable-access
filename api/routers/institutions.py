@@ -9,12 +9,11 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-import audit
-import security
-import sessions
-from db import cursor
-from tenancy import get_institution, institution_from_api_key, institution_mode, list_institutions, require_role
 from agents.copilot.demo_customers import customers_for_institution
+from core import security, sessions
+from core.db import cursor
+from core.tenancy import get_institution, institution_from_api_key, institution_mode, list_institutions, require_role
+from services import audit
 
 router = APIRouter(prefix="/v1/institutions", tags=["institutions"])
 
@@ -110,7 +109,7 @@ def credentials(institution_id: str, request: Request):
         return {"institution_id": institution_id, "api_key": None, "masked_key": None,
                 "created_at": None, "mode": mode, "can_manage": is_owner}
 
-    import apikeys
+    from core import apikeys
 
     return {
         "institution_id": institution_id,
@@ -259,7 +258,7 @@ def _own_institution(institution_id: str, request: Request, minimum: str) -> dic
 @router.get("/{institution_id}/settings")
 def get_settings(institution_id: str, request: Request):
     """The risk policy in force: base cutoffs and Ghost hold windows."""
-    import policy
+    from services import policy
 
     _own_institution(institution_id, request, "viewer")
     return {"policy": policy.effective(institution_id), "defaults": policy.defaults(),
@@ -278,7 +277,7 @@ class SettingsPatch(BaseModel):
 
 @router.put("/{institution_id}/settings")
 def put_settings(institution_id: str, body: SettingsPatch, request: Request):
-    import policy
+    from services import policy
 
     who = _own_institution(institution_id, request, "owner")
     changes = {k: v for k, v in body.model_dump(exclude={"reset"}).items() if v is not None}
@@ -304,7 +303,7 @@ def rotate_key(institution_id: str, request: Request):
     leaked, and keeping it alive "for a migration period" is exactly what an
     attacker holding it would want. The new key is returned once.
     """
-    import apikeys
+    from core import apikeys
 
     who = _own_institution(institution_id, request, "owner")
     inst = get_institution(institution_id)

@@ -9,14 +9,14 @@ simulated in SQLite — production wires this to the Open Banking
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from config import GHOST_COOLING_HIGH, GHOST_COOLING_MED, GHOST_COOLING_LOW
-from db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict, dumps, loads
+from core.config import GHOST_COOLING_HIGH, GHOST_COOLING_LOW, GHOST_COOLING_MED
+from core.db import DEFAULT_INSTITUTION_ID, cursor, dumps, loads, row_to_dict
 
 
 def calculate_cooling_window(risk_score: float, institution_id: str | None = None) -> int:
     """How long Ghost holds a transfer: the institution's policy, or the defaults."""
     if institution_id:
-        from policy import cooling_minutes
+        from services.policy import cooling_minutes
 
         return cooling_minutes(institution_id, risk_score)
     if risk_score >= 0.9:
@@ -105,7 +105,7 @@ def sweep_expired() -> int:
         )
         swept = cur.rowcount
     if swept:
-        import audit
+        from services import audit
         audit.record(audit.CONTAINMENT_EXPIRED, None, count=swept)
     return swept
 
@@ -164,7 +164,7 @@ def cancel_ghost(ghost_id: str, user_id: str) -> dict:
         current = (get_ghost_container(ghost_id) or {}).get("status")
         raise ValueError(f"Container already resolved: {current}")
 
-    import audit
+    from services import audit
     audit.record(audit.CONTAINMENT_CANCELLED, user_id, ghost_id=ghost_id,
                  amount=container.get("amount"), institution_id=container.get("institution_id"))
 
@@ -219,7 +219,8 @@ def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) 
     # client supplies about itself. An attacker holding the session could
     # simply press it. Releasing now costs a factor the session alone can't
     # produce; cancelling stays free, because returning money is always safe.
-    from agents.shield import assurance, stepup as stepup_service
+    from agents.shield import assurance
+    from agents.shield import stepup as stepup_service
 
     signals = loads(container.get("signals"), []) if container.get("signals") else []
     required = assurance.release_level(container.get("risk_score") or 0.0, signals)
@@ -245,14 +246,14 @@ def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) 
 
     # The reservation becomes a real debit. Until this moment the money was
     # held but never taken, which is what made cancelling able to return it.
-    from accounts import debit
+    from services.accounts import debit
 
     debit(
         user_id, container["amount"], container.get("institution_id"),
         transaction_id=ghost_id, reference=f"ghost-release:{ghost_id}",
     )
 
-    import audit
+    from services import audit
     audit.record(audit.CONTAINMENT_RELEASED, user_id, ghost_id=ghost_id,
                  amount=container.get("amount"), risk_score=container.get("risk_score"),
                  factor=proved, institution_id=container.get("institution_id"))

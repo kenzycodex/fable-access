@@ -2,13 +2,12 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from tenancy import customer_scope
 from pydantic import BaseModel, Field
 
-import accounts as ledger
-import audit
-import security
-from tenancy import resolve_institution
+from core import security
+from core.tenancy import customer_scope, resolve_institution
+from services import accounts as ledger
+from services import audit
 
 router = APIRouter(prefix="/v1/accounts", tags=["accounts"], dependencies=[Depends(customer_scope)])
 

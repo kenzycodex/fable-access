@@ -23,7 +23,6 @@ import secrets
 from datetime import datetime, timezone
 
 
-
 def utcnow() -> datetime:
     """The current UTC time as a naive datetime.
 

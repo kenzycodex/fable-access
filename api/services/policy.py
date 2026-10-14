@@ -11,8 +11,8 @@ gently than internet banking, the same as the defaults do.
 """
 import time
 
-from config import GHOST_COOLING_HIGH, GHOST_COOLING_LOW, GHOST_COOLING_MED
-from db import cursor, row_to_dict
+from core.config import GHOST_COOLING_HIGH, GHOST_COOLING_LOW, GHOST_COOLING_MED
+from core.db import cursor, row_to_dict
 
 THRESHOLD_MIN, THRESHOLD_MAX = 0.2, 0.95
 HOLD_MIN, HOLD_MAX = 5, 1440

@@ -24,7 +24,7 @@ so it is treated as hostile input:
 - Message and history sizes are capped so a caller can't run up token cost or
   bury the system prompt under a wall of text.
 """
-from config import (
+from core.config import (
     ANTHROPIC_API_KEY,
     ANTHROPIC_MODEL,
     OPENAI_API_KEY,
@@ -32,10 +32,10 @@ from config import (
 )
 from intelligence.context import (
     channel_breakdown,
+    grounding_text,
     institution_summary,
     scam_pattern_breakdown,
     signal_frequency,
-    grounding_text,
 )
 
 # Hostile-input caps.

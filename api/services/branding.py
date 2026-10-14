@@ -13,8 +13,8 @@ afternoon's fiddling. The window is configurable because what counts as
 import re
 from datetime import datetime, timedelta, timezone
 
-import config
-from db import cursor, row_to_dict
+from core import config
+from core.db import cursor, row_to_dict
 
 # Reserved so a vanity slug can never shadow a real route or another tenant.
 RESERVED_SLUGS = {

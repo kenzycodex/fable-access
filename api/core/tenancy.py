@@ -11,14 +11,14 @@ it, so one tenant can never see another's transactions.
 """
 from fastapi import Request
 
-from db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict, slugify_institution
+from core.db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict, slugify_institution
 
 
 def institution_from_api_key(key: str | None) -> str | None:
     """Resolve a provisioned API key to its institution_id."""
     if not key:
         return None
-    import apikeys
+    from core import apikeys
 
     with cursor() as cur:
         cur.execute(
@@ -104,7 +104,7 @@ def tenant_for_read(request, claimed: str | None = None) -> str:
     A caller that presents a credential can never widen its scope by also
     passing a slug.
     """
-    import sessions
+    from core import sessions
 
     try:
         return sessions.verify(sessions.extract_token(request))["inst"]
@@ -158,7 +158,8 @@ def console_identity(request) -> dict:
     until it expired.
     """
     from fastapi import HTTPException
-    import sessions
+
+    from core import sessions
 
     try:
         payload = sessions.verify(sessions.extract_token(request))
@@ -229,7 +230,7 @@ def _subject_institution(request, body: dict) -> str | None:
     user_id = params.get("user_id") or (body.get("user_id") if isinstance(body, dict) else None)
     if not user_id:
         return None
-    import audit
+    from services import audit
 
     return audit._institution_of(str(user_id))
 

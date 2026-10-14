@@ -17,16 +17,18 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from db import cursor, row_to_dict, loads
-from tenancy import tenant_for_console
+from core.db import cursor, loads, row_to_dict
+from core.tenancy import tenant_for_console
 from intelligence.context import (
+    CHANNEL_LABELS,
     channel_breakdown,
-    fraud_prevented as fraud_prevented_for,
     institution_summary,
     scam_pattern_breakdown,
     signal_frequency,
     tenant_clause,
-    CHANNEL_LABELS,
+)
+from intelligence.context import (
+    fraud_prevented as fraud_prevented_for,
 )
 
 router = APIRouter(prefix="/v1/dashboard", tags=["dashboard"])
@@ -432,7 +434,7 @@ def compliance(request: Request, institution: str | None = Query(None)):
     # table. `audit_log` existed since the first schema and had never had a row
     # written to it, so this page cited FATF typologies while the one table that
     # would substantiate any of it was empty.
-    import audit
+    from services import audit
 
     events = audit.recent(institution, limit=50)
 
@@ -478,7 +480,7 @@ def report(
     "Money kept from fraud" uses the same rule as fraud_prevented(): a transfer
     Shield did not pass that ended up blocked, cancelled or still held.
     """
-    import audit
+    from services import audit
 
     institution = tenant_for_console(request)
     where, params = txn_filters(institution, date_from=date_from, date_to=date_to)
@@ -553,7 +555,7 @@ def report(
         cur.execute("SELECT name FROM institutions WHERE institution_id = ?", (institution,))
         inst_row = cur.fetchone()
 
-    import policy
+    from services import policy
 
     total = sum(v["count"] for v in by_action.values())
     blocked = by_action.get("BLOCK", {"count": 0, "amount": 0})

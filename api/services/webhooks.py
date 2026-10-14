@@ -31,7 +31,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
-from db import cursor, row_to_dict
+from core.db import cursor, row_to_dict
 
 logger = logging.getLogger("fable.webhooks")
 

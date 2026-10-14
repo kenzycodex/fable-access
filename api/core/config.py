@@ -1,4 +1,5 @@
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,7 +18,7 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 # Treat an unset OR empty FABLE_DB_PATH the same: fall back to a real file next
 # to this module. An empty value would make SQLite use a throwaway per-connection
 # temp DB (nothing persists across requests/restarts), so we guard against it.
-DB_PATH = (os.getenv("FABLE_DB_PATH") or "").strip() or os.path.join(os.path.dirname(__file__), "fable.db")
+DB_PATH = (os.getenv("FABLE_DB_PATH") or "").strip() or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fable.db")
 
 # --- Dashboard & Onboarding ---
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")

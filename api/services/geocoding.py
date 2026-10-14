@@ -34,7 +34,7 @@ import urllib.parse
 import urllib.request
 from collections import OrderedDict
 
-import config
+from core import config
 
 logger = logging.getLogger("fable.geocoding")
 

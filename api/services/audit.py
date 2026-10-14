@@ -15,7 +15,7 @@ because a failure here would turn a working transfer into a broken one.
 """
 import logging
 
-from db import cursor, dumps
+from core.db import cursor, dumps
 
 logger = logging.getLogger("fable.audit")
 
@@ -100,7 +100,7 @@ def recent(institution_id: str | None = None, limit: int = 100) -> list[dict]:
     sweep, for instance) carry none and are included for every tenant, because
     they describe the system rather than a bank's customers.
     """
-    from db import loads, row_to_dict
+    from core.db import loads, row_to_dict
 
     sql = "SELECT id, user_id, event_type, payload, created_at FROM audit_log"
     params: list = []

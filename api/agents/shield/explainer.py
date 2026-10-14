@@ -22,7 +22,7 @@ slow, or erroring provider must never change or delay a risk decision.
 import re
 import time
 
-from config import (
+from core.config import (
     ANTHROPIC_API_KEY,
     ANTHROPIC_MODEL,
     EXPLAINER_TIMEOUT_SECONDS,
@@ -105,7 +105,7 @@ def signal_signature(signals: list[str], action: str) -> str:
 
 def cached_explanation(signature: str) -> str | None:
     """Look up a previously generated explanation, counting the hit."""
-    from db import cursor
+    from core.db import cursor
 
     try:
         with cursor() as cur:
@@ -124,7 +124,7 @@ def cached_explanation(signature: str) -> str | None:
 
 
 def store_explanation(signature: str, action: str, explanation: str) -> None:
-    from db import cursor
+    from core.db import cursor
 
     try:
         with cursor() as cur:

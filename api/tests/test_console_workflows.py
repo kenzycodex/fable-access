@@ -31,8 +31,8 @@ STRANGER = "owner@otherbank.ng"
 
 
 def _admin(email: str, inst: str, role: str) -> None:
-    from db import cursor
-    from utils import hash_password
+    from core.db import cursor
+    from core.utils import hash_password
 
     with cursor() as cur:
         cur.execute(
@@ -43,7 +43,7 @@ def _admin(email: str, inst: str, role: str) -> None:
 
 
 def _headers(email: str, inst: str = BANK) -> dict:
-    import sessions
+    from core import sessions
 
     return {"X-Fable-Session": sessions.issue(email, inst)["token"]}
 
@@ -51,9 +51,10 @@ def _headers(email: str, inst: str = BANK) -> dict:
 @pytest.fixture(scope="module")
 def client():
     from fastapi.testclient import TestClient
-    from main import app
-    from tenancy import register_institution
+
     from agents.copilot.demo_customers import seed_institution
+    from core.tenancy import register_institution
+    from main import app
 
     register_institution(BANK, "Work Bank", "risk@workbank.ng")
     register_institution(OTHER, "Other Bank", "risk@otherbank.ng")
@@ -108,7 +109,7 @@ def test_analyst_works_a_case_end_to_end(client):
     assert {a["event_type"] for a in detail["activity"]} >= {"case.assigned", "case.noted", "case.resolved"}
 
     # Fraud must never become part of what Copilot treats as normal.
-    from db import cursor
+    from core.db import cursor
 
     with cursor() as cur:
         cur.execute("SELECT confirmed_legitimate FROM transactions WHERE id = ?", (txid,))
@@ -218,10 +219,9 @@ def test_policy_validation(client):
 
 
 def test_institution_thresholds_change_the_decision(client):
-    import policy
-    from agents.shield.analyzer import analyze_transaction
-
     from agents.copilot.demo_customers import user_id_for
+    from agents.shield.analyzer import analyze_transaction
+    from services import policy
 
     user = user_id_for(BANK, "chioma")
     # A transfer that lands mid-range under the defaults, found rather than
@@ -252,8 +252,8 @@ def test_institution_thresholds_change_the_decision(client):
 
 
 def test_hold_windows_follow_policy():
-    import policy
     from agents.ghost.account import calculate_cooling_window
+    from services import policy
 
     try:
         policy.update(BANK, {"hold_high_minutes": 60, "hold_medium_minutes": 30, "hold_low_minutes": 10}, "test")
@@ -266,7 +266,7 @@ def test_hold_windows_follow_policy():
 # --- Webhooks ---------------------------------------------------------------
 
 def test_webhook_urls_cannot_reach_internal_networks(monkeypatch):
-    import webhooks
+    from services import webhooks
 
     monkeypatch.delenv("FABLE_WEBHOOK_ALLOW_PRIVATE", raising=False)
     for url in ("http://example.com/hook", "https://127.0.0.1/hook", "https://10.0.0.5/hook", "ftp://x/y"):
@@ -275,7 +275,7 @@ def test_webhook_urls_cannot_reach_internal_networks(monkeypatch):
 
 
 def test_webhook_deliveries_are_signed_and_retried(client, monkeypatch):
-    import webhooks
+    from services import webhooks
 
     monkeypatch.setenv("FABLE_WEBHOOK_ALLOW_PRIVATE", "1")
     r = client.post("/v1/webhooks", json={"url": "http://localhost:9/hook", "events": ["case.resolved"]},
@@ -306,7 +306,7 @@ def test_webhook_deliveries_are_signed_and_retried(client, monkeypatch):
 
 
 def test_resolving_a_case_emits_a_webhook(client, monkeypatch):
-    import webhooks
+    from services import webhooks
 
     sent = []
     monkeypatch.setattr(webhooks, "emit", lambda inst, event, data: sent.append((inst, event, data)))
@@ -339,9 +339,8 @@ def test_date_range_filters_transactions(client):
 # --- Live mode --------------------------------------------------------------
 
 def test_live_institution_rejects_keyless_writes(client):
-    from db import cursor
-
     from agents.copilot.demo_customers import user_id_for
+    from core.db import cursor
 
     payload = {"user_id": user_id_for(BANK, "chioma"), "institution_id": BANK,
                "transaction": {"amount": 1000, "recipient_id": "r", "recipient_account": "0000000001",
@@ -378,7 +377,7 @@ def test_a_renamed_admin_is_not_recreated_on_restart():
     """Changing the console email used to leave both addresses able to sign in,
     because startup re-seeded the configured one whenever it was missing."""
     import main
-    from db import cursor
+    from core.db import cursor
 
     with cursor() as cur:
         cur.execute("DELETE FROM admins WHERE email = ?", (main.DEFAULT_ADMIN_EMAIL,))
@@ -397,8 +396,8 @@ def test_a_renamed_admin_is_not_recreated_on_restart():
 def test_an_existing_plain_text_key_keeps_working_after_conversion(client):
     """Keys issued before hashing were stored as-is. Converting them must not
     break the integrations already using them."""
-    import db
-    from tenancy import institution_from_api_key
+    from core import db
+    from core.tenancy import institution_from_api_key
 
     raw = "fbl_live_" + "ab" * 16
     with db.cursor() as cur:
@@ -418,7 +417,7 @@ def test_an_existing_plain_text_key_keeps_working_after_conversion(client):
 
 
 def test_no_raw_key_is_ever_stored(client):
-    import db
+    from core import db
 
     key = client.post(f"/v1/institutions/{BANK}/keys/rotate", headers=_headers(OWNER)).json()["api_key"]
     assert key.startswith("fbl_live_")
@@ -455,7 +454,7 @@ def test_changing_a_password_ends_other_sessions_but_not_this_one(client):
 
 
 def test_reset_links_are_stored_hashed_and_only_the_latest_works(client):
-    import db
+    from core import db
     from routers.auth import token_hash
 
     email = "forgetful@workbank.ng"
@@ -493,7 +492,7 @@ def test_live_mode_protects_every_customer_endpoint(client):
     """Live mode used to guard scoring only. A live bank's balances, verification,
     holds and notifications must need its key too, while sandbox banks stay open."""
     from agents.copilot.demo_customers import user_id_for
-    from db import cursor
+    from core.db import cursor
 
     user = user_id_for(BANK, "tunde")
     other_user = user_id_for(OTHER, "tunde")

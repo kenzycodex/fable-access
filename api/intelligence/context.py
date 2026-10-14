@@ -9,7 +9,7 @@ dashboard session and the numbers cover only that institution's feed. Passing
 None aggregates across all tenants, which is only appropriate for internal
 operator views, never for a customer-facing dashboard.
 """
-from db import cursor, loads
+from core.db import cursor, loads
 
 CHANNEL_LABELS = {
     "mobile_app": "Mobile App",

@@ -7,9 +7,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-import config
-from middleware.latency import LatencyMiddleware
+from core import config
 from middleware.auth import APIKeyMiddleware
+from middleware.latency import LatencyMiddleware
 from middleware.rate_limit import RateLimitMiddleware
 
 logger = logging.getLogger("fable")
@@ -58,7 +58,7 @@ app.add_middleware(
 # Register routers resiliently: a missing or broken router module logs a
 # warning and is skipped, so one bad module never takes down the whole API.
 # `_optional` names are allowed to be absent without a warning.
-_ROUTERS = ["shield", "ghost", "copilot", "demo", "dashboard", "assistant", "admin", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "notifications", "review", "team", "webhooks_admin", "geo"]
+_ROUTERS = ["shield", "ghost", "copilot", "demo", "dashboard", "assistant", "admin", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "notifications", "review", "team", "webhooks", "geo"]
 _OPTIONAL: set[str] = set()
 _loaded: list[str] = []
 
@@ -160,8 +160,8 @@ def sweep_expired_containments() -> None:
 
 def ensure_default_admin() -> None:
     try:
-        from db import cursor
-        from utils import hash_password
+        from core.db import cursor
+        from core.utils import hash_password
 
         with cursor() as cur:
             # Seed only a brand-new deployment: one where the default institution
@@ -210,7 +210,7 @@ def ensure_default_admin() -> None:
                 # made the name function-local, so the earlier use of
                 # secrets.token_urlsafe() above raised UnboundLocalError and
                 # the whole seeding step failed with a confusing message.
-                import apikeys
+                from core import apikeys
 
                 # Stored as a hash, and never logged. The owner rotates it in
                 # the console to get a key they can see and copy.

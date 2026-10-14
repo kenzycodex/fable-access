@@ -10,7 +10,7 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 
-from config import DB_PATH
+from core.config import DB_PATH
 
 logger = logging.getLogger("fable.db")
 
@@ -529,7 +529,7 @@ def _migrate(conn):
     # Keys used to be stored in plain text, so a copy of the database or any
     # backup held every institution's working key. Convert them to hashes in
     # place. Integrations keep working: the same key hashes to the same value.
-    import apikeys
+    from core import apikeys
 
     converted = apikeys.hash_existing(conn)
     if converted:

@@ -13,7 +13,7 @@ from collections import defaultdict, deque
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from config import RATE_LIMIT_MAX, RATE_LIMIT_WINDOW
+from core.config import RATE_LIMIT_MAX, RATE_LIMIT_WINDOW
 
 _hits: dict[str, deque] = defaultdict(deque)
 

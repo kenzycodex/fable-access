@@ -8,8 +8,8 @@ import os
 import statistics
 from datetime import datetime, timedelta
 
-from db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict
-from utils import utcnow
+from core.db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict
+from core.utils import utcnow
 
 MIN_TRANSACTIONS_FOR_BASELINE = 3
 
@@ -265,7 +265,8 @@ def log_transaction(
     explanation: str | None = None,
     explanation_source: str | None = None,
 ):
-    from db import cursor as _cursor, dumps
+    from core.db import cursor as _cursor
+    from core.db import dumps
 
     device = device or {}
     context = context or {}
@@ -354,7 +355,7 @@ def _client_hour(context: dict) -> int:
 
 def record_device_profile(user_id: str, device: dict) -> None:
     """Upsert the device into the per-user device catalogue Copilot learns from."""
-    from db import cursor as _cursor
+    from core.db import cursor as _cursor
 
     screen = None
     if device.get("screen_width") and device.get("screen_height"):
@@ -386,7 +387,7 @@ def record_device_profile(user_id: str, device: dict) -> None:
 
 def record_location(user_id: str, context: dict) -> None:
     """Append to the user's location trail (feeds the location-anomaly signal)."""
-    from db import cursor as _cursor
+    from core.db import cursor as _cursor
 
     with _cursor() as cur:
         cur.execute(

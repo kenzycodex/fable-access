@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
-from tenancy import customer_scope
 
 from agents.copilot.transparency import get_transparency_data
+from core.tenancy import customer_scope
 
 router = APIRouter(prefix="/v1/copilot", tags=["copilot"], dependencies=[Depends(customer_scope)])
 

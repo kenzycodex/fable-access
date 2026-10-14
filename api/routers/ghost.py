@@ -1,20 +1,16 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
-from tenancy import customer_scope
 
-import audit
-import notifications
-import webhooks
-
-from models.schemas import GhostCreateRequest, GhostActionRequest
 from agents.ghost.account import (
+    ExpiredContainer,
+    StepUpRequired,
+    cancel_ghost,
     create_ghost_container,
     get_ghost_container,
-    cancel_ghost,
     release_ghost,
-    StepUpRequired,
-    ExpiredContainer,
 )
-from tenancy import disabled_agents, resolve_institution
+from core.tenancy import customer_scope, disabled_agents, resolve_institution
+from models.schemas import GhostActionRequest, GhostCreateRequest
+from services import audit, notifications, webhooks
 
 router = APIRouter(prefix="/v1/ghost", tags=["ghost"], dependencies=[Depends(customer_scope)])
 

@@ -8,8 +8,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import config  # noqa: E402
-import geocoding  # noqa: E402
+from core import config  # noqa: E402
+from services import geocoding  # noqa: E402
 
 GOOGLE_LAGOS = {
     "status": "OK",
@@ -157,6 +157,7 @@ def test_everything_down_returns_none(monkeypatch):
 
 def test_endpoint(monkeypatch):
     from fastapi.testclient import TestClient
+
     from main import app
 
     client = TestClient(app)

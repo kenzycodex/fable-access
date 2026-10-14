@@ -179,7 +179,7 @@ def main(argv: list[str]) -> int:
         return 2
     do_apply = "--apply" in argv
 
-    import config
+    from core import config
 
     conn = sqlite3.connect(config.DB_PATH, timeout=30)
     print(f"Database: {config.DB_PATH}")

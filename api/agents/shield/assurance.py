@@ -19,7 +19,7 @@ new device, a new city — implies the session itself may not belong to the
 customer, so those cases jump to a factor the session cannot satisfy, rather
 than asking for one more thing the attacker already has.
 """
-from config import BLOCK_THRESHOLD, FLAG_THRESHOLD
+from core.config import BLOCK_THRESHOLD, FLAG_THRESHOLD
 
 # Ordered weakest to strongest; comparisons rely on the ordering.
 LEVELS = ["none", "pin", "passkey", "passkey_and_otp", "identity_check"]

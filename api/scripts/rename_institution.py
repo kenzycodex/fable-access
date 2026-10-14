@@ -226,7 +226,7 @@ def main(argv: list[str]) -> int:
 
     old, new = args[0].strip().lower(), args[1].strip().lower()
 
-    import config
+    from core import config
     conn = sqlite3.connect(config.DB_PATH, timeout=30)
     print(f"Database: {config.DB_PATH}")
     try:

@@ -9,12 +9,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-import config
 from agents.ghost.account import calculate_cooling_window
-from db import DEFAULT_INSTITUTION_ID, cursor, loads, row_to_dict
+from core import config
+from core.db import DEFAULT_INSTITUTION_ID, cursor, loads, row_to_dict
+from core.tenancy import customer_scope, resolve_institution
+from core.utils import utcnow
 from models.schemas import DemoSeedRequest, InstitutionSeedRequest
-from tenancy import customer_scope, resolve_institution
-from utils import utcnow
 
 router = APIRouter(prefix="/v1/demo", tags=["demo"])
 
@@ -28,8 +28,8 @@ def customer_overview(user_id: str, institution: Optional[str] = Query(None), li
     transparency) on every customer switch and poll. Composing them here means
     switching customers, or refreshing, is a single call instead of three across
     a cross-region hop."""
-    import accounts as ledger
     from agents.copilot.transparency import get_transparency_data
+    from services import accounts as ledger
 
     where = "WHERE user_id = ?"
     params: list = [user_id]

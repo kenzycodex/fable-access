@@ -10,8 +10,8 @@ import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 
-import config
-from db import cursor, row_to_dict
+from core import config
+from core.db import cursor, row_to_dict
 
 PBKDF2_ROUNDS = 200_000
 # The PIN rules (length, wrong attempts before a lock, lock time, whether weak

@@ -9,13 +9,13 @@ console) agrees on where the money ended up.
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from tenancy import customer_scope
 from pydantic import BaseModel
 
-from db import cursor, loads, row_to_dict
-from tenancy import resolve_institution
-from accounts import InsufficientFunds, assert_can_spend, debit
-from agents.shield import assurance, stepup as stepup_service
+from agents.shield import assurance
+from agents.shield import stepup as stepup_service
+from core.db import cursor, loads, row_to_dict
+from core.tenancy import customer_scope, resolve_institution
+from services.accounts import InsufficientFunds, assert_can_spend, debit
 
 router = APIRouter(prefix="/v1/transactions", tags=["transactions"], dependencies=[Depends(customer_scope)])
 
@@ -104,7 +104,7 @@ def approve(txid: str, payload: ApproveRequest, request: Request):
         return {"id": txid, "status": row["status"], "already": True}
 
     signals = loads(row.get("shield_signals"), []) if row.get("shield_signals") else []
-    import security
+    from core import security
     always_ask = bool(security.status(payload.user_id).get("two_factor_enabled"))
     required = assurance.required_level(
         row.get("risk_score") or 0.0, signals, action, always_ask=always_ask
@@ -144,7 +144,7 @@ def approve(txid: str, payload: ApproveRequest, request: Request):
             (txid,),
         )
 
-    import audit
+    from services import audit
     audit.record(audit.TRANSFER_APPROVED, payload.user_id, transaction_id=txid,
                  amount=row["amount"], required_factor=required,
                  institution_id=institution_id)

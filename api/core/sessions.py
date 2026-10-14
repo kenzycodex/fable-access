@@ -39,7 +39,7 @@ import logging
 import secrets
 import time
 
-import config
+from core import config
 
 logger = logging.getLogger("fable.sessions")
 

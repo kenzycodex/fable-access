@@ -25,9 +25,9 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
-import audit
-import config
-from db import cursor, row_to_dict
+from core import config
+from core.db import cursor, row_to_dict
+from services import audit
 
 CHALLENGE_TTL_SECONDS = 300      # 5 minutes to complete a factor
 TOKEN_TTL_SECONDS = config.STEPUP_TOKEN_TTL_SECONDS

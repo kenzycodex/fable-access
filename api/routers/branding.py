@@ -9,10 +9,10 @@ from typing import Optional
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-import audit
-import config
-from branding import BrandingError, get_branding, resolve_slug, update_branding
-from tenancy import require_role
+from core import config
+from core.tenancy import require_role
+from services import audit
+from services.branding import BrandingError, get_branding, resolve_slug, update_branding
 
 
 def _owner_of(institution_id: str, request: Request) -> dict:

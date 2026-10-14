@@ -11,27 +11,26 @@ the behavioral/device/location layers carry the weight users can't opt out of.
 """
 from datetime import datetime
 
-from utils import utcnow
-
 from agents.copilot.baseline import (
     COLD_START_PREMIUM,
     get_population_baseline,
     get_user_baseline,
     get_user_history_arrays,
 )
+from agents.shield.anomaly import score_anomaly
 from agents.shield.channel_risk import get_channel_risk
+from agents.shield.explainer import explain_now
 from agents.shield.nip_codes import get_nip_risk_signal
 from agents.shield.patterns import match_scam_pattern
-from agents.shield.anomaly import score_anomaly
-from agents.shield.explainer import explain_now
 from agents.shield.weights import (
+    VELOCITY_FLAG_COUNT,
+    VELOCITY_HIGH_COUNT,
+    VELOCITY_WINDOW_MINUTES,
     WEIGHTS,
     amount_anomaly_boost,
     thresholds_for,
-    VELOCITY_WINDOW_MINUTES,
-    VELOCITY_FLAG_COUNT,
-    VELOCITY_HIGH_COUNT,
 )
+from core.utils import utcnow
 
 PCI_FIELDS = ("card_number", "cvv", "pin", "track_data")
 
@@ -65,7 +64,7 @@ def _recent_transfer_count(user_id: str, institution_id: str | None) -> int:
     decision.
     """
     try:
-        from db import cursor
+        from core.db import cursor
 
         where = "user_id = ? AND datetime(created_at) >= datetime('now', ?)"
         params: list = [user_id, f"-{VELOCITY_WINDOW_MINUTES} minutes"]

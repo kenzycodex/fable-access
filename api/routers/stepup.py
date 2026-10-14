@@ -7,10 +7,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from tenancy import customer_scope
 from pydantic import BaseModel, Field
 
 from agents.shield import assurance, stepup
+from core.tenancy import customer_scope
 
 router = APIRouter(prefix="/v1/stepup", tags=["stepup"], dependencies=[Depends(customer_scope)])
 
@@ -29,7 +29,7 @@ class RequirementRequest(BaseModel):
 
 @router.post("/requirement")
 def requirement(payload: RequirementRequest):
-    import security
+    from core import security
 
     # The customer's own "always ask" preference. Stored and shown on the
     # security screen since it was built, and read by nothing until now.
@@ -66,7 +66,7 @@ class RegisterBeginRequest(BaseModel):
 
 @router.post("/passkey/register/begin")
 def passkey_register_begin(payload: RegisterBeginRequest):
-    import security
+    from core import security
 
     try:
         security.require_pin_if_set(payload.user_id, payload.current_pin)
@@ -171,7 +171,7 @@ class OtpSendRequest(BaseModel):
 
 @router.post("/otp/send")
 def otp_send(payload: OtpSendRequest):
-    import security
+    from core import security
 
     contact = security.get_contact(payload.user_id)
 
@@ -241,7 +241,7 @@ class PinVerifyRequest(BaseModel):
 @router.post("/pin/verify")
 def pin_verify(payload: PinVerifyRequest):
     """A real factor: hashed, rate-limited, locked after repeated failures."""
-    import security
+    from core import security
 
     try:
         ok = security.check_pin(payload.user_id, payload.pin)
@@ -319,7 +319,7 @@ def identity_check(payload: IdentityCheckRequest):
     out-of-band. Three independent factors is a defensible substitute; a
     pretend face match is not.
     """
-    import config
+    from core import config
 
     if getattr(config, "KYC_PROVIDER_URL", ""):
         # A provider is configured; the composed fallback does not apply.
@@ -337,7 +337,7 @@ def identity_check(payload: IdentityCheckRequest):
     # But a customer who has only set up one factor can't produce two, and must
     # not be stranded with money in containment: for them, that one factor is
     # the bar. So the requirement is min(2, factors they actually have).
-    import security
+    from core import security
 
     # A factor enrolled *after* the money was contained does not count.
     #

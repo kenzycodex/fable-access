@@ -42,10 +42,10 @@ def test_names_resolve_for_both_the_new_and_the_old_format():
 @pytest.fixture()
 def legacy_bank():
     """An institution whose customers still carry the old archetype ids."""
-    import config
     from agents.copilot.demo_customers import DEMO_CUSTOMERS, legacy_user_id_for, seed_institution, user_id_for
+    from core import config
+    from core.tenancy import register_institution
     from scripts.rename_institution import _tables
-    from tenancy import register_institution
 
     inst = "legacybank"
     register_institution(inst, "Legacy Bank", "risk@legacy.ng")
@@ -113,10 +113,10 @@ def test_migration_refuses_to_overwrite_an_existing_id(legacy_bank):
 
 
 def test_removing_institutions_keeps_only_the_named_one():
-    import config
     from agents.copilot.demo_customers import seed_institution
+    from core import config
+    from core.tenancy import register_institution
     from scripts import remove_institutions as rm
-    from tenancy import register_institution
 
     for inst in ("keepbank", "dropbank", "dropbank2"):
         register_institution(inst, inst.title(), f"risk@{inst}.ng")
@@ -155,11 +155,10 @@ def test_removing_institutions_keeps_only_the_named_one():
 def test_restart_does_not_bring_back_a_removed_default_institution():
     """The default institution and admin are for an empty database only. Seeding
     them on every start undid removing Meridian the moment the API restarted."""
-    import config
-    import db
     import main
     from agents.copilot.demo_customers import seed_institution
-    from tenancy import register_institution
+    from core import config, db
+    from core.tenancy import register_institution
 
     conn = sqlite3.connect(config.DB_PATH, timeout=30)
     register_institution("onlybank", "Only Bank", "risk@only.ng")

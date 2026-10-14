@@ -29,9 +29,10 @@ PIN = "8317"
 @pytest.fixture(scope="module")
 def client():
     from fastapi.testclient import TestClient
-    from main import app
-    from tenancy import register_institution
+
     from agents.copilot.demo_customers import seed_institution
+    from core.tenancy import register_institution
+    from main import app
 
     register_institution("endpointbank", "Endpoint Bank", "risk@endpoint.ng")
     seed_institution("endpointbank", days=90)
@@ -128,7 +129,7 @@ def test_credentials_and_provisioning_stay_gated(client):
 def test_tenant_cannot_be_switched_by_query_parameter(client):
     """S0-4. Reads took their tenant from an unbound query parameter, and
     omitting it aggregated every institution together."""
-    import sessions
+    from core import sessions
 
     token = sessions.issue("risk@endpoint.ng", "endpointbank")["token"]
     res = client.get("/v1/agents/overview?institution=some_other_bank",
@@ -162,7 +163,7 @@ def test_pin_must_be_digits_and_exactly_the_configured_length(client):
 
 def test_pin_rules_come_from_the_environment_not_the_code(client, monkeypatch):
     """Length, weak-PIN blocking and the lock-out are operator choices."""
-    import config
+    from core import config
 
     user = "endpointbank_rules"
 
@@ -188,8 +189,7 @@ def test_pin_rules_come_from_the_environment_not_the_code(client, monkeypatch):
 
 
 def test_institution_can_clear_its_own_customers_pin_only(client):
-    import security
-    import sessions
+    from core import security, sessions
 
     user = user_id_for("endpointbank", "chioma")
     client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "9999"}) if not security.status(user)["pin_set"] else None
@@ -216,7 +216,7 @@ def test_institution_can_clear_its_own_customers_pin_only(client):
 # ---------------------------------------------------------------------------
 
 def test_institution_can_edit_its_own_profile_only(client):
-    import sessions
+    from core import sessions
 
     url = "/v1/institutions/endpointbank"
     assert client.patch(url, json={"name": "New Name"}).status_code == 401
@@ -236,7 +236,7 @@ def test_institution_can_edit_its_own_profile_only(client):
 
 
 def test_institution_profile_rejects_bad_input(client):
-    import sessions
+    from core import sessions
 
     own = {"X-Fable-Session": sessions.issue("risk@endpoint.ng", "endpointbank")["token"]}
     url = "/v1/institutions/endpointbank"
@@ -252,11 +252,10 @@ def test_institution_profile_rejects_bad_input(client):
 def test_renaming_an_institution_id_moves_everything_and_keeps_the_old_one_working(client):
     import sqlite3
 
-    import config
-    import security
     from agents.copilot.demo_customers import seed_institution
+    from core import config, security
+    from core.tenancy import register_institution
     from scripts import rename_institution as ren
-    from tenancy import register_institution
 
     register_institution("oldbank", "Old Bank", "risk@old.ng")
     seed_institution("oldbank", days=30)
@@ -300,7 +299,7 @@ def test_renaming_an_institution_id_moves_everything_and_keeps_the_old_one_worki
 def test_renaming_refuses_unsafe_requests(client):
     import sqlite3
 
-    import config
+    from core import config
     from scripts import rename_institution as ren
 
     conn = sqlite3.connect(config.DB_PATH, timeout=30)
@@ -322,8 +321,8 @@ def test_fraud_prevented_is_one_figure_on_every_screen(client):
     """Overview, Intelligence, Compliance and Copilot must quote the same number.
     Blocked, cancelled and held transfers count; a released one, a flag that went
     through and a plain pass do not."""
-    import sessions
-    from db import cursor
+    from core import sessions
+    from core.db import cursor
 
     rows = [
         # id, action, status, amount, counts?

@@ -1,17 +1,19 @@
 import hmac
 import logging
+import secrets
 import smtplib
+import string
 from email.message import EmailMessage
+from typing import Optional
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel
-from typing import Optional
-import secrets
-import string
-import config
-from db import cursor, slugify_institution
-from tenancy import register_institution
+
 from agents.copilot.demo_customers import seed_institution
-from utils import hash_password
+from core import config
+from core.db import cursor, slugify_institution
+from core.tenancy import register_institution
+from core.utils import hash_password
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger("fable.admin")
@@ -30,7 +32,7 @@ def generate_temp_password(length=12):
     return "".join(secrets.choice(alphabet) for i in range(length))
 
 def generate_api_key():
-    import apikeys
+    from core import apikeys
 
     return apikeys.generate()
 
@@ -148,7 +150,7 @@ def provision_institution(req: ProvisionRequest, background_tasks: BackgroundTas
     with cursor() as cur:
         # Only the hash is stored. The full key goes out once: in this response
         # and in the welcome email.
-        import apikeys
+        from core import apikeys
 
         apikeys.insert(cur, api_key, institution_id, req.institution_name, req.admin_email)
         cur.execute(

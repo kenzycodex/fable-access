@@ -4,20 +4,18 @@ from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException, Request
 
+from agents.copilot.baseline import log_transaction
+from agents.shield.analyzer import analyze_transaction_safe
+from agents.shield.explainer import generate_llm_explanation, llm_available
+from core.tenancy import require_role, resolve_institution
 from models.schemas import (
+    FeedbackRequest,
     ShieldAnalyzeRequest,
     ShieldAnalyzeResponse,
     ShieldExplanationResponse,
-    FeedbackRequest,
 )
-import audit
-import notifications
-import webhooks
-from agents.shield.analyzer import analyze_transaction_safe
-from agents.shield.explainer import generate_llm_explanation, llm_available
-from agents.copilot.baseline import log_transaction
-from tenancy import require_role, resolve_institution
-from accounts import InsufficientFunds, assert_can_spend, debit
+from services import audit, notifications, webhooks
+from services.accounts import InsufficientFunds, assert_can_spend, debit
 
 router = APIRouter(prefix="/v1/shield", tags=["shield"])
 
@@ -38,7 +36,7 @@ def _upgrade_explanation(transaction_id: str, signals: list[str], amount: float,
     template in place, which is a complete and accurate explanation in its own
     right.
     """
-    from db import cursor
+    from core.db import cursor
 
     text, elapsed_ms = generate_llm_explanation(signals, amount, action)
     if not text:
@@ -73,7 +71,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     # the original decision keeps the customer's history and the console
     # consistent no matter how many times the client retries.
     if payload.client_reference:
-        from db import cursor, loads
+        from core.db import cursor, loads
 
         with cursor() as cur:
             cur.execute(
@@ -223,7 +221,7 @@ def explanation(transaction_id: str):
     explanation returned alongside it is the template, which is always valid to
     keep displaying.
     """
-    from db import cursor
+    from core.db import cursor
 
     with cursor() as cur:
         cur.execute(
@@ -258,7 +256,7 @@ def feedback(payload: FeedbackRequest, request: Request):
     """
     from datetime import datetime, timezone
 
-    from db import cursor
+    from core.db import cursor
 
     who = require_role(request, "analyst")
     outcome = "fraud" if payload.was_fraud else "legitimate"

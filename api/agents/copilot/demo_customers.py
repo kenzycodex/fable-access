@@ -14,8 +14,8 @@ import re
 import uuid
 from datetime import datetime, timedelta
 
-from db import cursor
-from utils import utcnow
+from core.db import cursor
+from core.utils import utcnow
 
 # Each institution gets its own people. Sharing one cast across tenants made
 # every bank look like the same bank: identical names, identical balances, and
@@ -251,7 +251,7 @@ def seed_customer(institution_id: str, customer: dict, days: int,
     # was only ever called with the default of 0.0, so every seeded customer
     # started empty while the picker advertised a balance they did not have,
     # and a customer with 90 days of ₦400k history could not send ₦1,000.
-    from accounts import ensure_account
+    from services.accounts import ensure_account
     ensure_account(user_id, institution_id, opening_balance=opening_balance)
 
     for i in range(days):

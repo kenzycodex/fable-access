@@ -1,16 +1,16 @@
 import hashlib
-
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
-from pydantic import BaseModel
-from db import get_conn, cursor
-from utils import hash_password, needs_rehash, verify_password
 import logging
 import secrets
-import time
-import config
-import sessions
-from email.message import EmailMessage
 import smtplib
+import time
+from email.message import EmailMessage
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from pydantic import BaseModel
+
+from core import config, sessions
+from core.db import cursor, get_conn
+from core.utils import hash_password, needs_rehash, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger("fable.auth")
@@ -119,7 +119,7 @@ def login(req: LoginRequest, request: Request):
                 (hash_password(req.password), email),
             )
 
-    import audit
+    from services import audit
     audit.record(audit.ADMIN_LOGIN, email, institution_id=row["institution_id"])
 
     session = sessions.issue(email, row["institution_id"], row["sv"])
@@ -269,7 +269,7 @@ def change_password(req: ChangePasswordRequest, request: Request):
         c.execute("SELECT session_version FROM admins WHERE email = ?", (email,))
         version = c.fetchone()["session_version"]
 
-    import audit
+    from services import audit
     audit.record(audit.PASSWORD_CHANGED, email, institution_id=institution_id)
     # Every other session for this account has just ended. This one carries on
     # with a fresh token, so changing a password does not sign you out.
@@ -279,7 +279,7 @@ def change_password(req: ChangePasswordRequest, request: Request):
 @router.get("/me")
 def me(request: Request):
     """Who the console is signed in as, with their current role."""
-    from tenancy import console_identity
+    from core.tenancy import console_identity
 
     who = console_identity(request)
     return {"email": who["email"], "name": who["name"], "role": who["role"], "institution_id": who["inst"]}

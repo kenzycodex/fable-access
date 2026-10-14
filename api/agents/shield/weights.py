@@ -129,7 +129,7 @@ def thresholds_for(channel: str | None, institution_id: str | None = None) -> di
     th = CHANNEL_THRESHOLDS.get(channel or "", _DEFAULT_THRESHOLD)
     if not institution_id:
         return th
-    from policy import base_thresholds
+    from services.policy import base_thresholds
 
     base = base_thresholds(institution_id)
     if base is None:

@@ -139,7 +139,7 @@ def main(argv: list[str]) -> int:
     institutions = [a.strip().lower() for a in argv if not a.startswith("--")] or None
     do_apply = "--apply" in argv
 
-    import config
+    from core import config
 
     conn = sqlite3.connect(config.DB_PATH, timeout=30)
     print(f"Database: {config.DB_PATH}")

@@ -1,4 +1,4 @@
-from agents.copilot.baseline import get_user_baseline, format_hours
+from agents.copilot.baseline import format_hours, get_user_baseline
 
 
 def get_transparency_data(user_id: str) -> dict:

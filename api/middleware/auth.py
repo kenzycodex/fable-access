@@ -8,8 +8,8 @@ setup. Health, docs, root and the OpenAPI schema are always public.
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from config import API_KEYS
-from db import get_conn
+from core.config import API_KEYS
+from core.db import get_conn
 
 PUBLIC_PATHS = ("/", "/health", "/docs", "/redoc", "/openapi.json", "/favicon.ico")
 # Signing in, recovering a password and accepting an invite happen before the
@@ -20,7 +20,7 @@ PUBLIC_PREFIXES = ("/auth/login", "/auth/forgot-password", "/auth/reset-password
 def _has_valid_session(request) -> bool:
     """A signed-in console user. Turning on key enforcement used to lock the
     console out entirely, because it presents a session, not an API key."""
-    import sessions
+    from core import sessions
 
     try:
         sessions.verify(sessions.extract_token(request))
@@ -59,7 +59,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # If not in static config, check the database for provisioned keys
-        import apikeys
+        from core import apikeys
 
         conn = get_conn()
         cur = conn.execute("SELECT 1 FROM api_keys WHERE key = ? AND is_active = 1", (apikeys.hash_key(key),))

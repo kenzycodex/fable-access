@@ -20,12 +20,12 @@ from email.message import EmailMessage
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
 
-import audit
-import config
-from db import cursor, row_to_dict
+from core import config
+from core.db import cursor, row_to_dict
+from core.tenancy import ROLES, get_institution, require_role
+from core.utils import hash_password
 from routers.auth import ACTIVE, INVITED, REMOVED
-from tenancy import ROLES, get_institution, require_role
-from utils import hash_password
+from services import audit
 
 router = APIRouter(prefix="/v1/team", tags=["team"])
 logger = logging.getLogger("fable.team")

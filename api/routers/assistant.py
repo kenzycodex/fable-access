@@ -4,8 +4,8 @@ from collections import defaultdict, deque
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-import sessions
 from agents.copilot.assistant import answer
+from core import sessions
 
 router = APIRouter(prefix="/v1/assistant", tags=["assistant"])
 
