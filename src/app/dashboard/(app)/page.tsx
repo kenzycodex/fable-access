@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { LinkRow } from "@/components/dashboard/LinkRow";
-import { ArrowRight, ArrowSquareOut, Brain, Flag, Ghost, Lightning, ShieldCheck, Tray } from "@phosphor-icons/react";
+import { ArrowRight, ArrowSquareOut, Brain, Flag, Ghost, Lightning, RocketLaunch, ShieldCheck, Tray } from "@phosphor-icons/react";
 import { BarChart, DonutChart } from "@/components/dashboard/charts";
 import {
   Avatar,
@@ -24,7 +24,7 @@ import { LATENCY_BUDGET_MS } from "@/lib/fable/constants";
 import { formatNaira, formatNairaCompact, formatRelativeTime } from "@/lib/fable/format";
 import type { Transaction } from "@/lib/fable/types";
 import { useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
-import { useReviewCounts } from "@/lib/fable/useConsole";
+import { useOnboarding, useReviewCounts } from "@/lib/fable/useConsole";
 import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 
 const AGENTS = [
@@ -57,6 +57,7 @@ function daySeries(txns: Transaction[], predicate: (t: Transaction) => boolean):
 
 export default function OverviewPage() {
   const { institution } = useSignedInInstitution();
+  const { data: onboarding } = useOnboarding();
   const feed = useDashboardFeed();
   const { data: stats } = useDashboardStats();
   const { data: intel } = useIntelligence();
@@ -93,11 +94,15 @@ export default function OverviewPage() {
         title={institution ? `Welcome back, ${institution.name}` : "Overview"}
         description="A live view of every decision Fable made across your customers."
         actions={
-          <ButtonLink href="/demo" variant="secondary" size="md" icon={<ArrowSquareOut size={16} />}>
-            Open the demo bank
-          </ButtonLink>
+          onboarding?.mode === "sandbox" && (
+            <ButtonLink href="/demo" variant="secondary" size="md" icon={<ArrowSquareOut size={16} />}>
+              Open the sandbox
+            </ButtonLink>
+          )
         }
       />
+
+      {onboarding?.mode === "sandbox" && <SetupCard done={onboarding.done} total={onboarding.total} left={onboarding.required_remaining.length} />}
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -295,6 +300,34 @@ export default function OverviewPage() {
         </div>
       </div>
     </>
+  );
+}
+
+/** Until the institution is live, the way back to its go-live checklist. */
+function SetupCard({ done, total, left }: { done: number; total: number; left: number }) {
+  return (
+    <Link
+      href="/dashboard/settings/go-live"
+      className="flex flex-wrap items-center gap-4 rounded-2xl border border-brand/25 bg-brand/[0.06] px-5 py-4 transition-colors hover:border-brand/45"
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand text-white">
+        <RocketLaunch size={20} weight="fill" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[14px] font-semibold text-d-text">
+          {left ? `${done} of ${total} done. Continue setting up` : "Ready to go live"}
+        </p>
+        <p className="mt-0.5 text-[13px] text-d-muted">
+          {left
+            ? `${left} required step${left === 1 ? "" : "s"} left before your institution can go live.`
+            : "Every required step is done. Switch to live when your servers send your API key."}
+        </p>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-d-surface-2 sm:w-40">
+        <div className="h-full rounded-full bg-brand" style={{ width: `${(done / Math.max(total, 1)) * 100}%` }} />
+      </div>
+      <ArrowRight size={16} className="hidden shrink-0 text-brand sm:block" />
+    </Link>
   );
 }
 
