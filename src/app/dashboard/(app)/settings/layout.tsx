@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Code, Database, GearSix, Key, Palette, Sliders, UsersThree } from "@phosphor-icons/react";
+import { Code, Database, GearSix, Key, Palette, RocketLaunch, Sliders, UsersThree } from "@phosphor-icons/react";
 import { PageHeader } from "@/components/dashboard/primitives";
 
 const TABS = [
@@ -13,6 +13,7 @@ const TABS = [
   { href: "/dashboard/settings/data", label: "Data", icon: Database },
   { href: "/dashboard/settings/developers", label: "API & webhooks", icon: Code },
   { href: "/dashboard/settings/security", label: "Security", icon: Key },
+  { href: "/dashboard/settings/go-live", label: "Go live", icon: RocketLaunch },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {

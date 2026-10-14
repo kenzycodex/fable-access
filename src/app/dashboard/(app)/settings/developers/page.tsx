@@ -21,7 +21,6 @@ import {
   deleteWebhook,
   parseUtc,
   rotateApiKey,
-  setInstitutionMode,
   testWebhook,
   type WebhookEndpoint,
 } from "@/lib/fable/console";
@@ -173,83 +172,25 @@ function ApiKeyCard({ institutionId }: { institutionId: string | null }) {
 }
 
 function ModeCard({ institutionId }: { institutionId: string | null }) {
-  const { creds, reload } = useCredentials(institutionId);
-  const { canManage } = usePermissions();
-  const [target, setTarget] = useState<"sandbox" | "live" | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const mode = creds?.mode ?? "sandbox";
-
-  async function apply() {
-    if (!institutionId || !target) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await setInstitutionMode(institutionId, target);
-      setTarget(null);
-      reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not change the mode.");
-      setTarget(null);
-    } finally {
-      setBusy(false);
-    }
-  }
-
+  const { creds } = useCredentials(institutionId);
+  const live = creds?.mode === "live";
   return (
     <Card>
       <div className="flex items-start justify-between gap-3">
         <CardHeader title="Environment" subtitle="Who may send transactions for your institution." />
-        <Badge tone={mode === "live" ? "success" : "warning"}>{mode === "live" ? "Live" : "Sandbox"}</Badge>
+        <Badge tone={live ? "success" : "warning"}>{live ? "Live" : "Sandbox"}</Badge>
       </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <ModeOption
-          active={mode === "sandbox"}
-          title="Sandbox"
-          body="Open to the demo bank. Anyone with your demo link can make test transfers."
-        />
-        <ModeOption
-          active={mode === "live"}
-          title="Live"
-          body="Every transfer must carry your API key. The public demo bank can no longer write to you."
-        />
-      </div>
-      {error && <Notice tone="danger" className="mt-3">{error}</Notice>}
-      {canManage && (
-        <div className="mt-4">
-          <Button variant={mode === "live" ? "secondary" : "primary"} size="sm" onClick={() => setTarget(mode === "live" ? "sandbox" : "live")}>
-            {mode === "live" ? "Switch back to sandbox" : "Go live"}
-          </Button>
-        </div>
-      )}
-
-      <ConfirmDialog
-        open={Boolean(target)}
-        onClose={() => setTarget(null)}
-        onConfirm={apply}
-        busy={busy}
-        tone={target === "sandbox" ? "danger" : "primary"}
-        title={target === "live" ? "Go live?" : "Switch back to sandbox?"}
-        description={
-          target === "live"
-            ? "From now on, only requests with your API key can score transfers for your institution. Make sure your servers send it first. The demo bank will stop accepting new transfers."
-            : "Anyone with your demo link will be able to send test transfers again, without a key. Only do this for a demo or test institution."
-        }
-        confirmLabel={target === "live" ? "Go live" : "Switch to sandbox"}
-      />
-    </Card>
-  );
-}
-
-function ModeOption({ active, title, body }: { active: boolean; title: string; body: string }) {
-  return (
-    <div className={`rounded-xl border p-3.5 ${active ? "border-brand/40 bg-brand/[0.06]" : "border-d-border"}`}>
-      <p className="flex items-center gap-1.5 text-[13px] font-semibold text-d-text">
-        {active && <Check size={14} weight="bold" className="text-brand" />}
-        {title}
+      <p className="text-[13px] leading-relaxed text-d-muted">
+        {live
+          ? "Every transfer must carry your API key, sent from your own servers. The sandbox app is off."
+          : "Your team can try Fable in the sandbox app with test customers. Going live needs the checklist finished."}
       </p>
-      <p className="mt-1 text-[12px] leading-relaxed text-d-muted">{body}</p>
-    </div>
+      <div className="mt-4">
+        <ButtonLink href="/dashboard/settings/go-live" variant="secondary" size="sm">
+          {live ? "Environment settings" : "Go-live checklist"}
+        </ButtonLink>
+      </div>
+    </Card>
   );
 }
 
