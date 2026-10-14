@@ -10,7 +10,6 @@ import {
   BookOpen,
   CaretUp,
   ClockCounterClockwise,
-  Key,
   Moon,
   ShieldCheck,
   SignOut,
@@ -40,7 +39,6 @@ export const OPERATOR_NAV: { group: string; items: Item[] }[] = [
       { href: "/operator", label: "Overview", icon: SquaresFour, match: (p) => p === "/operator" },
       { href: "/operator/institutions", label: "Institutions", icon: Bank, match: (p) => p.startsWith("/operator/institutions"), badge: "attention" },
       { href: "/operator/assistant", label: "Ask Fable", icon: Sparkle, match: (p) => p.startsWith("/operator/assistant") },
-      { href: "/operator/integrations", label: "Integrations", icon: Key, match: (p) => p.startsWith("/operator/integrations") },
     ],
   },
   {

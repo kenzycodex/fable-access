@@ -272,6 +272,67 @@ export async function authenticatePasskey(
   });
 }
 
+/** Create a passkey from server-issued options; returns the JSON the server verifies. */
+export async function createPasskeyCredential(options: PublicKeyCredentialCreationOptionsJSON): Promise<Record<string, unknown>> {
+  let created: PublicKeyCredential | null;
+  try {
+    created = (await navigator.credentials.create({
+      publicKey: {
+        ...options,
+        challenge: b64urlToBuffer(options.challenge),
+        user: { ...options.user, id: b64urlToBuffer(options.user.id) },
+        excludeCredentials: (options.excludeCredentials ?? []).map((c) => ({ ...c, id: b64urlToBuffer(c.id) })),
+      } as PublicKeyCredentialCreationOptions,
+    })) as PublicKeyCredential | null;
+  } catch (err) {
+    throw explainPasskeyFailure(err, "add");
+  }
+  if (!created) throw new PasskeyError("Nothing was added. Please try again.", "neutral");
+  const response = created.response as AuthenticatorAttestationResponse;
+  return {
+    id: created.id,
+    rawId: bufferToB64url(created.rawId),
+    type: created.type,
+    response: {
+      clientDataJSON: bufferToB64url(response.clientDataJSON),
+      attestationObject: bufferToB64url(response.attestationObject),
+    },
+    clientExtensionResults: created.getClientExtensionResults(),
+  };
+}
+
+/** Sign a server-issued challenge with a passkey; returns the JSON the server verifies. */
+export async function getPasskeyAssertion(options: PublicKeyCredentialRequestOptionsJSON): Promise<Record<string, unknown>> {
+  let assertion: PublicKeyCredential | null;
+  try {
+    assertion = (await navigator.credentials.get({
+      publicKey: {
+        ...options,
+        challenge: b64urlToBuffer(options.challenge),
+        allowCredentials: (options.allowCredentials ?? []).map((c) => ({ ...c, id: b64urlToBuffer(c.id) })),
+      } as PublicKeyCredentialRequestOptions,
+    })) as PublicKeyCredential | null;
+  } catch (err) {
+    throw explainPasskeyFailure(err, "verify");
+  }
+  if (!assertion) throw new PasskeyError("That was cancelled. Try again.", "neutral");
+  const response = assertion.response as AuthenticatorAssertionResponse;
+  return {
+    id: assertion.id,
+    rawId: bufferToB64url(assertion.rawId),
+    type: assertion.type,
+    response: {
+      clientDataJSON: bufferToB64url(response.clientDataJSON),
+      authenticatorData: bufferToB64url(response.authenticatorData),
+      signature: bufferToB64url(response.signature),
+      userHandle: response.userHandle ? bufferToB64url(response.userHandle) : null,
+    },
+    clientExtensionResults: assertion.getClientExtensionResults(),
+  };
+}
+
+export type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON };
+
 function deviceLabel(): string {
   const ua = navigator.userAgent;
   if (/iphone|ipad/i.test(ua)) return "iPhone";

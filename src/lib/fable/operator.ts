@@ -384,6 +384,111 @@ export const saveAssistantSettings = (changes: Partial<AssistantSettings>) =>
 export const setInstitutionAssistant = (id: string, body: { enabled: boolean | null; daily_answers: number | null }) =>
   call<AssistantOverride>(`/operator/institutions/${encodeURIComponent(id)}/assistant`, { method: "PUT", body: JSON.stringify(body) });
 
+// ── Integration keys ─────────────────────────────────────────────────────────
+
+export interface SecretVersion {
+  name: string;
+  version: number;
+  status: "active" | "retired" | "revoked";
+  last4: string | null;
+  fingerprint: string | null;
+  rotation_reason: string | null;
+  set_by: string | null;
+  approved_by: string | null;
+  created_at: string | null;
+  retired_at: string | null;
+}
+
+export interface SecretItem {
+  name: string;
+  label: string;
+  group: string;
+  kind: "secret" | "model";
+  source: "environment" | "console" | "unset";
+  display: string | null;
+  default: string | null;
+  active: SecretVersion | null;
+  rotation_due: string | null;
+  rotate_days: number;
+  versions: SecretVersion[];
+  allowed_models: string[] | null;
+}
+
+export interface SecretChange {
+  id: string;
+  name: string;
+  action: "set" | "rollback" | "remove";
+  status: "pending" | "cooling" | "applied" | "rejected" | "cancelled" | "expired";
+  rotation_reason: string | null;
+  reason: string | null;
+  target_version: number | null;
+  last4: string | null;
+  fingerprint: string | null;
+  proposed_by: string;
+  single_approver: number;
+  apply_after: string | null;
+  expires_at: string | null;
+  created_at: string | null;
+}
+
+export interface SecretsOverview {
+  items: SecretItem[];
+  pending: SecretChange[];
+  owners: number;
+  write_enabled: boolean;
+  master_key: boolean;
+  key_id: string;
+  me: { can_change: boolean; passkeys: number; locked_until: string | null };
+}
+
+/** One fresh factor: a passkey assertion (preferred) or an authenticator code. */
+export interface StepUp {
+  code?: string;
+  challenge_id?: string;
+  passkey?: Record<string, unknown>;
+}
+
+export interface StepUpOptions {
+  totp: boolean;
+  passkey: { challenge_id: string; options: import("./webauthn").PublicKeyCredentialRequestOptionsJSON } | null;
+  locked_until: string | null;
+}
+
+export const useSecrets = () => useSWR(["operator:secrets"], () => call<SecretsOverview>("/operator/secrets"));
+export const stepUpOptions = () => call<StepUpOptions>("/operator/secrets/stepup", { method: "POST" });
+export const proposeSecret = (name: string, body: { value: string; reason: string; rotation: "routine" | "compromised"; step_up: StepUp }) =>
+  call<SecretChange>(`/operator/secrets/${encodeURIComponent(name)}/propose`, post(body));
+export const rollbackSecret = (name: string, body: { version: number; reason: string; step_up: StepUp }) =>
+  call<SecretChange>(`/operator/secrets/${encodeURIComponent(name)}/rollback`, post(body));
+export const removeSecret = (name: string, body: { reason: string; step_up: StepUp }) =>
+  call<SecretChange>(`/operator/secrets/${encodeURIComponent(name)}/remove`, post(body));
+export const approveSecretChange = (id: string, step_up: StepUp) =>
+  call<SecretChange>(`/operator/secrets/changes/${encodeURIComponent(id)}/approve`, post({ step_up }));
+export const rejectSecretChange = (id: string, reason?: string) =>
+  call<SecretChange>(`/operator/secrets/changes/${encodeURIComponent(id)}/reject`, post({ reason: reason || null }));
+export const testSecret = (name: string) =>
+  call<{ ok: boolean; message: string }>(`/operator/secrets/${encodeURIComponent(name)}/test`, { method: "POST" });
+
+export interface OperatorPasskey {
+  credential_id: string;
+  label: string | null;
+  created_at: string | null;
+  last_used_at: string | null;
+}
+
+export const useOperatorPasskeys = () => useSWR(["operator:passkeys"], () => call<{ passkeys: OperatorPasskey[] }>("/operator/passkeys"));
+
+export async function addOperatorPasskey(label: string): Promise<void> {
+  const { createPasskeyCredential } = await import("./webauthn");
+  const begun = await call<{ challenge_id: string; options: import("./webauthn").PublicKeyCredentialCreationOptionsJSON }>(
+    "/operator/passkeys/register", { method: "POST" });
+  const credential = await createPasskeyCredential(begun.options);
+  await call("/operator/passkeys/register/finish", post({ challenge_id: begun.challenge_id, credential, label }));
+}
+
+export const removeOperatorPasskey = (id: string, step_up: StepUp) =>
+  call(`/operator/passkeys/${encodeURIComponent(id)}/remove`, post({ step_up }));
+
 /** Whether a role may do something: support reads, admins act on banks, owners do everything. */
 export function can(role: OperatorRole | undefined, minimum: OperatorRole): boolean {
   const rank: Record<OperatorRole, number> = { support: 0, platform_admin: 1, platform_owner: 2 };
