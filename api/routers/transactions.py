@@ -14,10 +14,10 @@ from pydantic import BaseModel
 from agents.shield import assurance
 from agents.shield import stepup as stepup_service
 from core.db import cursor, loads, row_to_dict
-from core.tenancy import customer_scope, resolve_institution
+from core.tenancy import customer_guard
 from services.accounts import InsufficientFunds, assert_can_spend, debit
 
-router = APIRouter(prefix="/v1/transactions", tags=["transactions"], dependencies=[Depends(customer_scope)])
+router = APIRouter(prefix="/v1/transactions", tags=["transactions"], dependencies=[Depends(customer_guard)])
 
 # Outcomes a client may record. Kept explicit so a stray value can't overwrite
 # a transaction's status with something the rest of the app doesn't understand.
@@ -121,20 +121,23 @@ def approve(txid: str, payload: ApproveRequest, request: Request):
         if payload.stepup_token:
             stepup_service.consume_token(payload.stepup_token)
 
-    institution_id = resolve_institution(request, row.get("institution_id"))
+    institution_id = request.state.institution_id
 
-    # Funds are re-checked at approval time: the balance may have moved between
-    # scoring and the customer confirming.
-    try:
-        assert_can_spend(payload.user_id, row["amount"], institution_id)
-    except InsufficientFunds as exc:
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "insufficient_funds", "message": str(exc), "available": exc.available,
-                    "requested": exc.requested, "shortfall": exc.shortfall},
-        )
+    # Only the sandbox has a Fable ledger. A live bank moves the money itself,
+    # once this approval tells it the customer verified.
+    if request.state.mode != "live":
+        # Funds are re-checked at approval time: the balance may have moved
+        # between scoring and the customer confirming.
+        try:
+            assert_can_spend(payload.user_id, row["amount"], institution_id)
+        except InsufficientFunds as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "insufficient_funds", "message": str(exc), "available": exc.available,
+                        "requested": exc.requested, "shortfall": exc.shortfall},
+            )
 
-    debit(payload.user_id, row["amount"], institution_id, transaction_id=txid, reference=f"txn-approve:{txid}")
+        debit(payload.user_id, row["amount"], institution_id, transaction_id=txid, reference=f"txn-approve:{txid}")
 
     # Verified and sent: the customer proved it was them, so this transfer now
     # teaches the baseline (recipient, device, amount, hour) for next time.

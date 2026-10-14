@@ -2,12 +2,12 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from agents.copilot.baseline import log_transaction
 from agents.shield.analyzer import analyze_transaction_safe
 from agents.shield.explainer import generate_llm_explanation, llm_available
-from core.tenancy import require_role, resolve_institution
+from core.tenancy import customer_guard, require_role, scoring_guard
 from models.schemas import (
     FeedbackRequest,
     ShieldAnalyzeRequest,
@@ -53,7 +53,7 @@ def _upgrade_explanation(transaction_id: str, signals: list[str], amount: float,
         pass
 
 
-@router.post("/analyze", response_model=ShieldAnalyzeResponse)
+@router.post("/analyze", response_model=ShieldAnalyzeResponse, dependencies=[Depends(scoring_guard)])
 def analyze(payload: ShieldAnalyzeRequest, request: Request):
     start = time.perf_counter()
 
@@ -65,7 +65,11 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     if not device.get("ip") and request.client:
         device["ip"] = request.client.host
 
-    institution_id = resolve_institution(request, payload.institution_id)
+    # The bank comes from the caller's credential; the guard has already
+    # replaced the customer reference with this bank's customer id.
+    institution_id = request.state.institution_id
+    customer_ref = request.state.customer["external_ref"]
+    sandbox = request.state.mode != "live"
 
     # A replayed offline transfer must be recognised, not re-scored. Returning
     # the original decision keeps the customer's history and the console
@@ -76,8 +80,8 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         with cursor() as cur:
             cur.execute(
                 """SELECT id, risk_score, risk_level, action_taken, shield_signals
-                   FROM transactions WHERE client_reference = ?""",
-                (payload.client_reference,),
+                   FROM transactions WHERE institution_id = ? AND client_reference = ?""",
+                (institution_id, payload.client_reference),
             )
             existing = cur.fetchone()
         if existing:
@@ -99,19 +103,23 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     # declined-for-funds transfer is not a fraud signal — recording it as one
     # would teach Copilot that the customer's normal includes transfers they
     # never actually made.
-    try:
-        assert_can_spend(payload.user_id, transaction["amount"], institution_id)
-    except InsufficientFunds as exc:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "insufficient_funds",
-                "message": str(exc),
-                "available": exc.available,
-                "requested": exc.requested,
-                "shortfall": exc.shortfall,
-            },
-        )
+    #
+    # Only in the sandbox, where Fable keeps a simulated ledger. A live bank
+    # checks funds in its own core banking system before it asks for a score.
+    if sandbox:
+        try:
+            assert_can_spend(payload.user_id, transaction["amount"], institution_id)
+        except InsufficientFunds as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "insufficient_funds",
+                    "message": str(exc),
+                    "available": exc.available,
+                    "requested": exc.requested,
+                    "shortfall": exc.shortfall,
+                },
+            )
 
     result = analyze_transaction_safe(payload.user_id, transaction, device, context, institution_id)
 
@@ -167,6 +175,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
             {
                 "id": transaction_id,
                 "user_id": payload.user_id,
+                "customer_ref": customer_ref,
                 "amount": transaction.get("amount"),
                 "recipient_account": transaction.get("recipient_account"),
                 "recipient_bank": transaction.get("recipient_bank"),
@@ -193,7 +202,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     # A cleared transfer moves money now. Anything flagged or blocked does
     # not: it is either abandoned or routed into Ghost, and Ghost reserves
     # rather than debits so the funds stay recoverable.
-    if result["action"] == "PASS":
+    if result["action"] == "PASS" and sandbox:
         debit(
             payload.user_id, transaction["amount"], institution_id,
             transaction_id=transaction_id, reference=f"txn:{transaction_id}",
@@ -212,7 +221,8 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     )
 
 
-@router.get("/explanation/{transaction_id}", response_model=ShieldExplanationResponse)
+@router.get("/explanation/{transaction_id}", response_model=ShieldExplanationResponse,
+            dependencies=[Depends(customer_guard)])
 def explanation(transaction_id: str):
     """Collect the polished write-up for a decision already returned.
 

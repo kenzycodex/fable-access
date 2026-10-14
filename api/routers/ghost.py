@@ -8,17 +8,17 @@ from agents.ghost.account import (
     get_ghost_container,
     release_ghost,
 )
-from core.tenancy import customer_scope, disabled_agents, resolve_institution
+from core.tenancy import customer_guard, disabled_agents
 from models.schemas import GhostActionRequest, GhostCreateRequest
 from services import audit, notifications, webhooks
 
-router = APIRouter(prefix="/v1/ghost", tags=["ghost"], dependencies=[Depends(customer_scope)])
+router = APIRouter(prefix="/v1/ghost", tags=["ghost"], dependencies=[Depends(customer_guard)])
 
 
 @router.post("/create")
 def create(payload: GhostCreateRequest, request: Request, background: BackgroundTasks):
     transaction = payload.transaction.model_dump()
-    institution_id = resolve_institution(request, payload.institution_id)
+    institution_id = request.state.institution_id
 
     # An institution that has switched Ghost off gets no containment. Refusing
     # here is the honest behaviour: silently containing anyway would make the

@@ -10,9 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from agents.shield import assurance, stepup
-from core.tenancy import customer_scope
+from core.tenancy import customer_guard
 
-router = APIRouter(prefix="/v1/stepup", tags=["stepup"], dependencies=[Depends(customer_scope)])
+router = APIRouter(prefix="/v1/stepup", tags=["stepup"], dependencies=[Depends(customer_guard)])
 
 
 # ---------------------------------------------------------------------------

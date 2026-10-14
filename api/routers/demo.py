@@ -12,15 +12,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from agents.ghost.account import calculate_cooling_window
 from core import config
 from core.db import cursor, loads, row_to_dict
-from core.tenancy import customer_scope, resolve_institution
+from core.tenancy import caller_institution, customer_guard
 from core.utils import utcnow
 from models.schemas import DemoSeedRequest, InstitutionSeedRequest
 
 router = APIRouter(prefix="/v1/demo", tags=["demo"])
 
 
-@router.get("/overview/{user_id}", dependencies=[Depends(customer_scope)])
-def customer_overview(user_id: str, institution: Optional[str] = Query(None), limit: int = Query(60, ge=1, le=200)):
+@router.get("/overview/{user_id}", dependencies=[Depends(customer_guard)])
+def customer_overview(user_id: str, request: Request, limit: int = Query(60, ge=1, le=200)):
     """One round-trip for a customer's home screen: balance, recent transfers
     and the learned baseline together.
 
@@ -31,11 +31,11 @@ def customer_overview(user_id: str, institution: Optional[str] = Query(None), li
     from agents.copilot.transparency import get_transparency_data
     from services import accounts as ledger
 
-    where = "WHERE user_id = ?"
-    params: list = [user_id]
-    if institution:
-        where += " AND institution_id = ?"
-        params.append(institution)
+    institution = request.state.institution_id
+    if request.state.mode == "live":
+        raise HTTPException(status_code=409, detail="The sandbox app is switched off while the institution is live.")
+    where = "WHERE user_id = ? AND institution_id = ?"
+    params: list = [user_id, institution]
 
     with cursor() as cur:
         cur.execute(
@@ -154,7 +154,7 @@ def seed(payload: DemoSeedRequest, request: Request):
     # dashboard could select. Threats were separately defaulted to the platform
     # default tenant, so a seed for one bank's customer wrote history into
     # another bank's feed.
-    institution_id = resolve_institution(request, payload.institution_id)
+    institution_id = caller_institution(request)
 
     with cursor() as cur:
         # Scoped to seed rows. Without is_seed = 1 this deleted the customer's

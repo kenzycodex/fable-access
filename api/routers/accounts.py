@@ -5,20 +5,37 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from core import security
-from core.tenancy import customer_scope, resolve_institution
+from core.tenancy import customer_guard
 from services import accounts as ledger
 from services import audit
 
-router = APIRouter(prefix="/v1/accounts", tags=["accounts"], dependencies=[Depends(customer_scope)])
+router = APIRouter(prefix="/v1/accounts", tags=["accounts"], dependencies=[Depends(customer_guard)])
+
+
+def _sandbox_ledger(request: Request) -> str:
+    """The caller's bank, if its balances are Fable's simulated ledger.
+
+    In the sandbox Fable keeps a ledger so the test app has money to move. A
+    live bank keeps its customers' balances in its own core banking system, and
+    Fable never holds or moves funds, so these endpoints refuse a live bank.
+    """
+    if request.state.mode == "live":
+        raise HTTPException(
+            status_code=409,
+            detail="Balances are kept by the bank's own systems in live mode. Fable holds no funds.",
+        )
+    return request.state.institution_id
 
 
 @router.get("/{user_id}")
-def balance(user_id: str, institution: Optional[str] = None):
-    return {**ledger.get_balance(user_id, institution), "limits": ledger.limits()}
+def balance(user_id: str, request: Request):
+    institution_id = _sandbox_ledger(request)
+    return {**ledger.get_balance(user_id, institution_id), "limits": ledger.limits()}
 
 
 @router.get("/{user_id}/statement")
-def statement(user_id: str, limit: int = 50):
+def statement(user_id: str, request: Request, limit: int = 50):
+    _sandbox_ledger(request)
     return {"user_id": user_id, "entries": ledger.statement(user_id, limit)}
 
 
@@ -32,7 +49,7 @@ class TopUpRequest(BaseModel):
 
 @router.post("/{user_id}/topup")
 def topup(user_id: str, payload: TopUpRequest, request: Request):
-    institution_id = resolve_institution(request, payload.institution_id)
+    institution_id = _sandbox_ledger(request)
     try:
         result = ledger.top_up(
             user_id, payload.amount, institution_id, payload.method, payload.reference

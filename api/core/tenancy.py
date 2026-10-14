@@ -1,15 +1,21 @@
-"""Multi-tenant resolution.
+"""Which bank a request acts for, and what it may touch.
 
-Every write carries an institution: either explicitly (the demo bank sends the
-institution slug from its URL) or via the API key a provisioned institution was
-issued (`Authorization: Bearer fbl_live_...` / `X-API-Key`), which is how a
-real bank integrates. The key wins when both are present — it's authenticated,
-the slug is only asserted.
+A bank is identified by a credential and nothing else:
 
-Reads take the institution from the logged-in dashboard session and filter on
-it, so one tenant can never see another's transactions.
+  * its API key (`Authorization: Bearer fbl_live_...` or `X-API-Key`), which
+    is how its own servers integrate; or
+  * a console session, signed by Fable, naming the bank and the member.
+
+A bank named in a URL, query string or request body is never trusted. There is
+no default bank and no fallback: a request without a credential is refused.
+Every customer, hold and transaction is then checked against the caller's bank,
+and anything that belongs to another bank is reported as not found.
+
+This follows the access-enforcement and least-privilege controls of the CBN's
+risk-based cybersecurity framework, and keeps each bank's data separate as a
+processor must under the NDPA.
 """
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 from core.db import cursor, row_to_dict, slugify_institution
 
@@ -38,90 +44,9 @@ def extract_api_key(request) -> str | None:
     return request.headers.get("x-api-key")
 
 
-def resolve_institution(request, claimed: str | None = None) -> str:
-    """The institution a write belongs to.
-
-    Precedence: authenticated API key > slug claimed by the client > the only
-    institution, when there is exactly one. An unknown claimed slug never
-    creates a phantom tenant, so a typo in the URL can't silently fork the data.
-    """
-    from_key = institution_from_api_key(extract_api_key(request))
-    if from_key:
-        return from_key
-    claimed = canonical_institution(claimed)
-    if claimed and institution_exists(claimed):
-        # A live institution's traffic is real money. Naming it is not enough
-        # to write to it: the caller must hold its key. Sandbox institutions,
-        # including every demo bank, stay open so the public demo keeps working.
-        if institution_mode(claimed) == "live":
-            from fastapi import HTTPException
-
-            raise HTTPException(
-                status_code=401,
-                detail="This institution is live. Present its API key to send transactions.",
-            )
-        return claimed
-    return _fallback_institution()
-
-
-def _fallback_institution() -> str:
-    """The tenant for a request that names none: the only institution, if there
-    is exactly one.
-
-    There used to be a default tenant ('meridian') to fall back on. Writes
-    tagged with it after that bank was removed belonged to nobody, and with
-    several banks any guess hands one bank's data to another. So with none or
-    several, the request is refused and the caller is told to identify itself.
-    """
-    from fastapi import HTTPException
-
-    with cursor() as cur:
-        cur.execute("SELECT institution_id FROM institutions ORDER BY created_at ASC LIMIT 2")
-        rows = cur.fetchall()
-    if len(rows) == 1:
-        return rows[0]["institution_id"]
-    if not rows:
-        raise HTTPException(status_code=409, detail="No institution has been provisioned yet.")
-    raise HTTPException(
-        status_code=400,
-        detail="Say which institution this is for: send its API key, or name it.",
-    )
-
-
-def tenant_for_read(request, claimed: str | None = None) -> str:
-    """The institution a dashboard read is allowed to see.
-
-    Every console read used to take its tenant from an `institution` query
-    parameter bound to no identity at all, so `?institution=<other_bank>`
-    returned their data, and omitting the parameter aggregated *every* tenant.
-
-    Precedence, strongest first:
-
-      1. A verified session token. The console presents one on every call, and
-         the institution inside it is signed, so it cannot be edited.
-      2. A provisioned API key, which is how an integrating bank authenticates.
-      3. The claimed slug, only while no credential is present at all.
-
-    Step 3 is a deliberate, temporary allowance so the demo bank keeps working
-    while the console migrates; it disappears with the query parameter itself.
-    A caller that presents a credential can never widen its scope by also
-    passing a slug.
-    """
-    from core import sessions
-
-    try:
-        return sessions.verify(sessions.extract_token(request))["inst"]
-    except sessions.SessionError:
-        pass
-
-    from_key = institution_from_api_key(extract_api_key(request))
-    if from_key:
-        return from_key
-
-    claimed = canonical_institution(claimed)
-    if claimed and institution_exists(claimed):
-        return claimed
-    return _fallback_institution()
+def caller_institution(request) -> str:
+    """The bank this request acts for, from its credential. 401 without one."""
+    return console_identity(request)["inst"]
 
 
 def tenant_for_console(request) -> str:
@@ -184,17 +109,17 @@ def console_identity(request) -> dict:
                 raise HTTPException(status_code=401, detail="This account no longer has console access.")
             if int(payload.get("sv", 0) or 0) != int(row["sv"]):
                 raise HTTPException(status_code=401, detail="Your password was changed, so this session ended. Sign in again.")
-            return {
+            return _active({
                 "inst": payload["inst"],
                 "email": payload.get("sub"),
                 "name": row["name"],
                 "role": row["role"] or "owner",
-            }
-        return {"inst": payload["inst"], "email": payload.get("sub"), "name": None, "role": "owner"}
+            })
+        return _active({"inst": payload["inst"], "email": payload.get("sub"), "name": None, "role": "owner"})
 
     from_key = institution_from_api_key(extract_api_key(request))
     if from_key:
-        return {"inst": from_key, "email": "api-key", "name": "API key", "role": "service"}
+        return _active({"inst": from_key, "email": "api-key", "name": "API key", "role": "service"})
 
     raise HTTPException(
         status_code=401,
@@ -218,52 +143,139 @@ def require_role(request, minimum: str) -> dict:
     return who
 
 
-def _subject_institution(request, body: dict) -> str | None:
-    """Which institution a customer-facing request is about, from what it names."""
-    params = request.path_params
-    with cursor() as cur:
-        if params.get("ghost_id"):
-            cur.execute("SELECT institution_id FROM ghost_containers WHERE ghost_id = ?", (params["ghost_id"],))
-            row = cur.fetchone()
-            return row["institution_id"] if row else None
-        if params.get("txid"):
-            cur.execute("SELECT institution_id FROM transactions WHERE id = ?", (params["txid"],))
-            row = cur.fetchone()
-            return row["institution_id"] if row else None
-    user_id = params.get("user_id") or (body.get("user_id") if isinstance(body, dict) else None)
-    if not user_id:
-        return None
-    from services import audit
-
-    return audit._institution_of(str(user_id))
-
-
-async def customer_scope(request: Request) -> None:
-    """Guard for the customer-facing API (balances, verification, holds, approvals).
-
-    A live institution's traffic is real customers' money, so a request about one
-    of its customers must carry that institution's API key, sent from the bank's
-    own servers. Without this, live mode protected scoring but left every other
-    customer endpoint open to anyone who knew a customer id. Sandbox institutions,
-    including every demo bank, are unaffected.
-    """
-    from fastapi import HTTPException
-
-    body: dict = {}
-    if request.method in ("POST", "PUT", "PATCH") and "json" in request.headers.get("content-type", ""):
-        try:
-            body = await request.json()  # Starlette caches it; the route still reads it normally
-        except Exception:  # noqa: BLE001 - a malformed body is the route's error to report
-            body = {}
-
-    institution = _subject_institution(request, body)
-    if not institution or institution_mode(institution) != "live":
-        return
-    if institution_from_api_key(extract_api_key(request)) != institution:
+def _active(identity: dict) -> dict:
+    """The identity, unless its bank has been suspended by a Fable operator."""
+    if institution_status(identity["inst"]) == "suspended":
         raise HTTPException(
-            status_code=401,
-            detail="This institution is live. Requests about its customers must carry its API key.",
+            status_code=403,
+            detail="This institution's access is suspended. Contact Fable support.",
         )
+    return identity
+
+
+def institution_status(institution_id: str | None) -> str:
+    """'active' or 'suspended'."""
+    if not institution_id:
+        return "active"
+    try:
+        with cursor() as cur:
+            cur.execute("SELECT status FROM institutions WHERE institution_id = ?", (institution_id,))
+            row = cur.fetchone()
+        return (row["status"] if row and row["status"] else "active").lower()
+    except Exception:  # noqa: BLE001 - a database without the column yet
+        return "active"
+
+
+def _not_found(what: str) -> HTTPException:
+    return HTTPException(status_code=404, detail=f"{what} not found.")
+
+
+def _record_cross_bank(institution_id: str, target: str, kind: str) -> None:
+    """Note an attempt to reach another bank's record, without saying whose."""
+    try:
+        from services import audit
+
+        audit.record(audit.ACCESS_DENIED, None, institution_id=institution_id, target_kind=kind, target=target)
+    except Exception:  # noqa: BLE001 - auditing must never change the response
+        pass
+
+
+def _owned(table: str, key_column: str, value: str, institution_id: str, what: str) -> None:
+    """404 unless the row exists and belongs to this bank."""
+    with cursor() as cur:
+        cur.execute(f"SELECT institution_id FROM {table} WHERE {key_column} = ?", (value,))
+        row = cur.fetchone()
+    if not row:
+        raise _not_found(what)
+    if row["institution_id"] != institution_id:
+        _record_cross_bank(institution_id, value, what.lower())
+        raise _not_found(what)
+
+
+async def _json_body(request: Request) -> dict:
+    if request.method not in ("POST", "PUT", "PATCH"):
+        return {}
+    if "json" not in request.headers.get("content-type", ""):
+        return {}
+    try:
+        body = await request.json()  # Starlette caches it; the route reads the same object
+    except Exception:  # noqa: BLE001 - a malformed body is the route's error to report
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+async def _guard(request: Request, create: bool) -> None:
+    from core import customers
+
+    who = console_identity(request)
+    institution_id = who["inst"]
+    mode = institution_mode(institution_id)
+
+    # A live bank's customers are real people with real money. Requests about
+    # them come from the bank's own servers with its key; a console member's
+    # browser session is for working cases, not for moving customers' money.
+    if mode == "live" and who["role"] != "service":
+        raise HTTPException(
+            status_code=403,
+            detail="This institution is live. Customer requests must come from its servers, with its API key.",
+        )
+
+    params = request.scope.setdefault("path_params", {})
+    body = await _json_body(request)
+
+    if params.get("ghost_id"):
+        _owned("ghost_containers", "ghost_id", params["ghost_id"], institution_id, "Hold")
+    for key in ("txid", "transaction_id"):
+        if params.get(key):
+            _owned("transactions", "id", params[key], institution_id, "Transaction")
+
+    ref = params.get("user_id") or body.get("user_id")
+    if ref:
+        ref = str(ref)
+        customer = customers.get(institution_id, ref)
+        if not customer and create:
+            try:
+                customer = customers.ensure(
+                    institution_id, ref,
+                    kind="real" if mode == "live" else "test",
+                    source="api",
+                )
+            except customers.CustomerError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if not customer:
+            if customers.exists_elsewhere(institution_id, ref):
+                _record_cross_bank(institution_id, ref, "customer")
+            raise _not_found("Customer")
+        # From here on the route works with Fable's id for this bank's
+        # customer, whichever form the caller used. Path parameters and the JSON
+        # body are both rewritten, because routes read the customer from either.
+        if params.get("user_id"):
+            params["user_id"] = customer["id"]
+        if body.get("user_id"):
+            body["user_id"] = customer["id"]
+        request.state.customer = customer
+
+    # Any institution named in the body is replaced by the caller's own, so a
+    # route that still reads it can only ever see the right bank.
+    if "institution_id" in body:
+        body["institution_id"] = institution_id
+
+    request.state.institution_id = institution_id
+    request.state.mode = mode
+    request.state.caller = who
+
+
+async def customer_guard(request: Request) -> None:
+    """Guard for every customer-facing endpoint (balances, verification, holds,
+    approvals, notifications). The customer, hold or transaction must belong to
+    the caller's bank; anything else is not found."""
+    await _guard(request, create=False)
+
+
+async def scoring_guard(request: Request) -> None:
+    """As customer_guard, but a reference the bank has not used before enrols a
+    new customer: scoring a transfer is how live traffic introduces customers."""
+    await _guard(request, create=True)
 
 
 def institution_mode(institution_id: str | None) -> str:

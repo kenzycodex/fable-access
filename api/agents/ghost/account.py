@@ -244,14 +244,20 @@ def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) 
         current = (get_ghost_container(ghost_id) or {}).get("status")
         raise ValueError(f"Container already resolved: {current}")
 
-    # The reservation becomes a real debit. Until this moment the money was
-    # held but never taken, which is what made cancelling able to return it.
-    from services.accounts import debit
+    # In the sandbox the reservation becomes a real debit on Fable's simulated
+    # ledger. Until this moment the money was held but never taken, which is
+    # what made cancelling able to return it. A live bank keeps the money in
+    # its own systems: the release tells it to submit the transfer, and Fable
+    # moves nothing.
+    from core.tenancy import institution_mode
 
-    debit(
-        user_id, container["amount"], container.get("institution_id"),
-        transaction_id=ghost_id, reference=f"ghost-release:{ghost_id}",
-    )
+    if institution_mode(container.get("institution_id")) != "live":
+        from services.accounts import debit
+
+        debit(
+            user_id, container["amount"], container.get("institution_id"),
+            transaction_id=ghost_id, reference=f"ghost-release:{ghost_id}",
+        )
 
     from services import audit
     audit.record(audit.CONTAINMENT_RELEASED, user_id, ghost_id=ghost_id,

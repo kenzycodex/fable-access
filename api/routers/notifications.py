@@ -11,10 +11,10 @@ That is the honest behaviour.
 """
 from fastapi import APIRouter, Depends
 
-from core.tenancy import customer_scope
+from core.tenancy import customer_guard
 from services import notifications as notify
 
-router = APIRouter(prefix="/v1/notifications", tags=["notifications"], dependencies=[Depends(customer_scope)])
+router = APIRouter(prefix="/v1/notifications", tags=["notifications"], dependencies=[Depends(customer_guard)])
 
 
 @router.get("/{user_id}")

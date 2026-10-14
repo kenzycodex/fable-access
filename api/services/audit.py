@@ -48,6 +48,10 @@ KEY_ROTATED = "apikey.rotated"
 WEBHOOK_CREATED = "webhook.created"
 WEBHOOK_DELETED = "webhook.deleted"
 MODE_CHANGED = "institution.mode_changed"
+ACCESS_DENIED = "security.access_denied"
+CUSTOMER_CREATED = "customer.created"
+CUSTOMER_UPDATED = "customer.updated"
+IMPORT_APPLIED = "import.applied"
 
 
 def _institution_of(user_id: str | None) -> str | None:
@@ -61,6 +65,10 @@ def _institution_of(user_id: str | None) -> str | None:
         return None
     try:
         with cursor() as cur:
+            cur.execute("SELECT institution_id FROM customers WHERE id = ?", (user_id,))
+            row = cur.fetchone()
+            if row and row["institution_id"]:
+                return row["institution_id"]
             for table in ("accounts", "user_security", "fable_users", "transactions"):
                 cur.execute(
                     f"SELECT institution_id FROM {table} WHERE user_id = ? AND institution_id IS NOT NULL LIMIT 1",
