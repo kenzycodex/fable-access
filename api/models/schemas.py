@@ -152,18 +152,3 @@ class FeedbackRequest(BaseModel):
     user_id: str
     transaction_id: str
     was_fraud: bool
-
-
-class DemoSeedRequest(BaseModel):
-    user_id: str
-    days: int = 90
-    # Which tenant this history belongs to. Was hardcoded to a phantom
-    # institution id, orphaning everything seeded through this endpoint.
-    institution_id: Optional[str] = None
-
-
-class InstitutionSeedRequest(BaseModel):
-    institution_id: str
-    days: int = 90
-    # How many demo archetypes to seed. Defaults to FABLE_DEMO_CUSTOMERS.
-    customers: Optional[int] = None
