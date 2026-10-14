@@ -654,7 +654,7 @@ export type AssistantTurn = { role: "user" | "assistant"; content: string };
 /** What the answer stream can say: a piece of text, the end, or a failure. */
 export type AssistantEvent =
   | { type: "delta"; text: string }
-  | { type: "done"; engine: string; suggestions: string[] }
+  | { type: "done"; engine: string; suggestions: string[]; notice?: string | null }
   | { type: "error"; message: string };
 
 /**

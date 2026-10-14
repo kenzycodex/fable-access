@@ -26,6 +26,8 @@ interface Turn {
   content: string;
   status?: "streaming" | "done" | "stopped" | "error";
   engine?: string;
+  /** Why the answer came from the figures alone, when a limit was the reason. */
+  notice?: string | null;
   /** Follow-ups the server drew from this institution's own figures. */
   suggestions?: string[];
 }
@@ -175,7 +177,7 @@ export function AskFable() {
         await streamAssistant({ message, history, shown }, (event) => {
           if (event.type === "delta") patch((t) => ({ ...t, content: t.content + event.text }));
           else if (event.type === "done") {
-            patch((t) => ({ ...t, status: "done", engine: event.engine, suggestions: event.suggestions }));
+            patch((t) => ({ ...t, status: "done", engine: event.engine, notice: event.notice, suggestions: event.suggestions }));
             setShown((prev) => [...prev, ...event.suggestions]);
           } else patch((t) => ({ ...t, status: "error", content: t.content || event.message }));
         }, controller.signal);
@@ -417,6 +419,9 @@ function Answer({ turn, latest, onRetry, onAsk }: { turn: Turn; latest: boolean;
           </span>
         )}
         {turn.status === "stopped" && <p className="mt-1.5 text-[11px] italic text-d-muted">Stopped</p>}
+        {turn.notice && !streaming && (
+          <p className="mt-2 border-t border-d-border pt-2 text-[11px] leading-relaxed text-d-muted">{turn.notice}</p>
+        )}
       </div>
 
       {!streaming && turn.content && (
