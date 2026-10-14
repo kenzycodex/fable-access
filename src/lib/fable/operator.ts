@@ -251,14 +251,60 @@ export const removeOperator = (email: string) =>
 
 export interface PlatformEvent {
   id: number;
+  user_id?: string | null;
   institution_id: string | null;
   event_type: string;
   payload: Record<string, unknown>;
   created_at: string;
+  actor?: string;
 }
 
+export type AuditScope = "operators" | "all" | "security";
+
+export interface AuditQuery {
+  scope: AuditScope;
+  institution?: string;
+  type?: string;
+  q?: string;
+  since?: string;
+}
+
+export interface AuditPage {
+  events: PlatformEvent[];
+  next_before: number | null;
+  types: { event_type: string; n: number }[];
+}
+
+function auditParams(query: AuditQuery, extra: Record<string, string | number | undefined> = {}): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries({ ...query, ...extra })) if (v !== undefined && v !== "") p.set(k, String(v));
+  return p.toString();
+}
+
+export const fetchAuditPage = (query: AuditQuery, before?: number) =>
+  call<AuditPage>(`/operator/audit?${auditParams(query, { before, limit: 50 })}`);
+
+/** The first page of a view; later pages are fetched with fetchAuditPage. */
+export const useAuditPage = (query: AuditQuery) =>
+  useSWR(["operator:audit", JSON.stringify(query)], () => fetchAuditPage(query), { keepPreviousData: true });
+
+/** Recent operator actions (the overview's feed). */
 export const usePlatformAudit = () =>
-  useSWR(["operator:audit"], () => call<{ events: PlatformEvent[] }>("/operator/audit?limit=200"));
+  useSWR(["operator:audit:recent"], () => call<AuditPage>("/operator/audit?scope=operators&limit=50"));
+
+export async function downloadAuditCsv(query: AuditQuery): Promise<void> {
+  const session = cached ?? readSession();
+  const res = await fetch(`${API_BASE}/operator/audit/export.csv?${auditParams(query)}`, {
+    headers: session ? { "X-Fable-Operator": session.token } : {},
+  });
+  if (!res.ok) throw new OperatorError(`Export failed (${res.status}).`, res.status);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `fable-audit-${query.scope}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 // ── Overview ─────────────────────────────────────────────────────────────────
 
@@ -273,6 +319,17 @@ export interface PlatformOverview {
   attention: { institution_id: string; name: string; reason: string; setup_done: number; setup_total: number }[];
   recent_events: PlatformEvent[];
   assistant: { today: UsageTotals; week: UsageTotals };
+  security: { access_denied_24h: number; access_denied_7d: number };
+  newest: {
+    institution_id: string;
+    name: string;
+    created_at: string | null;
+    setup_done: number;
+    setup_total: number;
+    mode: "sandbox" | "live";
+    status: "active" | "suspended";
+    ready_to_go_live: boolean;
+  }[];
 }
 
 export const usePlatformOverview = () =>
