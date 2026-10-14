@@ -682,3 +682,30 @@ html:has([data-surface="app"]) {
     margin: 14mm;
   }
 }
+
+/* Ask Fable answers: short Markdown prose. */
+.ask-md > * + * {
+  margin-top: 0.5rem;
+}
+.ask-md ul,
+.ask-md ol {
+  padding-left: 1.1rem;
+}
+.ask-md ul {
+  list-style: disc;
+}
+.ask-md ol {
+  list-style: decimal;
+}
+.ask-md li + li {
+  margin-top: 0.2rem;
+}
+.ask-md strong {
+  font-weight: 650;
+}
+.ask-md code {
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  padding: 0 0.25rem;
+  font-size: 0.92em;
+}
