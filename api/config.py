@@ -119,9 +119,12 @@ OTP_MAX_ATTEMPTS = _env_int("FABLE_OTP_MAX_ATTEMPTS", 5)
 # rather than faking a face match.
 KYC_PROVIDER_URL = os.getenv("KYC_PROVIDER_URL", "")
 
-# Google Geocoding, for naming the street and house number at a device's GPS
-# fix. Optional: without it the browser falls back to OpenStreetMap.
+# Street addresses for a device's GPS fix. All optional: OpenStreetMap needs no
+# key and is always the last resort. Google needs billing on its project;
+# LocationIQ and Geoapify have free tiers with no card (show their link).
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "").strip()
+LOCATIONIQ_API_KEY = os.getenv("LOCATIONIQ_API_KEY", "").strip()
+GEOAPIFY_API_KEY = os.getenv("GEOAPIFY_API_KEY", "").strip()
 
 # --- Top-up guards ---
 # Add Money writes to the same database the institution's fraud metrics are

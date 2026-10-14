@@ -1,7 +1,7 @@
 """Name the place at a device's coordinates.
 
 The browser reads the coordinates from the phone's own location service and
-asks here for the address, so the Google key never leaves the server.
+asks here for the address, so provider keys never leave the server.
 """
 from fastapi import APIRouter, HTTPException, Query
 
@@ -15,14 +15,11 @@ def reverse(
     lat: float = Query(..., ge=-90, le=90),
     lon: float = Query(..., ge=-180, le=180),
 ):
-    """Street address for a coordinate pair.
+    """Nearest street, area, landmark and Plus Code for a coordinate pair.
 
-    503 when no Google key is configured, 404 when Google has no address there.
-    Either way the client falls back to OpenStreetMap, so the transfer screen
-    still shows a place.
+    404 when no map service could name the place; the client then shows the
+    city it already has.
     """
-    if not geocoding.available():
-        raise HTTPException(status_code=503, detail="Address lookup is not configured.")
     place = geocoding.reverse(lat, lon)
     if not place:
         raise HTTPException(status_code=404, detail="No address found at this location.")
