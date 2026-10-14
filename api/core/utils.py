@@ -1,4 +1,7 @@
-"""Admin password hashing.
+"""Password hashing (console members and operators).
+
+Argon2id now (see below). The history is kept because it explains the
+fallbacks still accepted when verifying.
 
 Previously a single round of SHA-256 with a salt, compared with `==`. Two
 problems, and the second is the one that stings:
@@ -37,23 +40,44 @@ def utcnow() -> datetime:
 PBKDF2_ROUNDS = 200_000
 _ALGO = "pbkdf2_sha256"
 
+# Argon2id with OWASP's minimum recommended cost (19 MiB, 2 passes, 1 lane).
+# Memory-hard, which is what makes GPU and ASIC guessing expensive; PBKDF2 is
+# only slow. The parameters are embedded in each hash, so raising them later
+# just makes check_needs_rehash() true and old hashes upgrade at next sign-in.
+_argon2 = None
+
+
+def _hasher():
+    global _argon2
+    if _argon2 is None:
+        from argon2 import PasswordHasher
+
+        _argon2 = PasswordHasher(time_cost=2, memory_cost=19 * 1024, parallelism=1)
+    return _argon2
+
 
 def hash_password(password: str) -> str:
-    """`pbkdf2_sha256$rounds$salt$hash`."""
-    salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PBKDF2_ROUNDS).hex()
-    return f"{_ALGO}${PBKDF2_ROUNDS}${salt}${digest}"
+    """An Argon2id hash: `$argon2id$v=19$m=19456,t=2,p=1$...`."""
+    return _hasher().hash(password)
 
 
 def verify_password(password: str, stored_hash: str) -> bool:
-    """Verify against either the current format or the legacy one.
+    """Verify against Argon2id, PBKDF2 or the legacy salted SHA-256.
 
-    Constant-time in both branches. Returns False rather than raising on a
+    Constant-time in every branch. Returns False rather than raising on a
     malformed stored value, because a corrupt row should fail the login, not
     the request.
     """
     if not stored_hash:
         return False
+
+    if stored_hash.startswith("$argon2"):
+        from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
+
+        try:
+            return _hasher().verify(stored_hash, password)
+        except (VerifyMismatchError, VerificationError, InvalidHashError):
+            return False
 
     if stored_hash.startswith(_ALGO + "$"):
         try:
@@ -76,5 +100,10 @@ def verify_password(password: str, stored_hash: str) -> bool:
 
 
 def needs_rehash(stored_hash: str) -> bool:
-    """True when a stored hash predates the current algorithm."""
-    return not (stored_hash or "").startswith(_ALGO + "$")
+    """True when a stored hash is not Argon2id at today's parameters."""
+    if not (stored_hash or "").startswith("$argon2id$"):
+        return True
+    try:
+        return _hasher().check_needs_rehash(stored_hash)
+    except Exception:  # noqa: BLE001 - an unreadable hash should be replaced
+        return True
