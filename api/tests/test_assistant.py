@@ -27,9 +27,8 @@ def client():
     from core.tenancy import register_institution
     from main import app
 
-    # No model in tests: every answer comes from the figures alone.
-    assistant._openai_client = None
-    assistant._anthropic_client = None
+    # No model in tests (conftest blanks every provider key): every answer
+    # comes from the figures alone unless a test stubs a provider.
     seed_bank(BANK)
     seed_bank(OTHER, keys=("ada",))
     register_institution(EMPTY, "Empty Bank", f"risk@{EMPTY}.ng")

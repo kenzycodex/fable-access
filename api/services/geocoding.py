@@ -34,7 +34,7 @@ import urllib.parse
 import urllib.request
 from collections import OrderedDict
 
-from core import config
+from core import config, secrets
 
 logger = logging.getLogger("fable.geocoding")
 
@@ -208,7 +208,7 @@ def parse_google(body: dict) -> dict | None:
 
 
 def _google(lat: float, lon: float) -> dict | None:
-    key = config.GOOGLE_MAPS_API_KEY
+    key = secrets.get("GOOGLE_MAPS_API_KEY")
     if not key or _skip("google"):
         return None
     q = urllib.parse.urlencode({"latlng": f"{lat},{lon}", "key": key, "language": "en"})
@@ -222,7 +222,7 @@ def _google(lat: float, lon: float) -> dict | None:
 
 
 def _locationiq(lat: float, lon: float) -> dict | None:
-    key = config.LOCATIONIQ_API_KEY
+    key = secrets.get("LOCATIONIQ_API_KEY")
     if not key or _skip("locationiq"):
         return None
     q = urllib.parse.urlencode({
@@ -239,7 +239,7 @@ def _locationiq(lat: float, lon: float) -> dict | None:
 
 
 def _geoapify(lat: float, lon: float) -> dict | None:
-    key = config.GEOAPIFY_API_KEY
+    key = secrets.get("GEOAPIFY_API_KEY")
     if not key or _skip("geoapify"):
         return None
     q = urllib.parse.urlencode({"lat": lat, "lon": lon, "apiKey": key, "format": "json", "lang": "en"})

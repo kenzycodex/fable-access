@@ -43,9 +43,10 @@ NOMINATIM_CAMPUS = {
 
 
 def _reset(monkeypatch, google="", locationiq="", geoapify=""):
-    monkeypatch.setattr(config, "GOOGLE_MAPS_API_KEY", google)
-    monkeypatch.setattr(config, "LOCATIONIQ_API_KEY", locationiq)
-    monkeypatch.setattr(config, "GEOAPIFY_API_KEY", geoapify)
+    # Keys are read through core/secrets, where the server environment wins.
+    monkeypatch.setenv("GOOGLE_MAPS_API_KEY", google)
+    monkeypatch.setenv("LOCATIONIQ_API_KEY", locationiq)
+    monkeypatch.setenv("GEOAPIFY_API_KEY", geoapify)
     monkeypatch.setattr(geocoding, "_nominatim_last", 0.0)
     geocoding._cache.clear()
     geocoding._disabled_until.clear()

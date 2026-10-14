@@ -32,7 +32,7 @@ from dataclasses import dataclass
 
 from agents.copilot import assistant_facts as facts_mod
 from agents.copilot.assistant_topics import OUT_OF_SCOPE_REPLY, deterministic, starters, suggest
-from core.config import ANTHROPIC_API_KEY, ANTHROPIC_MODEL, OPENAI_API_KEY, OPENAI_MODEL
+from core import ai_clients
 
 MAX_MESSAGE_CHARS = 1_000
 MAX_HISTORY_TURNS = 8
@@ -66,23 +66,8 @@ ANSWERING:
 - Format with Markdown: **bold** for the key figures, a short bulleted list when comparing three or more
   things. No headings, no tables, no links. Don't repeat the question back."""
 
-_openai_client = None
-if OPENAI_API_KEY:
-    try:
-        from openai import OpenAI
-
-        _openai_client = OpenAI(api_key=OPENAI_API_KEY, timeout=30)
-    except Exception:  # noqa: BLE001 - a missing SDK falls through to the next provider
-        _openai_client = None
-
-_anthropic_client = None
-if ANTHROPIC_API_KEY:
-    try:
-        import anthropic
-
-        _anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=30)
-    except Exception:  # noqa: BLE001
-        _anthropic_client = None
+# Clients come from core/ai_clients, built from the key in force, so a key
+# rotated in the operator console takes effect without a restart.
 
 
 @dataclass
@@ -228,11 +213,12 @@ def opening_questions(institution_id: str | None, page: str | None) -> list[str]
 
 
 def _openai_stream(system: str, history: list[dict], message: str, max_tokens: int, usage: dict) -> Iterator[str]:
-    if not _openai_client:
+    client = ai_clients.openai(30)
+    if not client:
         return
     messages = [{"role": "system", "content": system}, *history, {"role": "user", "content": message}]
-    resp = _openai_client.chat.completions.create(
-        model=OPENAI_MODEL, temperature=0.3, max_tokens=max_tokens, messages=messages, stream=True,
+    resp = client.chat.completions.create(
+        model=ai_clients.openai_model(), temperature=0.3, max_tokens=max_tokens, messages=messages, stream=True,
         stream_options={"include_usage": True},
     )
     for chunk in resp:
@@ -244,10 +230,11 @@ def _openai_stream(system: str, history: list[dict], message: str, max_tokens: i
 
 
 def _anthropic_stream(system: str, history: list[dict], message: str, max_tokens: int, usage: dict) -> Iterator[str]:
-    if not _anthropic_client:
+    client = ai_clients.anthropic(30)
+    if not client:
         return
-    with _anthropic_client.messages.stream(
-        model=ANTHROPIC_MODEL,
+    with client.messages.stream(
+        model=ai_clients.anthropic_model(),
         max_tokens=max_tokens,
         system=system,
         messages=[*history, {"role": "user", "content": message}],

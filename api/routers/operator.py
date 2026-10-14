@@ -384,6 +384,7 @@ def institution_assistant(institution_id: str, body: AssistantOverride, request:
 @router.get("/assistant")
 def assistant_settings(request: Request, days: int = Query(30, ge=1, le=90)):
     """Ask Fable's limits, which AI providers are configured, and usage."""
+    from core import secrets as vault
     from services import assistant_controls as controls
 
     operators.require(request, "support")
@@ -391,8 +392,8 @@ def assistant_settings(request: Request, days: int = Query(30, ge=1, le=90)):
         "settings": controls.settings(),
         "fields": {k: {"default": d, "min": lo, "max": hi, "help": h} for k, (d, lo, hi, h) in controls.SETTINGS.items()},
         "providers": {
-            "openai": {"configured": bool(config.OPENAI_API_KEY), "model": config.OPENAI_MODEL},
-            "anthropic": {"configured": bool(config.ANTHROPIC_API_KEY), "model": config.ANTHROPIC_MODEL},
+            "openai": {"configured": bool(vault.get("OPENAI_API_KEY")), "model": vault.get("OPENAI_MODEL")},
+            "anthropic": {"configured": bool(vault.get("ANTHROPIC_API_KEY")), "model": vault.get("ANTHROPIC_MODEL")},
         },
         "usage": controls.usage(days),
     }
