@@ -33,6 +33,11 @@ export interface Recipient {
   accountNumber: string;
   /** True when this account is already in the user's trusted list. */
   known: boolean;
+  /** A saved recipient from the server: the token stands in for the account
+   * number, which the browser never holds. */
+  token?: string;
+  /** "••1234", for display when only the token is known. */
+  last4?: string;
 }
 
 /** The raw input to the scoring engine. */
@@ -73,6 +78,8 @@ export interface Transaction extends ScoreResult {
   recipientName: string;
   recipientBank: string;
   recipientAccount: string;
+  /** Set when the transfer went to a saved recipient. */
+  recipientToken?: string;
   /** The account holder who initiated it (for the institution feed). */
   customerName: string;
   /** The account holder's id. Live transfers persist per-institution, so this

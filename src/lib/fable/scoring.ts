@@ -199,9 +199,13 @@ export function scoreTransaction(input: TransactionInput, userId?: string | null
 
   // 2 — New recipient. Prefers the cached list over the caller's own claim,
   //     since the client should not be the authority on who it has paid.
-  const known = baseline
-    ? baseline.knownRecipients.includes(recipient.accountNumber)
-    : recipient.known;
+  // A saved-recipient token is issued by the server from this customer's own
+  // completed transfers, so it is known by construction.
+  const known = recipient.token
+    ? true
+    : baseline
+      ? baseline.knownRecipients.includes(recipient.accountNumber)
+      : recipient.known;
   if (!known) {
     const weight = 0.14;
     signals.push({

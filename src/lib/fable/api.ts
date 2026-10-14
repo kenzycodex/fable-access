@@ -70,6 +70,22 @@ export async function sandboxCustomers(): Promise<{ institution_id: string; cust
   return (await res.json()) as { institution_id: string; customers: SandboxCustomer[] };
 }
 
+/** Someone a sandbox customer has sent money to before. The account number
+ * stays on the server; `token` stands in for it on a transfer. */
+export interface SavedRecipient {
+  token: string;
+  name: string;
+  bank: string | null;
+  account_last4: string;
+  times: number;
+  last_sent: string | null;
+}
+
+/** GET /v1/sandbox/recipients/{user_id}: the customer's saved recipients. */
+export function sandboxRecipients(userId: string) {
+  return fetchJson<{ recipients: SavedRecipient[] }>(`/v1/sandbox/recipients/${encodeURIComponent(userId)}`);
+}
+
 /** A bank's customer as its console sees it. */
 export interface BankCustomer {
   id: string;
@@ -299,7 +315,8 @@ export async function shieldAnalyze(
         // The account holder exactly as resolved. recipient_id is a lowercased
         // slug, so deriving display from it lost the real NUBAN name.
         recipient_name: input.recipient.name,
-        recipient_account: input.recipient.accountNumber,
+        recipient_account: input.recipient.token ? "" : input.recipient.accountNumber,
+        recipient_token: input.recipient.token ?? null,
         recipient_bank: input.recipient.bank,
         recipient_bank_code: input.recipient.bankCode,
         narration: input.narration,
@@ -453,7 +470,8 @@ export async function ghostCreate(txn: Transaction): Promise<{ id: string; expir
         amount: txn.amount,
         recipient_id: txn.recipientName.toLowerCase(),
         recipient_name: txn.recipientName,
-        recipient_account: txn.recipientAccount,
+        recipient_account: txn.recipientToken ? "" : txn.recipientAccount,
+        recipient_token: txn.recipientToken ?? null,
         recipient_bank: txn.recipientBank,
         narration: txn.narration,
         channel: CHANNEL_TO_API[txn.channel],
