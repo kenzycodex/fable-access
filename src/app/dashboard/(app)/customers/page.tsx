@@ -143,12 +143,7 @@ export default function CustomersPage() {
                       <td className={table.td}>
                         <Link href={`/dashboard/customers/${encodeURIComponent(c.user_id)}`} className="flex items-center gap-3">
                           <Avatar name={nameFor(c.user_id)} size="sm" />
-                          <span className="min-w-0">
-                            <span className="block truncate font-semibold text-d-text hover:text-brand">{nameFor(c.user_id)}</span>
-                            <span className="block truncate text-[11px] text-d-faint">
-                              {c.known_cities?.[0] ?? (c.has_baseline ? "Baseline built" : "Still learning")}
-                            </span>
-                          </span>
+                          <span className="min-w-0 truncate font-semibold text-d-text hover:text-brand">{nameFor(c.user_id)}</span>
                         </Link>
                       </td>
                       <td className={`${table.td} tabular-nums`}>
