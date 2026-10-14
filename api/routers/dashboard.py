@@ -209,16 +209,21 @@ def txn_filters(
     return where, params
 
 
-def shape_rows(rows: list[dict]) -> list[dict]:
-    """Decode signals and attach the customer's display name."""
-    # Resolve the display name here rather than leaving the client to guess.
-    # It previously had only a user_id to work with and rendered a hardcoded
-    # name, so every customer at every institution showed as the same person.
-    from agents.copilot.demo_customers import customer_name_for
+def shape_rows(rows: list[dict], institution: str | None = None) -> list[dict]:
+    """Decode signals and attach the customer's name and the bank's own reference.
 
+    Names come from the bank's customers table. They used to come from a set of
+    built-in demo personas, so any customer outside those had no name at all.
+    """
+    from core import customers
+
+    inst = institution or next((r.get("institution_id") for r in rows if r.get("institution_id")), None)
+    known = customers.names(inst, [r.get("user_id") for r in rows]) if inst else {}
     for r in rows:
         r["signals"] = loads(r.pop("shield_signals", None), [])
-        r["customer_name"] = customer_name_for(r.get("user_id"))
+        who = known.get(r.get("user_id")) or {}
+        r["customer_name"] = who.get("name")
+        r["customer_ref"] = who.get("ref")
     return rows
 
 
@@ -244,7 +249,7 @@ def transactions(
             f"SELECT {TXN_COLUMNS} FROM transactions {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
             params + [limit, offset],
         )
-        rows = shape_rows([row_to_dict(r) for r in cur.fetchall()])
+        rows = shape_rows([row_to_dict(r) for r in cur.fetchall()], institution)
 
     return {"total": total, "limit": limit, "offset": offset, "transactions": rows}
 
@@ -289,7 +294,7 @@ def export_transactions(
             f"SELECT {TXN_COLUMNS} FROM transactions {where} ORDER BY created_at DESC LIMIT 50000",
             params,
         )
-        rows = shape_rows([row_to_dict(r) for r in cur.fetchall()])
+        rows = shape_rows([row_to_dict(r) for r in cur.fetchall()], institution)
 
     header = [
         "id", "created_at_utc", "customer_id", "customer_name", "amount_ngn", "recipient_name",

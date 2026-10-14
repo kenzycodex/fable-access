@@ -40,7 +40,7 @@ def _case(institution: str, txid: str) -> dict:
         raise HTTPException(status_code=404, detail="Case not found.")
     if row.get("action_taken") not in ("FLAG", "BLOCK"):
         raise HTTPException(status_code=409, detail="Only flagged or blocked transfers are reviewed.")
-    return shape_rows([row])[0]
+    return shape_rows([row], institution)[0]
 
 
 @router.get("/queue")
@@ -86,7 +86,7 @@ def queue(
                 LIMIT ? OFFSET ?""",
             params + [limit, offset],
         )
-        rows = shape_rows([row_to_dict(r) for r in cur.fetchall()])
+        rows = shape_rows([row_to_dict(r) for r in cur.fetchall()], institution)
     return {"total": total, "limit": limit, "offset": offset, "cases": rows}
 
 
