@@ -1,13 +1,14 @@
 """Customer-held security factors.
 
-The transaction PIN is a real factor, not a prop: hashed with PBKDF2, never
-stored or logged in the clear, rate-limited, and locked after repeated wrong
-attempts. Verifying one issues the same step-up token a passkey does, so it
+The transaction PIN is a real factor, not a prop: hashed with Argon2id over an
+HMAC with a server-held pepper, never stored or logged in the clear,
+rate-limited, and locked after repeated wrong attempts. The pepper does not
+replace the attempt limit; the two guard different attacks (offline guessing
+of stolen hashes, and online guessing through the API). Verifying one issues the same step-up token a passkey does, so it
 plugs into the existing assurance tiers rather than sitting beside them.
 """
 import hashlib
 import hmac
-import secrets
 from datetime import datetime, timedelta, timezone
 
 from core import config
@@ -27,7 +28,46 @@ def _now() -> datetime:
 
 
 def _hash_pin(pin: str, salt: str) -> str:
+    """The original PBKDF2 PIN hash. Verified for PINs set before Argon2id."""
     return hashlib.pbkdf2_hmac("sha256", pin.encode(), salt.encode(), PBKDF2_ROUNDS).hex()
+
+
+def _peppered(pin: str, pepper: str) -> str:
+    return hmac.new(pepper.encode(), pin.encode(), hashlib.sha256).hexdigest() if pepper else pin
+
+
+def _hash_pin_v2(pin: str) -> str:
+    """`a2$<pepper id>$<argon2id hash of HMAC(pepper, pin)>`."""
+    from core.utils import hash_password
+
+    return f"a2${config.PIN_PEPPER_ID}${hash_password(_peppered(pin, config.PIN_PEPPER))}"
+
+
+def _pin_matches(stored: str, pin: str) -> tuple[bool, bool]:
+    """(matches, should re-hash). Never raises."""
+    from core.utils import needs_rehash, verify_password
+
+    if stored.startswith("a2$"):
+        try:
+            _, pepper_id, encoded = stored.split("$", 2)
+        except ValueError:
+            return False, False
+        pepper = config.PIN_PEPPERS.get(pepper_id)
+        if pepper is None:
+            # The pepper this PIN was hashed with is not configured. The PIN
+            # cannot be checked at all; say so loudly rather than lock quietly.
+            import logging
+
+            logging.getLogger("fable.security").error(
+                "A PIN uses pepper id %s, which is not configured (FABLE_PIN_PEPPER / _PREVIOUS).", pepper_id)
+            return False, False
+        ok = verify_password(_peppered(pin, pepper), encoded)
+        return ok, ok and (pepper_id != config.PIN_PEPPER_ID or needs_rehash(encoded))
+    if "$" in stored:
+        salt, digest = stored.split("$", 1)
+        # Constant-time: a timing difference would leak how much of the PIN matched.
+        return hmac.compare_digest(_hash_pin(pin, salt), digest), True
+    return False, False
 
 
 def _record(user_id: str) -> dict | None:
@@ -195,8 +235,7 @@ def set_pin(user_id: str, pin: str, current_pin: str | None = None,
 
 
 def _store_pin(user_id: str, pin: str, institution_id: str | None) -> None:
-    salt = secrets.token_hex(16)
-    stored = f"{salt}${_hash_pin(pin, salt)}"
+    stored = _hash_pin_v2(pin)
 
     with cursor() as cur:
         cur.execute(
@@ -233,12 +272,13 @@ def clear_pin(user_id: str) -> dict:
 
 
 def _verify_hash(row: dict, pin: str) -> bool:
-    stored = row.get("pin_hash") or ""
-    if "$" not in stored:
-        return False
-    salt, digest = stored.split("$", 1)
-    # Constant-time: a timing difference would leak how much of the PIN matched.
-    return hmac.compare_digest(_hash_pin(pin, salt), digest)
+    ok, rehash = _pin_matches(row.get("pin_hash") or "", pin)
+    if ok and rehash:
+        # An older hash (PBKDF2, an earlier pepper, weaker parameters) is
+        # replaced while the correct PIN is in hand. Nobody has to reset.
+        with cursor() as cur:
+            cur.execute("UPDATE user_security SET pin_hash = ? WHERE user_id = ?", (_hash_pin_v2(pin), row["user_id"]))
+    return ok
 
 
 def check_pin(user_id: str, pin: str) -> bool:

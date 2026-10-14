@@ -98,6 +98,14 @@ if config.ENVIRONMENT == "production" and config.WEBAUTHN_RP_ID == "localhost":
         "site's registered domain (no scheme, no port)."
     )
 
+if config.ENVIRONMENT == "production" and not config.PIN_PEPPER:
+    logger.warning(
+        "FABLE_PIN_PEPPER is not set, so customer PIN hashes have no server-held "
+        "key and could be guessed offline from a copy of the database. Set it, "
+        "and keep a copy offline: losing it locks every PIN. "
+        "python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+    )
+
 if config.ENVIRONMENT == "production" and config.CORS_ORIGINS == ["*"]:
     logger.warning(
         "FABLE_CORS_ORIGINS is '*' in production, so any website can call this "

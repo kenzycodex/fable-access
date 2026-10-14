@@ -102,6 +102,24 @@ PIN_LOCKOUT_MINUTES = _env_int("FABLE_PIN_LOCKOUT_MINUTES", 15)
 # digits (0000) and plain sequences (1234, 4321).
 PIN_BLOCK_WEAK = _env_flag("FABLE_PIN_BLOCK_WEAK", False)
 
+# A server-held key mixed into every PIN hash (a "pepper"). A 4–6 digit PIN can
+# be guessed offline from a stolen database in moments, whatever the hash; with
+# a pepper that never touches the database, the stolen hashes are useless on
+# their own. Versioned like any key: each hash records the pepper id it used,
+# so the pepper can be rotated by setting the old one as PREVIOUS ("id:value")
+# while PINs re-hash on their next correct entry. Losing the pepper locks every
+# PIN, the same as losing the secrets master key; back it up offline.
+PIN_PEPPER = os.getenv("FABLE_PIN_PEPPER", "").strip()
+PIN_PEPPER_ID = (os.getenv("FABLE_PIN_PEPPER_ID", "1").strip() or "1") if PIN_PEPPER else "0"
+_prev_pepper = os.getenv("FABLE_PIN_PEPPER_PREVIOUS", "").strip()
+PIN_PEPPERS: dict[str, str] = {"0": ""}
+if ":" in _prev_pepper:
+    _pid, _pval = _prev_pepper.split(":", 1)
+    if _pid.strip() and _pval.strip():
+        PIN_PEPPERS[_pid.strip()] = _pval.strip()
+if PIN_PEPPER:
+    PIN_PEPPERS[PIN_PEPPER_ID] = PIN_PEPPER
+
 # How long a verification proof stays valid, and the one-time code limits.
 STEPUP_TOKEN_TTL_SECONDS = _env_int("FABLE_STEPUP_TOKEN_TTL_SECONDS", 600)
 OTP_TTL_SECONDS = _env_int("FABLE_OTP_TTL_SECONDS", 600)
