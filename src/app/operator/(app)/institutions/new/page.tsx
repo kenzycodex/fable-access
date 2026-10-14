@@ -75,11 +75,12 @@ export default function NewInstitutionPage() {
 
   return (
     <>
-      <Link href="/operator" className="inline-flex w-fit items-center gap-1.5 text-[13px] font-semibold text-d-muted hover:text-d-text">
+      <Link href="/operator/institutions" className="inline-flex w-fit items-center gap-1.5 text-[13px] font-semibold text-d-muted hover:text-d-text">
         <ArrowLeft size={14} /> Institutions
       </Link>
       <PageHeader title="New institution" description="It starts empty and in sandbox mode. The owner sets up everything else." />
-      <Card className="max-w-[640px]">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,640px)_1fr]">
+      <Card>
         <form onSubmit={submit} className="flex flex-col gap-4">
           {error && <Notice tone="danger">{error}</Notice>}
           <CardHeader title="Institution" />
@@ -104,6 +105,28 @@ export default function NewInstitutionPage() {
           </div>
         </form>
       </Card>
+      <Card className="bg-d-surface-2/40">
+        <CardHeader title="What happens next" />
+        <ol className="flex flex-col gap-4">
+          {NEXT.map((step, n) => (
+            <li key={step.title} className="flex gap-3">
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-brand/10 text-[12px] font-bold text-brand">{n + 1}</span>
+              <span>
+                <span className="block text-[13px] font-semibold text-d-text">{step.title}</span>
+                <span className="mt-0.5 block text-[12px] leading-relaxed text-d-muted">{step.body}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      </Card>
+      </div>
     </>
   );
 }
+
+const NEXT = [
+  { title: "An empty sandbox is created", body: "No customers, no history, no keys. Nothing from any other institution." },
+  { title: "The owner sets a password", body: "From a one-time link that expires in 7 days. No password or key is ever emailed." },
+  { title: "They set up their console", body: "Import customers and history, create an API key, add a webhook and review the risk policy." },
+  { title: "They go live", body: "Once the required checklist is done and they confirm the DPA and DPIA. You can follow progress here." },
+];

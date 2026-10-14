@@ -4,7 +4,8 @@ import { useState } from "react";
 import { ShieldCheck, UserPlus } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { ConfirmDialog, Dialog } from "@/components/dashboard/Dialog";
-import { Badge, Button, Card, Field, PageHeader, Skeleton, TextInput, table } from "@/components/dashboard/primitives";
+import { Avatar, Badge, Button, Card, Field, PageHeader, Skeleton, TextInput, table } from "@/components/dashboard/primitives";
+import { ago, fullDate } from "@/components/operator/ui";
 import {
   can,
   changeOperatorRole,
@@ -13,6 +14,7 @@ import {
   ROLE_LABEL,
   useOperatorSession,
   useOperatorTeam,
+  type Operator,
   type OperatorRole,
 } from "@/lib/fable/operator";
 
@@ -47,55 +49,76 @@ export default function OperatorTeamPage() {
         {isLoading ? (
           <div className="p-5"><Skeleton className="h-24" /></div>
         ) : (
-          <div className={table.wrap}>
-            <table className={table.base}>
-              <thead>
-                <tr className={table.head}>
-                  <th className={table.th}>Operator</th>
-                  <th className={table.th}>Role</th>
-                  <th className={table.th}>Status</th>
-                  <th className={table.th} />
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.operators ?? []).map((o) => {
-                  const you = o.email === session?.email;
-                  return (
-                    <tr key={o.email} className={table.row}>
-                      <td className={table.td}>
-                        <p className="font-semibold text-d-text">{o.name || o.email}{you && <span className="ml-2 text-[12px] font-normal text-d-faint">(you)</span>}</p>
-                        {o.name && <p className="text-[12px] text-d-muted">{o.email}</p>}
-                      </td>
-                      <td className={table.td}>
-                        {owner && !you ? (
-                          <select value={o.role} onChange={(e) => setRole(o.email, e.target.value as OperatorRole)}
-                            className="h-9 rounded-lg border border-d-border bg-d-surface-2 px-2 text-[13px] text-d-text">
-                            {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-                          </select>
-                        ) : (
-                          <Badge tone="brand">{ROLE_LABEL[o.role]}</Badge>
-                        )}
-                      </td>
-                      <td className={table.td}>
-                        {o.status === "invited" ? (
-                          <Badge tone="warning">Invited</Badge>
-                        ) : o.mfa ? (
-                          <Badge tone="success"><ShieldCheck size={12} weight="fill" /> MFA on</Badge>
-                        ) : (
-                          <Badge tone="warning">Sets up MFA at first sign-in</Badge>
-                        )}
-                      </td>
-                      <td className={`${table.td} text-right`}>
-                        {owner && !you && (
-                          <Button size="sm" variant="ghost" onClick={() => setRemoving(o.email)}>Remove</Button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <ul className="divide-y divide-d-border md:hidden">
+              {(data?.operators ?? []).map((o) => {
+                const you = o.email === session?.email;
+                return (
+                  <li key={o.email} className="flex flex-col gap-2.5 px-4 py-3.5">
+                    <div className="flex items-center gap-3">
+                      <Avatar name={o.name || o.email} size="sm" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-semibold text-d-text">
+                          {o.name || o.email}{you && <span className="ml-1.5 text-[12px] font-normal text-d-faint">(you)</span>}
+                        </span>
+                        <span className="block truncate text-[12px] text-d-muted">{o.name ? o.email : ROLE_LABEL[o.role]}</span>
+                      </span>
+                      <Status o={o} />
+                    </div>
+                    {owner && !you && (
+                      <div className="flex items-center gap-2 pl-11">
+                        <RoleSelect value={o.role} onChange={(r) => setRole(o.email, r)} />
+                        <Button size="sm" variant="ghost" onClick={() => setRemoving(o.email)}>Remove</Button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            <div className={`${table.wrap} hidden md:block`}>
+              <table className={table.base}>
+                <thead>
+                  <tr className={table.head}>
+                    <th className={table.th}>Operator</th>
+                    <th className={table.th}>Role</th>
+                    <th className={table.th}>Status</th>
+                    <th className={table.th}>Last sign-in</th>
+                    <th className={table.th} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data?.operators ?? []).map((o) => {
+                    const you = o.email === session?.email;
+                    return (
+                      <tr key={o.email} className={table.row}>
+                        <td className={table.td}>
+                          <span className="flex items-center gap-3">
+                            <Avatar name={o.name || o.email} size="sm" />
+                            <span className="min-w-0">
+                              <span className="block font-semibold text-d-text">
+                                {o.name || o.email}{you && <span className="ml-2 text-[12px] font-normal text-d-faint">(you)</span>}
+                              </span>
+                              {o.name && <span className="block text-[12px] text-d-muted">{o.email}</span>}
+                            </span>
+                          </span>
+                        </td>
+                        <td className={table.td}>
+                          {owner && !you ? <RoleSelect value={o.role} onChange={(r) => setRole(o.email, r)} /> : <Badge tone="brand">{ROLE_LABEL[o.role]}</Badge>}
+                        </td>
+                        <td className={table.td}><Status o={o} /></td>
+                        <td className={`${table.td} whitespace-nowrap text-d-muted`} title={fullDate(o.last_login_at)}>
+                          {o.last_login_at ? ago(o.last_login_at) : "Never"}
+                        </td>
+                        <td className={`${table.td} text-right`}>
+                          {owner && !you && <Button size="sm" variant="ghost" onClick={() => setRemoving(o.email)}>Remove</Button>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Card>
       <InviteDialog open={inviting} onClose={() => setInviting(false)} onDone={() => mutate()} />
@@ -118,6 +141,20 @@ export default function OperatorTeamPage() {
         }}
       />
     </>
+  );
+}
+
+function Status({ o }: { o: Operator }) {
+  if (o.status === "invited") return <Badge tone="warning">Invited</Badge>;
+  return o.mfa ? <Badge tone="success"><ShieldCheck size={12} weight="fill" /> MFA on</Badge> : <Badge tone="warning">MFA at first sign-in</Badge>;
+}
+
+function RoleSelect({ value, onChange }: { value: OperatorRole; onChange: (r: OperatorRole) => void }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value as OperatorRole)} aria-label="Role"
+      className="h-9 rounded-lg border border-d-border bg-d-surface-2 px-2 text-[13px] text-d-text">
+      {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+    </select>
   );
 }
 
