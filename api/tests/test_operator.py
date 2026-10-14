@@ -181,3 +181,56 @@ def test_no_bank_sees_operator_activity(client):
     events = client.get("/v1/dashboard/compliance", headers=console).json()
     text = str(events)
     assert "operator.login" not in text and OWNER not in text
+
+
+def test_the_overview_and_list_show_setup_progress_and_what_needs_attention(client):
+    op = _sign_in(client)
+    client.post("/operator/institutions", headers=op,
+                json={"name": "Waiting Owner MFB", "owner_email": "owner@waiting.ng"})
+    listed = {r["institution_id"]: r for r in client.get("/operator/institutions", headers=op).json()["institutions"]}
+    waiting = listed["waiting_owner_mfb"]
+    assert waiting["setup_total"] > 0 and waiting["setup_done"] < waiting["setup_total"]
+    assert waiting["invites_pending"] == 1 and waiting["owners"] == 0
+
+    overview = client.get("/operator/overview", headers=op).json()
+    assert overview["institutions"] == len(listed)
+    assert sum(overview["stages"].values()) == len(listed)
+    reasons = {a["institution_id"]: a["reason"] for a in overview["attention"]}
+    assert reasons["waiting_owner_mfb"] == "Owner hasn't accepted the invite"
+
+
+def test_only_a_platform_owner_changes_ask_fable_limits_and_every_change_is_recorded(client):
+    from core import operators
+    from core.db import cursor
+    from scripts.create_operator import create
+
+    create("limits-support@fable.test", "Support", "support", PASSWORD)
+    with cursor() as cur:
+        cur.execute("UPDATE operators SET totp_enabled = 1 WHERE email = 'limits-support@fable.test'")
+    support = {"X-Fable-Operator": operators.issue_session("limits-support@fable.test", 0)["token"]}
+    owner = _sign_in(client)
+
+    seen = client.get("/operator/assistant", headers=support).json()
+    assert seen["settings"]["per_person_per_minute"] == seen["fields"]["per_person_per_minute"]["default"]
+    assert client.put("/operator/assistant", headers=support, json={"per_person_per_minute": 2}).status_code == 403
+    assert client.put("/operator/assistant", headers=owner, json={"per_person_per_minute": 0}).status_code == 400
+    assert client.put("/operator/assistant", headers=owner, json={"nonsense": 1}).status_code == 400
+
+    saved = client.put("/operator/assistant", headers=owner, json={"per_person_per_minute": 4, "ai_enabled": False})
+    assert saved.status_code == 200 and saved.json()["settings"]["per_person_per_minute"] == 4
+    audit = client.get("/operator/audit", headers=owner).json()["events"]
+    assert audit[0]["event_type"] == "platform.assistant_changed"
+    assert audit[0]["payload"]["changes"]["per_person_per_minute"] == {"from": 6, "to": 4}
+
+    with cursor() as cur:
+        cur.execute("DELETE FROM platform_settings WHERE key LIKE 'assistant.%'")
+
+
+def test_an_admin_overrides_ask_fable_for_one_bank(client):
+    op = _sign_in(client)
+    client.post("/operator/institutions", headers=op, json={"name": "Quiet Bank", "owner_email": "o@quiet.ng"})
+    r = client.put("/operator/institutions/quiet_bank/assistant", headers=op, json={"enabled": False, "daily_answers": 25})
+    assert r.status_code == 200 and r.json()["enabled"] is False and r.json()["daily_answers"] == 25
+    detail = client.get("/operator/institutions/quiet_bank", headers=op).json()
+    assert detail["assistant"]["override"]["daily_answers"] == 25
+    assert client.put("/operator/institutions/nobody/assistant", headers=op, json={"enabled": True}).status_code == 404

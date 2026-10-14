@@ -164,11 +164,20 @@ def _institution_stats(institution_id: str | None = None) -> list[dict]:
                        (SELECT COUNT(*) FROM transactions t WHERE t.institution_id = i.institution_id
                           AND t.created_at >= datetime('now', '-30 days')) AS decisions_30d,
                        (SELECT MAX(t.created_at) FROM transactions t WHERE t.institution_id = i.institution_id) AS last_decision,
-                       (SELECT COUNT(*) FROM admins a WHERE a.institution_id = i.institution_id AND COALESCE(a.active, 1) = 1) AS members
+                       (SELECT COUNT(*) FROM admins a WHERE a.institution_id = i.institution_id AND COALESCE(a.active, 1) = 1) AS members,
+                       (SELECT COUNT(*) FROM admins a WHERE a.institution_id = i.institution_id AND a.active = 2) AS invites_pending,
+                       (SELECT COUNT(*) FROM admins a WHERE a.institution_id = i.institution_id AND a.active = 1
+                          AND COALESCE(a.role, 'owner') = 'owner') AS owners
                 FROM institutions i {where} ORDER BY i.created_at DESC""",
             args,
         )
-        return [row_to_dict(r) for r in cur.fetchall()]
+        rows = [row_to_dict(r) for r in cur.fetchall()]
+    for r in rows:
+        # How far along setup is, from the same checklist the bank sees.
+        ready = onboarding.checklist(r["institution_id"])
+        r["setup_done"], r["setup_total"] = ready["done"], ready["total"]
+        r["ready_to_go_live"] = ready["ready_to_go_live"]
+    return rows
 
 
 @router.get("/institutions")
@@ -179,6 +188,80 @@ def institutions(request: Request, q: str | None = Query(None, max_length=80)):
         needle = q.strip().lower()
         rows = [r for r in rows if needle in (r["name"] or "").lower() or needle in r["institution_id"]]
     return {"institutions": rows, "total": len(rows)}
+
+
+def _needs_attention(row: dict) -> str | None:
+    """Why an operator should look at this institution, if they should."""
+    if row["status"] == "suspended":
+        return "Suspended"
+    if not row["owners"]:
+        return "Owner hasn't accepted the invite" if row["invites_pending"] else "No owner"
+    if row["mode"] == "sandbox" and row["ready_to_go_live"]:
+        return "Ready to go live"
+    created = row.get("created_at") or ""
+    if row["mode"] == "sandbox" and created and created < _days_ago(14) and row["setup_done"] * 2 < row["setup_total"]:
+        return "Setup stalled for 2+ weeks"
+    return None
+
+
+def _days_ago(days: int) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+@router.get("/overview")
+def overview(request: Request):
+    """The platform at a glance: institutions by stage, activity, what needs attention."""
+    operators.require(request, "support")
+    from core.db import loads
+    from services import assistant_controls as controls
+
+    rows = _institution_stats()
+    with cursor() as cur:
+        cur.execute(
+            """SELECT date(created_at) AS day, COUNT(*) AS n,
+                      SUM(action_taken = 'BLOCK') AS blocked, SUM(action_taken = 'FLAG') AS flagged
+               FROM transactions WHERE created_at >= datetime('now', '-14 days')
+               GROUP BY date(created_at) ORDER BY day"""
+        )
+        decisions = [row_to_dict(r) for r in cur.fetchall()]
+        marks = ",".join("?" * len(PLATFORM_EVENTS))
+        cur.execute(
+            f"""SELECT id, institution_id, event_type, payload, created_at FROM audit_log
+                WHERE event_type IN ({marks}) ORDER BY id DESC LIMIT 8""",
+            PLATFORM_EVENTS,
+        )
+        events = [row_to_dict(r) for r in cur.fetchall()]
+        cur.execute("SELECT COUNT(*) AS n FROM operators WHERE COALESCE(active, 1) = 1")
+        team = cur.fetchone()["n"]
+    for e in events:
+        e["payload"] = loads(e.get("payload"), {}) or {}
+
+    attention = [
+        {"institution_id": r["institution_id"], "name": r["name"], "reason": reason,
+         "setup_done": r["setup_done"], "setup_total": r["setup_total"]}
+        for r in rows if (reason := _needs_attention(r))
+    ]
+    stages = {
+        "setting_up": sum(1 for r in rows if r["mode"] == "sandbox" and not r["ready_to_go_live"] and r["status"] != "suspended"),
+        "ready": sum(1 for r in rows if r["mode"] == "sandbox" and r["ready_to_go_live"] and r["status"] != "suspended"),
+        "live": sum(1 for r in rows if r["mode"] == "live" and r["status"] != "suspended"),
+        "suspended": sum(1 for r in rows if r["status"] == "suspended"),
+    }
+    ai = controls.usage(7)
+    return {
+        "institutions": len(rows),
+        "stages": stages,
+        "customers": sum(r["customers"] for r in rows),
+        "real_customers": sum(r["real_customers"] for r in rows),
+        "decisions_30d": sum(r["decisions_30d"] for r in rows),
+        "decisions_by_day": decisions,
+        "operators": team,
+        "attention": attention,
+        "recent_events": events,
+        "assistant": {"today": ai["today"], "week": ai["totals"]},
+    }
 
 
 class NewInstitution(BaseModel):
@@ -247,12 +330,73 @@ def institution(institution_id: str, request: Request):
 
     for e in events:
         e["payload"] = loads(e.get("payload"), {}) or {}
+    from services import assistant_controls as controls
+
     return {
         "institution": rows[0],
         "onboarding": onboarding.checklist(institution_id),
         "members": [{k: v for k, v in m.items() if k != "active"} for m in members],
         "recent_events": events,
+        "assistant": {
+            "override": controls.bank_override(institution_id),
+            "usage": controls.institution_usage(institution_id),
+            "platform": {k: controls.settings()[k] for k in ("ai_enabled", "institution_daily_answers")},
+        },
     }
+
+
+class AssistantOverride(BaseModel):
+    # None means "follow the platform setting".
+    enabled: bool | None = None
+    daily_answers: int | None = Field(None, ge=0, le=100000)
+
+
+@router.put("/institutions/{institution_id}/assistant")
+def institution_assistant(institution_id: str, body: AssistantOverride, request: Request):
+    """Turn Ask Fable's AI answers on or off for one bank, or give it its own daily budget."""
+    from services import assistant_controls as controls
+
+    op = operators.require(request, "platform_admin")
+    if not _institution_stats(institution_id):
+        raise HTTPException(status_code=404, detail="Institution not found.")
+    out = controls.set_bank_override(institution_id, body.enabled, body.daily_answers, op["email"])
+    operators.record(audit.INSTITUTION_ASSISTANT_CHANGED, op["email"], institution_id,
+                     enabled=body.enabled, daily_answers=body.daily_answers)
+    return out
+
+
+# ── Ask Fable, platform-wide ─────────────────────────────────────────────────
+
+@router.get("/assistant")
+def assistant_settings(request: Request, days: int = Query(30, ge=1, le=90)):
+    """Ask Fable's limits, which AI providers are configured, and usage."""
+    from services import assistant_controls as controls
+
+    operators.require(request, "support")
+    return {
+        "settings": controls.settings(),
+        "fields": {k: {"default": d, "min": lo, "max": hi, "help": h} for k, (d, lo, hi, h) in controls.SETTINGS.items()},
+        "providers": {
+            "openai": {"configured": bool(config.OPENAI_API_KEY), "model": config.OPENAI_MODEL},
+            "anthropic": {"configured": bool(config.ANTHROPIC_API_KEY), "model": config.ANTHROPIC_MODEL},
+        },
+        "usage": controls.usage(days),
+    }
+
+
+@router.put("/assistant")
+def update_assistant_settings(body: dict, request: Request):
+    """Change Ask Fable's limits. Platform owners only."""
+    from services import assistant_controls as controls
+
+    op = operators.require(request, "platform_owner")
+    before = controls.settings()
+    after = controls.update(body, op["email"])
+    changed = {k: {"from": before[k], "to": after[k]} for k in after if before[k] != after[k]}
+    if changed:
+        controls.reset_runtime()
+        operators.record(audit.ASSISTANT_SETTINGS_CHANGED, op["email"], changes=changed)
+    return {"settings": after}
 
 
 class SuspendBody(BaseModel):
@@ -503,6 +647,7 @@ PLATFORM_EVENTS = (
     audit.INSTITUTION_PROVISIONED, audit.INSTITUTION_SUSPENDED, audit.INSTITUTION_REACTIVATED,
     audit.OWNER_INVITED, audit.OPERATOR_LOGIN, audit.OPERATOR_INVITED, audit.OPERATOR_CHANGED,
     "institution.exported", "institution.data_cleared", "institution.deleted",
+    audit.ASSISTANT_SETTINGS_CHANGED, audit.INSTITUTION_ASSISTANT_CHANGED,
 )
 
 

@@ -59,6 +59,8 @@ OWNER_INVITED = "institution.owner_invited"
 OPERATOR_LOGIN = "operator.login"
 OPERATOR_INVITED = "operator.invited"
 OPERATOR_CHANGED = "operator.changed"
+ASSISTANT_SETTINGS_CHANGED = "platform.assistant_changed"
+INSTITUTION_ASSISTANT_CHANGED = "institution.assistant_changed"
 
 
 def _institution_of(user_id: str | None) -> str | None:
