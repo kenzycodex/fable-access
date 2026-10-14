@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useSyncExternalStore } from "react";
 import { LinkRow } from "@/components/dashboard/LinkRow";
-import { ArrowRight, ArrowSquareOut, Brain, Flag, Ghost, Lightning, RocketLaunch, ShieldCheck, Tray } from "@phosphor-icons/react";
+import { ArrowRight, ArrowSquareOut, Brain, Flag, Ghost, Lightning, RocketLaunch, ShieldCheck, Tray, X } from "@phosphor-icons/react";
 import { BarChart, DonutChart } from "@/components/dashboard/charts";
 import {
   Avatar,
@@ -25,6 +26,7 @@ import { formatNaira, formatNairaCompact, formatRelativeTime } from "@/lib/fable
 import type { Transaction } from "@/lib/fable/types";
 import { useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
 import { useOnboarding, useReviewCounts } from "@/lib/fable/useConsole";
+import { useFableStore } from "@/lib/fable/store";
 import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 
 const AGENTS = [
@@ -58,6 +60,8 @@ function daySeries(txns: Transaction[], predicate: (t: Transaction) => boolean):
 export default function OverviewPage() {
   const { institution } = useSignedInInstitution();
   const { data: onboarding } = useOnboarding();
+  const store = useFableStore();
+  const [setupHidden, hideSetup] = useSetupDismissed(store?.session.token);
   const feed = useDashboardFeed();
   const { data: stats } = useDashboardStats();
   const { data: intel } = useIntelligence();
@@ -102,7 +106,9 @@ export default function OverviewPage() {
         }
       />
 
-      {onboarding?.mode === "sandbox" && <SetupCard done={onboarding.done} total={onboarding.total} left={onboarding.required_remaining.length} />}
+      {onboarding?.mode === "sandbox" && !setupHidden && (
+        <SetupCard done={onboarding.done} total={onboarding.total} left={onboarding.required_remaining.length} onDismiss={hideSetup} />
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -303,31 +309,75 @@ export default function OverviewPage() {
   );
 }
 
+const SETUP_DISMISSED_KEY = "fable_setup_dismissed";
+const setupListeners = new Set<() => void>();
+
+/** Which sign-in the setup banner was dismissed in. Kept per sign-in, not
+ * forever, so the reminder comes back the next time anyone signs in. */
+function useSetupDismissed(token: string | null | undefined): [boolean, () => void] {
+  const mark = token ? token.slice(-24) : "";
+  const dismissedFor = useSyncExternalStore(
+    (fn) => {
+      setupListeners.add(fn);
+      return () => setupListeners.delete(fn);
+    },
+    () => {
+      try {
+        return localStorage.getItem(SETUP_DISMISSED_KEY) ?? "";
+      } catch {
+        return "";
+      }
+    },
+    () => mark, // hidden while rendering on the server, so it never flashes
+  );
+  const dismiss = () => {
+    try {
+      localStorage.setItem(SETUP_DISMISSED_KEY, mark);
+    } catch {
+      // Storage blocked: it stays hidden until the page reloads.
+    }
+    setupListeners.forEach((fn) => fn());
+  };
+  return [Boolean(mark) && dismissedFor === mark, dismiss];
+}
+
 /** Until the institution is live, the way back to its go-live checklist. */
-function SetupCard({ done, total, left }: { done: number; total: number; left: number }) {
+function SetupCard({ done, total, left, onDismiss }: { done: number; total: number; left: number; onDismiss: () => void }) {
   return (
-    <Link
-      href="/dashboard/settings/go-live"
-      className="flex flex-wrap items-center gap-4 rounded-2xl border border-brand/25 bg-brand/[0.06] px-5 py-4 transition-colors hover:border-brand/45"
-    >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand text-white">
-        <RocketLaunch size={20} weight="fill" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-[14px] font-semibold text-d-text">
-          {left ? `${done} of ${total} done. Continue setting up` : "Ready to go live"}
-        </p>
-        <p className="mt-0.5 text-[13px] text-d-muted">
-          {left
-            ? `${left} required step${left === 1 ? "" : "s"} left before your institution can go live.`
-            : "Every required step is done. Switch to live when your servers send your API key."}
-        </p>
-      </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-d-surface-2 sm:w-40">
-        <div className="h-full rounded-full bg-brand" style={{ width: `${(done / Math.max(total, 1)) * 100}%` }} />
-      </div>
-      <ArrowRight size={16} className="hidden shrink-0 text-brand sm:block" />
-    </Link>
+    <div className="flex items-center gap-2 rounded-2xl border border-brand/25 bg-brand/[0.06] pr-2 transition-colors hover:border-brand/45">
+      <Link href="/dashboard/settings/go-live" className="flex min-w-0 flex-1 flex-wrap items-center gap-4 py-4 pl-5 pr-2">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand text-white">
+          <RocketLaunch size={20} weight="fill" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px] font-semibold text-d-text">
+            {left ? `${done} of ${total} done. Continue setting up` : "Ready to go live"}
+          </p>
+          <p className="mt-0.5 text-[13px] text-d-muted">
+            {left
+              ? `${left} required step${left === 1 ? "" : "s"} left before your institution can go live.`
+              : "Every required step is done. Switch to live when your servers send your API key."}
+          </p>
+        </div>
+        <div className="flex w-full items-center gap-3 sm:w-auto">
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-d-surface-2 sm:w-32 sm:flex-none">
+            <div className="h-full rounded-full bg-brand" style={{ width: `${(done / Math.max(total, 1)) * 100}%` }} />
+          </div>
+          <span className="flex shrink-0 items-center gap-1 text-[13px] font-semibold text-brand">
+            Continue <ArrowRight size={14} weight="bold" />
+          </span>
+        </div>
+      </Link>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Hide until next sign-in"
+        title="Hide until next sign-in"
+        className="flex size-9 shrink-0 items-center justify-center self-start rounded-xl text-d-muted transition-colors hover:bg-d-surface-2 hover:text-d-text sm:self-center"
+      >
+        <X size={16} />
+      </button>
+    </div>
   );
 }
 
