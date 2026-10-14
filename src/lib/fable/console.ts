@@ -344,3 +344,109 @@ export function boardReport(range: { from?: string; to?: string }) {
   if (range.to) q.set("to", range.to);
   return call<BoardReport>(`/v1/dashboard/report?${q.toString()}`);
 }
+
+// ---------------------------------------------------------------------------
+// Customers, imports, onboarding and the sandbox
+// ---------------------------------------------------------------------------
+
+export interface NewCustomer {
+  reference: string;
+  name?: string;
+  phone?: string;
+  email?: string;
+  segment?: string;
+  kind?: "test" | "real";
+  opening_balance?: number;
+}
+
+export const addCustomer = (body: NewCustomer) =>
+  call<import("./api").BankCustomer>("/v1/customers", { method: "POST", ...json(body) });
+
+export const editCustomer = (id: string, body: { name?: string; phone?: string; email?: string; segment?: string; status?: "active" | "closed" }) =>
+  call<import("./api").BankCustomer>(`/v1/customers/${encodeURIComponent(id)}`, { method: "PATCH", ...json(body) });
+
+export type ImportKind = "customers" | "transactions";
+
+export interface ImportError {
+  line: number | null;
+  field: string;
+  message: string;
+}
+
+export interface ImportJob {
+  id: string;
+  kind: ImportKind;
+  filename: string | null;
+  status: "validated" | "applying" | "completed" | "failed" | "discarded";
+  total: number;
+  valid: number;
+  invalid: number;
+  inserted: number;
+  skipped: number;
+  errors?: ImportError[];
+  created_by: string | null;
+  created_at: string | null;
+  finished_at: string | null;
+}
+
+export interface ImportSummary {
+  customers: { total: number; real: number; test: number };
+  history: { transfers: number; from: string | null; to: string | null };
+}
+
+export const importSummary = () => call<ImportSummary>("/v1/imports/summary");
+export const importJobs = () => call<{ imports: ImportJob[] }>("/v1/imports");
+export const importJob = (id: string) => call<ImportJob>(`/v1/imports/${encodeURIComponent(id)}`);
+export const applyImport = (id: string) => call<ImportJob>(`/v1/imports/${encodeURIComponent(id)}/apply`, { method: "POST" });
+export const discardImport = (id: string) => call(`/v1/imports/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+/** Upload a CSV for validation. Nothing is applied until applyImport. */
+export async function uploadImport(kind: ImportKind, file: File): Promise<ImportJob> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/v1/imports/${kind}/csv`, { method: "POST", body: form, headers: authHeaders() });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ConsoleError(typeof body?.detail === "string" ? body.detail : "Upload failed.", res.status);
+  }
+  return (await res.json()) as ImportJob;
+}
+
+/** Download a CSV template with the expected columns and an example row. */
+export async function downloadTemplate(kind: ImportKind): Promise<void> {
+  const res = await fetch(`${API_BASE}/v1/imports/templates/${kind}.csv`, { headers: authHeaders() });
+  if (!res.ok) throw new ConsoleError("Template download failed.", res.status);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `fable-${kind}-template.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export interface ChecklistItem {
+  key: string;
+  label: string;
+  required: boolean;
+  done: boolean;
+  detail: string;
+}
+
+export interface Onboarding {
+  mode: "sandbox" | "live";
+  ready_to_go_live: boolean;
+  required_remaining: string[];
+  done: number;
+  total: number;
+  items: ChecklistItem[];
+  agreements: { confirmed_at: string | null; confirmed_by: string | null };
+}
+
+export const onboarding = () => call<Onboarding>("/v1/onboarding");
+export const confirmAgreements = () =>
+  call<Onboarding>("/v1/onboarding/agreements", { method: "POST", ...json({ data_processing_agreement: true, dpia: true }) });
+
+export const resetSandbox = (confirm: string) =>
+  call<{ customers_removed: number }>("/v1/sandbox/reset", { method: "POST", ...json({ confirm }) });

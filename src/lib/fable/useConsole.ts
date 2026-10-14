@@ -5,7 +5,7 @@
 // so signing in as another bank never shows the previous bank's cached data.
 
 import useSWR from "swr";
-import { dashboardTransactionPage, getBranding } from "./api";
+import { dashboardTransactionPage, getBranding, listCustomers } from "./api";
 import {
   boardReport,
   caseDetail,
@@ -18,6 +18,9 @@ import {
   webhookEndpoints,
   type QueueQuery,
   type Role,
+  importJobs,
+  importSummary,
+  onboarding,
 } from "./console";
 import { CADENCE, livePolling } from "./polling";
 import { useFableStore } from "./store";
@@ -125,4 +128,26 @@ export function useBoardReport(range: { from?: string; to?: string }) {
     revalidateOnFocus: false,
     keepPreviousData: true,
   });
+}
+
+export function useOnboarding() {
+  const inst = useTenant();
+  return useSWR(inst ? ["console:onboarding", inst] : null, () => onboarding(), { revalidateOnFocus: true });
+}
+
+export function useImportSummary() {
+  const inst = useTenant();
+  return useSWR(inst ? ["console:import-summary", inst] : null, () => importSummary());
+}
+
+export function useImportJobs() {
+  const inst = useTenant();
+  return useSWR(inst ? ["console:imports", inst] : null, () => importJobs());
+}
+
+export function useBankCustomers(params: { q?: string; kind?: string; status?: string } = {}) {
+  const inst = useTenant();
+  return useSWR(inst ? ["console:customers", inst, params.q ?? "", params.kind ?? "", params.status ?? ""] : null, () =>
+    listCustomers({ ...params, limit: 200 }),
+  );
 }
