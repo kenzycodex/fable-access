@@ -141,6 +141,13 @@ def test_operator_team_invites_and_keeps_an_owner(client):
     assert client.post("/operator/auth/accept-invite", json={"token": token, "password": PASSWORD}).status_code == 400
     assert _sign_in(client, "new@fable.test")
     assert client.delete(f"/operator/team/{OWNER}", headers=op).status_code == 409  # yourself
+
+    # Other tests share this database and may have made more platform owners;
+    # leave exactly one, then check it can't be demoted.
+    from core.db import cursor
+
+    with cursor() as cur:
+        cur.execute("UPDATE operators SET role = 'support' WHERE role = 'platform_owner' AND email != ?", (OWNER,))
     assert client.patch(f"/operator/team/{OWNER}", headers=op, json={"role": "support"}).status_code == 409  # last owner
 
 
