@@ -1,0 +1,3 @@
+# Vercel builds only the Next.js site. The FastAPI backend in api/ runs on the
+# droplet, and a Python project file there made Vercel try to build it.
+api/

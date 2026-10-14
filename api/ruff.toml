@@ -1,17 +1,12 @@
-# Tool settings for the API. Dependencies stay in requirements*.txt, which the
-# Dockerfile and CI install from.
-
-[tool.ruff]
+# Ruff settings for the API. Kept out of pyproject.toml on purpose: Vercel
+# treats any pyproject.toml in the repository as a Python project to build.
 target-version = "py312"
 line-length = 120
 extend-exclude = [".venv"]
 
-[tool.ruff.lint]
+[lint]
 # Import order only for now; the codebase predates a linter.
 select = ["I"]
 
-[tool.ruff.lint.isort]
+[lint.isort]
 known-first-party = ["agents", "core", "intelligence", "middleware", "models", "routers", "services"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]

@@ -149,7 +149,7 @@ fable/
 │   ├── eval/                      # Offline evaluation harness for labelled transactions
 │   ├── Dockerfile                 # Production image
 │   ├── docker-compose.yml
-│   ├── pyproject.toml             # Tool settings (Ruff, pytest)
+│   ├── ruff.toml, pytest.ini      # Tool settings (import sorting, tests)
 │   ├── requirements.txt           # What the app needs
 │   └── requirements-dev.txt       # Plus pytest and Ruff, for tests and linting
 │
