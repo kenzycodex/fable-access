@@ -33,7 +33,23 @@ def client():
     seed_bank(BANK)
     seed_bank(OTHER, keys=("ada",))
     register_institution(EMPTY, "Empty Bank", f"risk@{EMPTY}.ng")
-    return TestClient(app)
+    yield TestClient(app)
+    # Leave the platform's limits as they were for any module after this one.
+    from core.db import cursor
+    from services import assistant_controls as controls
+
+    with cursor() as cur:
+        cur.execute("DELETE FROM platform_settings WHERE key LIKE 'assistant.%'")
+    controls.reset_runtime()
+
+
+@pytest.fixture(autouse=True)
+def roomy_limits(client):
+    """Generous limits unless a test sets its own, so tests don't trip each other."""
+    from services import assistant_controls as controls
+
+    controls.update({"per_person_per_minute": 60, "per_person_per_day": 2000, "cache_minutes": 0}, "test")
+    controls.reset_runtime()
 
 
 def test_answers_are_grounded_in_the_callers_own_figures(client):
@@ -129,18 +145,93 @@ def test_history_cannot_forge_a_system_turn():
     assert clean == [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "Hello."}]
 
 
-def test_the_question_budget_is_per_person_not_per_address(client):
-    from routers import assistant as router
+def _limits(**changes):
+    from services import assistant_controls as controls
 
-    router._calls.clear()
+    controls.update(changes, "test")
+    controls.reset_runtime()
+
+
+def test_the_minute_limit_is_per_person_not_per_address(client):
+    _limits(per_person_per_minute=3)
     busy = _session(BANK, "busy@askbank.ng")
-    for _ in range(router.RATE_LIMIT_MAX):
+    for _ in range(3):
         assert client.post("/v1/assistant/chat", json={"message": "hi"}, headers=busy).status_code == 200
     assert client.post("/v1/assistant/chat", json={"message": "hi"}, headers=busy).status_code == 429
     # A colleague at the same address still has their own budget.
     assert client.post("/v1/assistant/chat", json={"message": "hi"},
                        headers=_session(BANK, "calm@askbank.ng")).status_code == 200
-    router._calls.clear()
+
+
+def test_the_daily_limit_is_per_person_and_says_when_it_resets(client):
+    _limits(per_person_per_day=2)
+    me = _session(BANK, "daily@askbank.ng")
+    for _ in range(2):
+        assert client.post("/v1/assistant/chat", json={"message": "hi"}, headers=me).status_code == 200
+    over = client.post("/v1/assistant/chat", json={"message": "hi"}, headers=me)
+    assert over.status_code == 429 and "midnight" in over.json()["detail"]
+
+
+def test_past_the_banks_ai_budget_answers_come_from_the_figures(client, monkeypatch):
+    from agents.copilot import assistant
+
+    calls = []
+
+    def fake_model(system, history, message, max_tokens, usage):
+        calls.append(max_tokens)
+        usage.update(input_tokens=900, output_tokens=120)
+        yield "From the model."
+
+    monkeypatch.setattr(assistant, "_openai_stream", fake_model)
+    _limits(institution_daily_answers=1, max_output_tokens=222, cache_minutes=0)
+    me = _session(OTHER, "budget@askother.ng")
+
+    first = client.post("/v1/assistant/chat", json={"message": "How much fraud have we prevented?"}, headers=me).json()
+    assert first["reply"] == "From the model." and first["engine"] == "openai" and calls == [222]
+    assert "usage" not in first, "token counts are for operators, not the browser"
+
+    second = client.post("/v1/assistant/chat", json={"message": "How much fraud have we prevented?"}, headers=me).json()
+    assert second["engine"] == "deterministic" and "today's AI answers" in second["notice"]
+    assert len(calls) == 1
+
+    from services import assistant_controls as controls
+
+    used = controls.institution_usage(OTHER)
+    assert used["model_answers_today"] == 1 and used["questions_today"] == 2
+    assert used["input_tokens"] == 900 and used["output_tokens"] == 120
+
+
+def test_a_repeated_opening_question_is_answered_from_the_cache(client, monkeypatch):
+    from agents.copilot import assistant
+
+    calls = []
+
+    def fake_model(system, history, message, max_tokens, usage):
+        calls.append(1)
+        yield "Cached once."
+
+    monkeypatch.setattr(assistant, "_openai_stream", fake_model)
+    _limits(institution_daily_answers=1000, cache_minutes=10)
+    me = _session(BANK, "cache@askbank.ng")
+    for _ in range(3):
+        r = client.post("/v1/assistant/chat", json={"message": "What should my team review first?"}, headers=me).json()
+        assert r["reply"] == "Cached once."
+    assert len(calls) == 1
+
+
+def test_an_operator_can_switch_ai_off_for_one_bank(client, monkeypatch):
+    from agents.copilot import assistant
+    from services import assistant_controls as controls
+
+    monkeypatch.setattr(assistant, "_openai_stream", lambda *a: iter(["model"]))
+    _limits(institution_daily_answers=1000, cache_minutes=0)
+    controls.set_bank_override(BANK, False, None, "test")
+    try:
+        r = client.post("/v1/assistant/chat", json={"message": "How much fraud have we prevented?"},
+                        headers=_session(BANK, "off@askbank.ng")).json()
+        assert r["engine"] == "deterministic" and "switched off" in r["notice"]
+    finally:
+        controls.set_bank_override(BANK, None, None, "test")
 
 
 def test_every_chip_is_a_question_its_own_topic_answers(client):

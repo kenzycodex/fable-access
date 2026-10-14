@@ -1,37 +1,21 @@
 import json
-import time
-from collections import defaultdict, deque
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from agents.copilot.assistant import answer, opening_questions, stream
+from agents.copilot.assistant import Options, answer, opening_questions, stream
 from core.tenancy import require_role
+from services import assistant_controls as controls
 
 router = APIRouter(prefix="/v1/assistant", tags=["assistant"])
 
-# Each question can spend money (it forwards to a hosted model), so it gets a
-# tighter budget than the global limit. Counted per signed-in person, not per
-# IP: behind the proxy every console user can share one address, and one busy
-# analyst used to exhaust the budget for their whole bank. In memory, which
-# fits a single process; a shared store is the shape for several.
-RATE_LIMIT_MAX = 20
-RATE_LIMIT_WINDOW_SECONDS = 60
-_calls: dict[str, deque] = defaultdict(deque)
-
-
-def _rate_limit(key: str) -> None:
-    now = time.monotonic()
-    hits = _calls[key]
-    while hits and now - hits[0] > RATE_LIMIT_WINDOW_SECONDS:
-        hits.popleft()
-    if len(hits) >= RATE_LIMIT_MAX:
-        raise HTTPException(
-            status_code=429,
-            detail=f"That's a lot of questions at once. The limit is {RATE_LIMIT_MAX} a minute; try again shortly.",
-        )
-    hits.append(now)
+# Shown under an answer that came from the figures because of a limit.
+_NOTICES = {
+    "off": "AI answers are switched off for your institution, so this comes straight from your figures.",
+    "budget": "Your institution has used today's AI answers, so this comes straight from your figures. "
+              "AI answers return at midnight, Lagos time.",
+}
 
 
 class ChatTurn(BaseModel):
@@ -47,29 +31,54 @@ class ChatRequest(BaseModel):
     shown: list[str] = Field(default_factory=list, max_length=60)
 
 
-def _caller(request: Request) -> str:
-    """The bank grounding the answer comes from the caller's credential and
-    nothing else. A bank named in the body or query is never read."""
+def _prepare(request: Request) -> tuple[dict, Options]:
+    """Who is asking, after the per-person limits, and what this answer may spend.
+
+    The bank grounding the answer comes from the caller's credential and
+    nothing else; a bank named in the body or query is never read. The limits
+    are counted per person, not per IP: behind the proxy every console user can
+    share one address.
+    """
     who = require_role(request, "viewer")
-    _rate_limit(f"{who['inst']}:{who.get('email') or who['role']}")
-    return who["inst"]
+    who = {**who, "email": who.get("email") or who["role"]}
+    cfg = controls.settings()
+    controls.check_person(who["inst"], who["email"], cfg)
+    allowed, reason = controls.model_allowance(who["inst"], cfg)
+    return who, Options(
+        use_model=allowed,
+        max_output_tokens=cfg["max_output_tokens"],
+        max_history_turns=cfg["max_history_turns"],
+        max_question_chars=cfg["max_question_chars"],
+        cache_minutes=cfg["cache_minutes"],
+        notice=_NOTICES.get(reason),
+    )
+
+
+def _meter(who: dict, usage: dict | None) -> None:
+    u = usage or {}
+    controls.record(who["inst"], who["email"], model=bool(u.get("model")), cached=bool(u.get("cached")),
+                    input_tokens=u.get("input_tokens", 0), output_tokens=u.get("output_tokens", 0))
 
 
 @router.post("/chat")
 def chat(payload: ChatRequest, request: Request):
-    tenant = _caller(request)
-    return answer(payload.message, [t.model_dump() for t in payload.history], tenant, payload.shown)
+    who, opts = _prepare(request)
+    result = answer(payload.message, [t.model_dump() for t in payload.history], who["inst"], payload.shown, opts)
+    _meter(who, result.pop("usage", None))
+    return result
 
 
 @router.post("/chat/stream")
 def chat_stream(payload: ChatRequest, request: Request):
     """The same answer as /chat, as server-sent events while it is written."""
-    tenant = _caller(request)
+    who, opts = _prepare(request)
     history = [t.model_dump() for t in payload.history]
 
     def events():
         try:
-            for event in stream(payload.message, history, tenant, payload.shown):
+            for event in stream(payload.message, history, who["inst"], payload.shown, opts):
+                if event["type"] == "done":
+                    _meter(who, event.pop("usage", None))
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception:  # noqa: BLE001 - the client gets a clean ending, never a hung stream
             yield f"data: {json.dumps({'type': 'error', 'message': 'Something went wrong. Try again.'})}\n\n"
