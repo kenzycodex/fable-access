@@ -7,7 +7,7 @@ import { Eye, EyeSlash } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { AuthShell, AuthSpinner, authButton, authInput } from "@/components/dashboard/AuthShell";
 import { API_BASE } from "@/lib/fable/api";
-import { login, useFableStore } from "@/lib/fable/store";
+import { login, sessionToken, useFableStore } from "@/lib/fable/store";
 
 /** Where to go after signing in: `?next=` when it is a path on this site (the
  * sandbox app sends people here and back), otherwise the console. */
@@ -31,7 +31,9 @@ export default function DashboardLoginPage() {
 
   useEffect(() => {
     // While a sign-in is in flight, handleSignIn owns the navigation.
-    if (store?.session.loggedIn && !submitting) router.replace(nextPath());
+    // Only a live session skips the form. A remembered but expired one used to
+    // bounce you onward and back here again.
+    if (store?.session.loggedIn && sessionToken() && !submitting) router.replace(nextPath());
   }, [store, router, submitting]);
 
   async function handleSignIn() {

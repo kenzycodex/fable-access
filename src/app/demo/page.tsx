@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { LockKey } from "@phosphor-icons/react";
 import { AuthShell, authButton } from "@/components/dashboard/AuthShell";
-import { useFableStore } from "@/lib/fable/store";
+import { sessionToken, useFableStore } from "@/lib/fable/store";
 
 /**
  * `/demo`, the entry point the site's "See the sandbox" links use.
@@ -17,9 +17,13 @@ import { useFableStore } from "@/lib/fable/store";
 export default function DemoIndexPage() {
   const store = useFableStore();
   const router = useRouter();
-  const institutionId = store?.session.loggedIn ? store.session.institutionId : null;
+  // A live session, not just the remembered "signed in" flag: an expired one
+  // must show this screen, not send you into a sandbox that then refuses you.
+  const institutionId = store?.session.loggedIn && sessionToken() ? store.session.institutionId : null;
 
   useEffect(() => {
+    // replace, so this screen never sits in the history behind the sandbox and
+    // Back takes you to wherever you came from.
     if (institutionId) router.replace(`/demo/${encodeURIComponent(institutionId)}`);
   }, [institutionId, router]);
 
