@@ -9,7 +9,7 @@ Usage, on the server:
     cd /var/www/fable/api
     docker compose exec api python scripts/create_operator.py you@company.com "Your Name"
 
-You will be asked for the password twice (12 characters at least). Pass
+You will be asked for the password twice (8 characters at least). Pass
 --role platform_admin or --role support for a less privileged account; the
 default is platform_owner.
 """
@@ -20,7 +20,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-MIN_PASSWORD = 12
+MIN_PASSWORD = 8
 
 
 def create(email: str, name: str | None, role: str, password: str) -> dict:
