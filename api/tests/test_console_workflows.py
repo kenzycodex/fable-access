@@ -51,22 +51,16 @@ def _headers(email: str, inst: str = BANK) -> dict:
 @pytest.fixture(scope="module")
 def client():
     from fastapi.testclient import TestClient
+    from helpers import seed_bank
 
-    from agents.copilot.demo_customers import seed_institution
-    from core.tenancy import register_institution
     from main import app
 
-    register_institution(BANK, "Work Bank", "risk@workbank.ng")
-    register_institution(OTHER, "Other Bank", "risk@otherbank.ng")
-    seed_institution(BANK, days=60)
-    seed_institution(OTHER, days=30)
+    seed_bank(BANK, "Work Bank", days=60)
+    seed_bank(OTHER, "Other Bank", days=30)
     _admin(OWNER, BANK, "owner")
     _admin(ANALYST, BANK, "analyst")
     _admin(VIEWER, BANK, "viewer")
     _admin(STRANGER, OTHER, "owner")
-    from core import db
-
-    db._backfill_customers(db.get_conn())
     with TestClient(app) as c:
         yield c
 
@@ -222,7 +216,8 @@ def test_policy_validation(client):
 
 
 def test_institution_thresholds_change_the_decision(client):
-    from agents.copilot.demo_customers import user_id_for
+    from helpers import uid as user_id_for
+
     from agents.shield.analyzer import analyze_transaction
     from services import policy
 

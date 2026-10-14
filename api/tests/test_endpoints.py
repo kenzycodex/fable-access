@@ -20,7 +20,8 @@ os.environ.setdefault("FABLE_SESSION_SECRET", "test-secret")
 os.environ.setdefault("FABLE_OPERATOR_KEY", "test-operator-key")
 os.environ.setdefault("SMTP_USERNAME", "")
 
-from agents.copilot.demo_customers import user_id_for  # noqa: E402
+from helpers import ref as user_id_for  # noqa: E402
+from helpers import uid  # noqa: E402
 
 USER = user_id_for("endpointbank", "chioma")
 PIN = "8317"
@@ -37,21 +38,17 @@ def client():
     """Signed in to Endpoint Bank's console, the way the sandbox app calls the
     API. Every customer endpoint needs the caller's bank from a credential."""
     from fastapi.testclient import TestClient
+    from helpers import seed_bank
 
-    from agents.copilot.demo_customers import seed_institution
-    from core import db
-    from core.tenancy import register_institution
     from main import app
 
-    register_institution("endpointbank", "Endpoint Bank", "risk@endpoint.ng")
-    seed_institution("endpointbank", days=90)
-    db._backfill_customers(db.get_conn())
+    seed_bank("endpointbank", "Endpoint Bank")
     # Customers the PIN tests use beyond the seeded ones. A customer endpoint
     # only serves customers the bank already has.
     from core import customers
 
-    for ref in ("endpointbank_ada", "endpointbank_rules", "endpointbank_weak"):
-        customers.ensure("endpointbank", ref, kind="test", source="console")
+    for extra in ("endpointbank_ada", "endpointbank_rules", "endpointbank_weak"):
+        customers.ensure("endpointbank", extra, kind="test", source="console")
     with TestClient(app, headers=_session("risk@endpoint.ng", "endpointbank")) as c:
         yield c
 
@@ -145,11 +142,13 @@ def test_negative_amount_is_rejected_at_the_edge(client):
     assert res.status_code == 422
 
 
-def test_credentials_and_provisioning_stay_gated(anon):
+def test_credentials_and_provisioning_stay_gated(client, anon):
     assert anon.get("/v1/institutions/endpointbank/credentials").status_code == 401
-    assert anon.post("/admin/provision", json={
-        "institution_name": "Sneaky", "admin_email": "a@b.c",
-    }).status_code == 401
+    # Provisioning belongs to Fable operators, never to a bank or an anonymous caller.
+    body = {"name": "Sneaky Bank", "owner_email": "a@b.co"}
+    assert anon.post("/operator/institutions", json=body).status_code == 401
+    assert client.post("/operator/institutions", json=body).status_code == 401
+    assert anon.post("/admin/provision", json={"institution_name": "x", "admin_email": "a@b.c"}).status_code == 404
 
 
 def test_tenant_cannot_be_switched_by_query_parameter(client, anon):
@@ -218,8 +217,8 @@ def test_institution_can_clear_its_own_customers_pin_only(client, anon):
     from core import security, sessions
 
     user = user_id_for("endpointbank", "chioma")
-    client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "9999"}) if not security.status(user)["pin_set"] else None
-    assert security.status(user)["pin_set"] is True
+    client.post(f"/v1/accounts/{user}/security/pin", json={"pin": "9999"}) if not security.status(uid("endpointbank", "chioma"))["pin_set"] else None
+    assert security.status(uid("endpointbank", "chioma"))["pin_set"] is True
 
     url = f"/v1/institutions/endpointbank/customers/{user}/pin/reset"
     assert anon.post(url).status_code == 401  # no session
@@ -278,47 +277,36 @@ def test_institution_profile_rejects_bad_input(client):
 def test_renaming_an_institution_id_moves_everything_and_keeps_the_old_one_working(client):
     import sqlite3
 
-    from agents.copilot.demo_customers import seed_institution
-    from core import config, security
-    from core.tenancy import register_institution
+    from helpers import seed_bank
+
+    from core import config, customers, security
     from scripts import rename_institution as ren
 
-    register_institution("oldbank", "Old Bank", "risk@old.ng")
-    seed_institution("oldbank", days=30)
-    from core import db
-    db._backfill_customers(db.get_conn())
-    old_tunde = user_id_for("oldbank", "tunde")
-    new_tunde = user_id_for("newbank", "tunde")
-    assert client.post(f"/v1/accounts/{old_tunde}/security/pin", json={"pin": "4821"},
+    seed_bank("oldbank", "Old Bank", days=30)
+    tunde = customers.get("oldbank", user_id_for("oldbank", "tunde"))
+    assert client.post(f"/v1/accounts/{tunde['external_ref']}/security/pin", json={"pin": "4821"},
                        headers=_session("risk@old.ng", "oldbank")).status_code == 200
 
-    def counts(conn):
-        return {
-            "txns": conn.execute("select count(*) from transactions where institution_id = 'oldbank'").fetchone()[0],
-            "customers": conn.execute("select count(*) from transactions where user_id like 'oldbank|_%' escape '|'").fetchone()[0],
-        }
-
     conn = sqlite3.connect(config.DB_PATH, timeout=30)
-    before = counts(conn)
-    assert before["txns"] > 0
+    before = conn.execute("select count(*) from transaction_history where institution_id = 'oldbank'").fetchone()[0]
+    assert before > 0
 
-    # A dry run reports the change and makes none.
-    dry = ren.rename(conn, "oldbank", "newbank", do_apply=False)
-    assert dry["mapping"][old_tunde] == new_tunde
-    assert counts(conn) == before
+    ren.rename(conn, "oldbank", "newbank", do_apply=False)
+    assert conn.execute("select count(*) from customers where institution_id = 'oldbank'").fetchone()[0] == 2
 
     ren.rename(conn, "oldbank", "newbank", do_apply=True)
     conn.close()
 
     check = sqlite3.connect(config.DB_PATH)
-    assert check.execute("select count(*) from transactions where institution_id = 'oldbank'").fetchone()[0] == 0
-    assert check.execute("select count(*) from transactions where institution_id = 'newbank'").fetchone()[0] == before["txns"]
-    assert check.execute("select count(*) from transactions where user_id like 'oldbank|_%' escape '|'").fetchone()[0] == 0
+    for table in ("transactions", "transaction_history", "customers"):
+        assert check.execute(f"select count(*) from {table} where institution_id = 'oldbank'").fetchone()[0] == 0, table
+    assert check.execute("select count(*) from transaction_history where institution_id = 'newbank'").fetchone()[0] == before
     check.close()
 
-    # The customer's PIN came with them, under the new id.
-    assert security.status(new_tunde)["pin_set"] is True
-    assert security.status(old_tunde)["pin_set"] is False
+    # The customer is the same customer, with their PIN, at the renamed bank.
+    moved = customers.get("newbank", tunde["id"])
+    assert moved and moved["external_ref"] == tunde["external_ref"]
+    assert security.status(tunde["id"])["pin_set"] is True
 
     # The old id is still understood, so old links and open tabs keep working.
     assert client.get("/v1/branding/resolve/oldbank").json()["institution_id"] == "newbank"

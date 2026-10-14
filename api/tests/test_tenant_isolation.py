@@ -100,7 +100,7 @@ def _probes(w) -> list[tuple[str, str, dict | None]]:
         ("post", f"/v1/accounts/{ref}/security/contact", {"email": "x@y.ng"}),
         ("get", f"/v1/notifications/{ref}", None),
         ("get", f"/v1/copilot/transparency/{ref}", None),
-        ("get", f"/v1/demo/overview/{ref}", None),
+        ("get", f"/v1/sandbox/overview/{ref}", None),
         ("post", "/v1/stepup/requirement", {"user_id": ref, "risk_score": 0.6, "signals": [], "action": "FLAG", "purpose": "transfer"}),
         ("get", f"/v1/stepup/passkey/{ref}", None),
         ("get", f"/v1/ghost/{gid}", None),
@@ -130,7 +130,7 @@ def test_another_bank_cannot_see_or_touch_anything(world):
         for method, path, body in _probes(world):
             if "ghost" in path or "/transactions/" in path or "explanation" in path:
                 assert _call(c, method, path, body, creds).status_code == 404, path
-        overview = c.get(f"/v1/demo/overview/{SHARED_REF}", headers=creds)
+        overview = c.get(f"/v1/sandbox/overview/{SHARED_REF}", headers=creds)
         if overview.status_code == 200:
             assert all(t["id"] != world["txid"] for t in overview.json()["transactions"])
 

@@ -17,11 +17,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def user_id_for(institution_id: str, key: str) -> str:
-    """The seeded customer's id. Imported on use, because Fable modules must not
-    load until the pinned environment below is in place."""
-    from agents.copilot.demo_customers import user_id_for as _user_id_for
+    """A test customer's Fable id. Imported on use, because Fable modules must
+    not load until the pinned environment below is in place."""
+    from helpers import uid
 
-    return _user_id_for(institution_id, key)
+    return uid(institution_id, key)
 
 # Pin the tuning these assertions were written against.
 #
@@ -53,12 +53,10 @@ os.environ.update(_PINNED)
 
 @pytest.fixture(scope="module")
 def bank():
-    """One seeded institution, reused across the module."""
-    from agents.copilot.demo_customers import seed_institution
-    from core.tenancy import register_institution
+    """One institution with a trader and a student and their history."""
+    from helpers import seed_bank
 
-    register_institution("testbank", "Test Bank", "risk@test.ng")
-    seed_institution("testbank", days=90)
+    seed_bank("testbank", "Test Bank")
     return "testbank"
 
 
