@@ -14,11 +14,23 @@ from middleware.rate_limit import RateLimitMiddleware
 
 logger = logging.getLogger("fable")
 
+# No log line, and no error report, ever carries an integration key: every
+# record passes through the scrubber, which removes any key the process has
+# loaded and anything shaped like a provider key.
+from core.secrets import ScrubFilter, scrub_event  # noqa: E402
+
+for _handler in logging.getLogger().handlers or []:
+    _handler.addFilter(ScrubFilter())
+logging.getLogger().addFilter(ScrubFilter())
+for _name in ("fable", "uvicorn", "uvicorn.error", "uvicorn.access"):
+    logging.getLogger(_name).addFilter(ScrubFilter())
+
 # Optional Sentry error monitoring — only if a DSN is configured.
 if config.SENTRY_DSN:
     try:
         import sentry_sdk
-        sentry_sdk.init(dsn=config.SENTRY_DSN, environment=config.ENVIRONMENT, traces_sample_rate=0.1)
+        sentry_sdk.init(dsn=config.SENTRY_DSN, environment=config.ENVIRONMENT, traces_sample_rate=0.1,
+                        before_send=scrub_event)
     except Exception:
         pass
 
@@ -30,6 +42,12 @@ async def lifespan(_app: FastAPI):
     """
     sweep_expired_containments()
     note_if_no_admins()
+    try:
+        from services import secret_admin
+
+        secret_admin.sweep()  # apply finished cooling-off periods, expire stale proposals
+    except Exception as exc:  # noqa: BLE001 - never block startup on this
+        logger.warning("Could not sweep integration-key changes at startup: %s", type(exc).__name__)
     yield
 
 
@@ -58,7 +76,7 @@ app.add_middleware(
 # Register routers resiliently: a missing or broken router module logs a
 # warning and is skipped, so one bad module never takes down the whole API.
 # `_optional` names are allowed to be absent without a warning.
-_ROUTERS = ["shield", "ghost", "copilot", "dashboard", "assistant", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "notifications", "review", "team", "webhooks", "geo", "sandbox", "customers", "imports", "onboarding", "operator"]
+_ROUTERS = ["shield", "ghost", "copilot", "dashboard", "assistant", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "notifications", "review", "team", "webhooks", "geo", "sandbox", "customers", "imports", "onboarding", "operator", "operator_secrets"]
 _OPTIONAL: set[str] = set()
 _loaded: list[str] = []
 
@@ -96,6 +114,13 @@ if config.ENVIRONMENT == "production" and config.WEBAUTHN_RP_ID == "localhost":
         "registration and assertion will fail origin validation, silently "
         "pushing all step-up onto the weaker PIN/OTP path. Set it to the "
         "site's registered domain (no scheme, no port)."
+    )
+
+if config.ENVIRONMENT == "production" and not config.SECRETS_KEY:
+    logger.warning(
+        "FABLE_SECRETS_KEY is not set, so integration keys can only come from .env and the "
+        "operator console's Integrations page is read-only. To enable it: "
+        "python -c \"import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())\""
     )
 
 if config.ENVIRONMENT == "production" and not config.PIN_PEPPER:
