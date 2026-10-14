@@ -21,3 +21,9 @@ os.environ.setdefault("FABLE_RATE_LIMIT_MAX", "100000")
 for _name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "LOCATIONIQ_API_KEY", "GEOAPIFY_API_KEY",
               "GOOGLE_MAPS_API_KEY", "OPENAI_MODEL", "ANTHROPIC_MODEL", "FABLE_SECRETS_KEY"):
     os.environ[_name] = ""
+
+# No test may send real email either. A module run on its own used to pick up
+# the developer's SMTP login from .env, and security alerts to the tests' fake
+# owners went out through a real mailbox. Blank, always, before config loads.
+for _name in ("SMTP_USERNAME", "SMTP_PASSWORD"):
+    os.environ[_name] = ""

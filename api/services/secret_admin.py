@@ -107,6 +107,13 @@ def verify_chain() -> tuple[bool, int, str | None]:
     return True, len(rows), None
 
 
+def _reserved(email: str) -> bool:
+    """Addresses that can never receive mail (RFC 2606 / 6761 names). Mail to
+    them only bounces back to our own sending mailbox."""
+    domain = email.rsplit("@", 1)[-1].lower()
+    return domain.endswith((".test", ".example", ".invalid", ".localhost")) or domain in ("test", "example", "invalid", "localhost")
+
+
 def alert_owners(subject: str, body: str, exclude: str | None = None) -> None:
     """Email every platform owner. Best effort: a missing mail server never
     blocks the action, which is already in the audit trail."""
@@ -114,7 +121,7 @@ def alert_owners(subject: str, body: str, exclude: str | None = None) -> None:
         return
     with cursor() as cur:
         cur.execute("SELECT email FROM operators WHERE role = 'platform_owner' AND active = 1")
-        owners = [r["email"] for r in cur.fetchall() if r["email"] != exclude]
+        owners = [r["email"] for r in cur.fetchall() if r["email"] != exclude and not _reserved(r["email"])]
     for email in owners:
         msg = EmailMessage()
         msg["Subject"] = f"[Fable security] {subject}"
