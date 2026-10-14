@@ -77,7 +77,7 @@ Two paths, and the authenticated one always wins:
 | **URL** | `/demo/zenith_test_bank` — the slug in the path | Asserted, validated against the registry |
 | **API key** | "Connect institution" field → `X-API-Key` header on every call | Authenticated |
 
-`api/tenancy.py::resolve_institution` decides: API key → claimed slug → default.
+`api/core/tenancy.py::resolve_institution` decides: API key → claimed slug → default.
 An unknown slug falls back to the default rather than silently creating a
 phantom tenant. This is why pasting a Zenith key into a Meridian URL still books
 the transfer to Zenith — the key is proof, the URL is just a claim.

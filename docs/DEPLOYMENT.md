@@ -54,7 +54,7 @@ SQLite, not against a generic SQL layer:
 | Auto ids | `AUTOINCREMENT` | `SERIAL` / `IDENTITY` |
 | Upserts | `INSERT OR IGNORE` / `OR REPLACE` | `ON CONFLICT` |
 
-Those appear across `db.py`, `branding.py`, and the `admin`, `auth` and `demo`
+Those appear across `core/db.py`, `services/branding.py`, and the `admin`, `auth` and `demo`
 routers. Porting is real work — a driver swap, a placeholder conversion, and
 rewriting the SQLite-only SQL.
 

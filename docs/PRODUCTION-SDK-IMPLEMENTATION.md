@@ -26,7 +26,7 @@ Next.js API routes (server side)
         ▼
 FastAPI backend (api/)
  ├─ models/schemas.py     → expanded Device + Context models (all new fields)
- ├─ db.py                 → migrated transactions table + device_profiles + user_locations
+ ├─ core/db.py            → migrated transactions table + device_profiles + user_locations
  ├─ agents/shield/analyzer.py → 12-signal scoring pipeline
  ├─ agents/copilot/baseline.py → baseline now includes devices, cities, session stats
  └─ routers/agents.py     → agent-level analytics for the institution dashboard
@@ -156,7 +156,7 @@ location layers replace that lost weight with signals users can't simply not typ
 
 ## 8. Component 7 — Database Schema
 
-`api/db.py` gains a lightweight migration step (`_migrate()`): `PRAGMA table_info` diff +
+`api/core/db.py` gains a lightweight migration step (`_migrate()`): `PRAGMA table_info` diff +
 `ALTER TABLE ADD COLUMN` for each missing column, so existing `fable.db` files upgrade in
 place on boot. New `transactions` columns: `client_ip, latitude, longitude, city, country,
 location_source, session_duration_seconds, auth_method, typing_speed_ms, paste_detected,

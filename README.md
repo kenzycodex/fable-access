@@ -131,23 +131,27 @@ Fable is structured as a powerful monorepo containing a high-performance Python 
 ```text
 fable/
 ├── api/                           # 🧠 FastAPI Python Backend (Intelligence Layer)
+│   ├── main.py                    # App entry point: middleware, routers, startup
+│   ├── core/                      # Plumbing: config, database and migrations, sessions,
+│   │                              #   tenancy and roles, password and API-key hashing
+│   ├── services/                  # Domain logic: ledger, audit log, branding, notifications,
+│   │                              #   risk policy, signed webhooks, geocoding
 │   ├── agents/
 │   │   ├── copilot/               # Baseline profiling and the analyst assistant
 │   │   ├── shield/                # Scoring, step-up and assurance, explanations
 │   │   └── ghost/                 # Containment holds and release
 │   ├── intelligence/              # Scam patterns and fraud context
 │   ├── middleware/                # API-key auth, rate limiting, latency
+│   ├── models/                    # Request and response schemas
 │   ├── routers/                   # /v1/shield, /v1/ghost, /v1/review, /v1/team, /v1/webhooks, /auth, ...
 │   ├── scripts/                   # Operator tools: rename or remove institutions, PIN reset, admin email
 │   ├── tests/                     # Scoring, endpoint, console-workflow and migration tests
-│   ├── main.py                    # Uvicorn entry point
-│   ├── db.py                      # SQLite schema and migrations
-│   ├── policy.py                  # Per-institution thresholds and Ghost hold windows
-│   ├── webhooks.py                # Signed outbound webhooks
+│   ├── eval/                      # Offline evaluation harness for labelled transactions
 │   ├── Dockerfile                 # Production image
 │   ├── docker-compose.yml
+│   ├── pyproject.toml             # Tool settings (Ruff, pytest)
 │   ├── requirements.txt           # What the app needs
-│   └── requirements-dev.txt       # Plus pytest, for running the tests
+│   └── requirements-dev.txt       # Plus pytest and Ruff, for tests and linting
 │
 ├── src/                           # 💻 Next.js 16 Frontend
 │   ├── app/
@@ -335,7 +339,7 @@ Authenticate with `X-API-Key: fbl_live_...`.
 
 ## 🗄️ Data Model
 
-The backend stores everything in SQLite (`api/fable.db`), with the schema and in-place migrations in [api/db.py](api/db.py). Core tables: `transactions` (with review state, outcome and assignee), `case_notes`, `ghost_containers`, `fable_users`, `institutions`, `institution_settings` (risk policy), `institution_branding`, `admins` (with roles), `api_keys`, `webhooks` and `webhook_deliveries`, `accounts` and `ledger_entries`, `user_security` and `user_credentials` (PIN hash and passkey public keys), `stepup_challenges`, `device_profiles`, `user_locations`, `notifications`, `audit_log`, and `institution_aliases` and `user_aliases` (former ids after a rename). Every row is scoped to an institution.
+The backend stores everything in SQLite (`api/fable.db`), with the schema and in-place migrations in [api/core/db.py](api/core/db.py). Core tables: `transactions` (with review state, outcome and assignee), `case_notes`, `ghost_containers`, `fable_users`, `institutions`, `institution_settings` (risk policy), `institution_branding`, `admins` (with roles), `api_keys`, `webhooks` and `webhook_deliveries`, `accounts` and `ledger_entries`, `user_security` and `user_credentials` (PIN hash and passkey public keys), `stepup_challenges`, `device_profiles`, `user_locations`, `notifications`, `audit_log`, and `institution_aliases` and `user_aliases` (former ids after a rename). Every row is scoped to an institution.
 
 <br />
 
