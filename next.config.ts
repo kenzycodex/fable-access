@@ -69,6 +69,12 @@ const SECURITY_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Keep a visited dynamic screen in the client cache for three minutes, so
+    // going back to it is instant. Safe here: the demo and console screens
+    // fetch their data in the browser, so the cached part holds no live data.
+    staleTimes: { dynamic: 180 },
+  },
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS }];
   },
