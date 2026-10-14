@@ -53,21 +53,31 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="flex items-center justify-between px-6 pb-2 pt-6">
+        <div className="nav-brand flex items-center justify-between px-6 pb-2 pt-6">
           <Link href="/" className="flex items-center" aria-label="Fable home">
+            <span className="nav-wide-only flex items-center">
+              <Image
+                src="/images/brand/fable-logo-white.png"
+                alt="Fable"
+                width={1671}
+                height={547}
+                className="hidden h-7 w-auto dark:block"
+              />
+              <Image
+                src="/images/brand/fable-logo.png"
+                alt="Fable"
+                width={1671}
+                height={547}
+                className="block h-7 w-auto dark:hidden"
+              />
+            </span>
+            {/* The compact rail is too narrow for the wordmark, so it shows the shield alone. */}
             <Image
-              src="/images/brand/fable-logo-white.png"
+              src="/images/brand/fable-logo-icon.png"
               alt="Fable"
-              width={1671}
-              height={547}
-              className="hidden h-7 w-auto dark:block"
-            />
-            <Image
-              src="/images/brand/fable-logo.png"
-              alt="Fable"
-              width={1671}
-              height={547}
-              className="block h-7 w-auto dark:hidden"
+              width={1254}
+              height={1254}
+              className="nav-rail-only hidden size-10"
             />
           </Link>
           <span className="nav-wide-only rounded-full bg-brand/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-brand">
