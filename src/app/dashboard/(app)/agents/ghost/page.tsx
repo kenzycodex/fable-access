@@ -61,7 +61,7 @@ export default function GhostAgentPage() {
             <EmptyState
               icon={<Timer size={22} />}
               title={data ? "No containers yet" : "Waiting for the Fable API"}
-              body={data ? "Trigger a risky transfer in the demo bank to see one." : "Containers appear once the API responds."}
+              body={data ? "Trigger a risky transfer in the sandbox app to see one." : "Containers appear once the API responds."}
             />
           ) : (
             <div className="flex flex-col gap-2">

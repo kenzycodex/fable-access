@@ -76,7 +76,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
 
       const next = await updateBranding(institutionId, patch);
       publish(next);
-      setMessage({ kind: "success", text: "Branding saved. Your demo bank reflects it immediately." });
+      setMessage({ kind: "success", text: "Branding saved. Your sandbox app reflects it immediately." });
     } catch (err) {
       setMessage({ kind: "danger", text: err instanceof Error ? err.message : "Could not save branding." });
     } finally {
@@ -114,7 +114,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
 
   return (
     <Card>
-      <CardHeader title="Branding" subtitle="Your customers see your bank, not Fable. Changes apply to your demo bank instantly." />
+      <CardHeader title="Branding" subtitle="Your customers see your bank, not Fable. Changes apply to your sandbox app instantly." />
 
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-5">
         <div className="flex flex-col gap-5 lg:col-span-3">

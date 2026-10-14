@@ -69,6 +69,6 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
 export const DASHBOARD_NAV: DashboardNavItem[] = DASHBOARD_NAV_GROUPS.flatMap((g) => g.items);
 
 export const DASHBOARD_FOOTER_NAV: DashboardNavItem[] = [
-  { href: "/demo", label: "Open the demo bank", icon: Play, match: (p) => p === "/demo", external: true },
+  { href: "/demo", label: "Open the sandbox", icon: Play, match: (p) => p === "/demo", external: true },
   { href: "/docs", label: "API reference", icon: Code, match: (p) => p.startsWith("/docs"), external: true },
 ];
