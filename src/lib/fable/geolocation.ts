@@ -1,9 +1,9 @@
 "use client";
 
-// Fable SDK — geolocation collector. GPS first (real browser permission
-// prompt, exactly like a bank app), IP geolocation as fallback (ipapi.co,
-// free, no key). Never blocks the transfer flow: collection starts at page
-// mount and whatever has resolved by submit time is what Shield gets.
+// Fable SDK: geolocation collector. GPS first (the browser's permission
+// prompt, like a bank app), IP geolocation as fallback (ipapi.co, free, no
+// key). Never blocks the transfer flow: the first reading shows at once, later
+// readings sharpen it, and whatever is known at submit time is what Shield gets.
 
 export interface GeoLocation {
   latitude: number | null;
@@ -49,7 +49,6 @@ const PRECISE_M = 500;
 export const TRUSTED_CITY_M = 5_000;
 
 let cache: GeoLocation | null = null;
-let inflight: Promise<GeoLocation> | null = null;
 
 interface IpApiResponse {
   latitude?: number;
@@ -77,38 +76,6 @@ async function ipLookup(): Promise<IpApiResponse | null> {
   } catch {
     return null;
   }
-}
-
-/** Watch for a few seconds and keep the best fix, the way ride and delivery apps
- * do. The first reading from a phone is usually a coarse network fix; the GPS
- * chip needs a moment to lock on and the accuracy tightens as it does. */
-function gpsPosition(): Promise<{ pos: GeolocationPosition | null; error: GpsError | null }> {
-  return new Promise((resolve) => {
-    if (!("geolocation" in navigator)) return resolve({ pos: null, error: "unsupported" });
-    let best: GeolocationPosition | null = null;
-    let done = false;
-    let watchId = -1;
-
-    const finish = (error: GpsError | null) => {
-      if (done) return;
-      done = true;
-      if (watchId !== -1) navigator.geolocation.clearWatch(watchId);
-      clearTimeout(timer);
-      resolve({ pos: best, error: best ? null : error });
-    };
-
-    watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        if (!best || pos.coords.accuracy < best.coords.accuracy) best = pos;
-        if (pos.coords.accuracy <= GOOD_FIX_M) finish(null);
-      },
-      (err) => finish(err.code === 1 ? "denied" : err.code === 3 ? "timeout" : "unavailable"),
-      // maximumAge 0: never accept a position the browser or OS remembers, which
-      // is how a customer at home was once placed at campus.
-      { enableHighAccuracy: true, timeout: GPS_TIMEOUT_MS, maximumAge: 0 },
-    );
-    const timer = setTimeout(() => finish("timeout"), GPS_TIMEOUT_MS);
-  });
 }
 
 /** Whether the browser will show the location prompt, has it granted, or has it
@@ -258,62 +225,123 @@ async function reverseGeocode(lat: number, lon: number): Promise<ReverseGeocode 
   );
 }
 
-async function collect(): Promise<GeoLocation> {
-  // Run GPS and the IP lookup in parallel: GPS supplies precise coordinates,
-  // the IP lookup supplies city/country labels + the public IP either way.
-  const [{ pos, error: gpsError }, ip] = await Promise.all([gpsPosition(), ipLookup()]);
+// ── Caching ──────────────────────────────────────────────────────────────────
+//
+// Two small caches, both short-lived because a location is personal:
+//   * addresses already looked up, keyed to about 11 m, so standing still
+//     never repeats a lookup (the server keeps its own hour-long cache too);
+//   * the last location, in sessionStorage for five minutes, so a reload or a
+//     return to the transfer screen shows it at once. sessionStorage is cleared
+//     when the tab closes, so a home address does not linger in the browser.
 
-  if (pos) {
-    // Name the place from the actual coordinates, not the ISP's city. Fall back
-    // to the IP labels only if reverse-geocoding is unavailable.
-    const place = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
-    return {
-      latitude: pos.coords.latitude,
-      longitude: pos.coords.longitude,
-      accuracy_m: pos.coords.accuracy,
-      // A laptop has no GPS chip; its fix comes from nearby Wi-Fi and can be
-      // kilometres out. A building name is only believable from a tight fix.
-      locality: pos.coords.accuracy <= PRECISE_M ? (place?.locality ?? null) : null,
-      address: pos.coords.accuracy <= PRECISE_M ? (place?.address ?? null) : null,
-      plus_code: pos.coords.accuracy <= PRECISE_M ? (place?.plus_code ?? null) : null,
-      district: place?.district ?? null,
-      landmark: pos.coords.accuracy <= PRECISE_M ? (place?.landmark ?? null) : null,
-      // The browser-side fallbacks are OpenStreetMap too.
-      attribution: place ? (place.attribution ?? "Map data © OpenStreetMap contributors") : null,
-      city: place?.city ?? ip?.city ?? null,
-      region: place?.region ?? ip?.region ?? null,
-      country: place?.country ?? ip?.country_name ?? null,
-      country_code: place?.country_code ?? ip?.country_code ?? null,
-      ip: ip?.ip ?? null,
-      source: "gps",
-      gps_error: null,
-      collected_at: Date.now(),
-    };
+const STORAGE_KEY = "fable:geo";
+const PLACE_CACHE_MAX = 50;
+const placeCache = new Map<string, ReverseGeocode | null>();
+
+function placeKey(lat: number, lon: number): string {
+  return `${lat.toFixed(4)},${lon.toFixed(4)}`;
+}
+
+async function namePlace(lat: number, lon: number): Promise<ReverseGeocode | null> {
+  const key = placeKey(lat, lon);
+  if (placeCache.has(key)) return placeCache.get(key) ?? null;
+  const place = await reverseGeocode(lat, lon);
+  // A failed lookup is not remembered, so the next fix tries again.
+  if (place) {
+    placeCache.set(key, place);
+    if (placeCache.size > PLACE_CACHE_MAX) placeCache.delete(placeCache.keys().next().value!);
   }
-  if (ip && ip.latitude != null) {
-    return {
-      latitude: ip.latitude,
-      longitude: ip.longitude ?? null,
-      accuracy_m: null,
-      locality: null, // IP geolocation resolves to a city at best
-      address: null,
-      plus_code: null,
-      district: null,
-      landmark: null,
-      attribution: null,
-      city: ip.city ?? null,
-      region: ip.region ?? null,
-      country: ip.country_name ?? null,
-      country_code: ip.country_code ?? null,
-      ip: ip.ip ?? null,
-      source: "ip",
-      gps_error: gpsError,
-      collected_at: Date.now(),
-    };
+  return place;
+}
+
+function fresh(loc: GeoLocation | null): loc is GeoLocation {
+  return !!loc && Date.now() - loc.collected_at < CACHE_TTL_MS;
+}
+
+function restore(): GeoLocation | null {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const loc = raw ? (JSON.parse(raw) as GeoLocation) : null;
+    return fresh(loc) ? loc : null;
+  } catch {
+    return null; // private mode, blocked storage, or a malformed entry
   }
+}
+
+function persist(loc: GeoLocation) {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(loc));
+  } catch {
+    // Storage full or blocked: the in-memory copy still works.
+  }
+}
+
+// ── Collection ───────────────────────────────────────────────────────────────
+//
+// Progressive, the way map apps do it: the first reading is published at once,
+// then each tighter reading replaces it while the GPS chip locks on. Nothing
+// waits for a perfect fix, and the IP lookup never holds up a GPS answer.
+
+/** Stop refining after this long, or once a fix is within GOOD_FIX_M. */
+const REFINE_MS = 15_000;
+/** With no GPS reading by now, show the network's area while still waiting. */
+const IP_FALLBACK_AFTER_MS = 3_000;
+/** A new fix this close to the last named one reuses its address. */
+const SAME_PLACE_M = 25;
+
+type Listener = (loc: GeoLocation) => void;
+const listeners = new Set<Listener>();
+let watchId: number | null = null;
+let stopTimer: ReturnType<typeof setTimeout> | undefined;
+let ipPromise: Promise<IpApiResponse | null> | null = null;
+let ipResult: IpApiResponse | null = null;
+let best: GeolocationPosition | null = null;
+let named: { lat: number; lon: number; place: ReverseGeocode | null } | null = null;
+let geocodeSeq = 0;
+
+function metresBetween(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const k = Math.cos((lat1 * Math.PI) / 180);
+  return Math.hypot((lon2 - lon1) * k, lat2 - lat1) * 111_320;
+}
+
+function publish(loc: GeoLocation) {
+  cache = loc;
+  persist(loc);
+  listeners.forEach((fn) => fn(loc));
+}
+
+function fromGps(pos: GeolocationPosition, place: ReverseGeocode | null): GeoLocation {
+  const { latitude, longitude, accuracy } = pos.coords;
+  const precise = accuracy <= PRECISE_M;
   return {
-    latitude: null,
-    longitude: null,
+    latitude,
+    longitude,
+    accuracy_m: accuracy,
+    // A laptop's fix comes from nearby Wi-Fi and can be kilometres out, so a
+    // street or building is only named from a fix tight enough to believe.
+    locality: precise ? (place?.locality ?? null) : null,
+    address: precise ? (place?.address ?? null) : null,
+    plus_code: precise ? (place?.plus_code ?? null) : null,
+    district: place?.district ?? null,
+    landmark: precise ? (place?.landmark ?? null) : null,
+    attribution: place ? (place.attribution ?? "Map data © OpenStreetMap contributors") : null,
+    city: place?.city ?? ipResult?.city ?? null,
+    region: place?.region ?? ipResult?.region ?? null,
+    country: place?.country ?? ipResult?.country_name ?? null,
+    country_code: place?.country_code ?? ipResult?.country_code ?? null,
+    ip: ipResult?.ip ?? null,
+    source: "gps",
+    gps_error: null,
+    collected_at: Date.now(),
+  };
+}
+
+function fromIp(gpsError: GpsError | null): GeoLocation {
+  const ip = ipResult;
+  const located = ip?.latitude != null;
+  return {
+    latitude: located ? (ip?.latitude ?? null) : null,
+    longitude: located ? (ip?.longitude ?? null) : null,
     accuracy_m: null,
     locality: null,
     address: null,
@@ -321,34 +349,124 @@ async function collect(): Promise<GeoLocation> {
     district: null,
     landmark: null,
     attribution: null,
-    city: null,
-    region: null,
-    country: null,
-    country_code: null,
+    city: located ? (ip?.city ?? null) : null,
+    region: located ? (ip?.region ?? null) : null,
+    country: located ? (ip?.country_name ?? null) : null,
+    country_code: located ? (ip?.country_code ?? null) : null,
     ip: ip?.ip ?? null,
-    source: "unavailable",
+    source: located ? "ip" : "unavailable",
     gps_error: gpsError,
     collected_at: Date.now(),
   };
 }
 
-/** Start (or reuse) location collection. Triggers the browser's GPS
- * permission prompt on first call; caches the result for 5 minutes. */
-export function collectGeolocation(force = false): Promise<GeoLocation> {
-  // A customer tapping "Use exact location" is a fresh request, not a cache hit.
-  if (force) cache = null;
-  if (cache && Date.now() - cache.collected_at < CACHE_TTL_MS) return Promise.resolve(cache);
-  if (!inflight) {
-    inflight = collect().then((loc) => {
-      cache = loc;
-      inflight = null;
-      return loc;
-    });
-  }
-  return inflight;
+/** The network's area, shown only while no GPS reading exists. */
+function showIpFallback(gpsError: GpsError | null) {
+  if (best) return;
+  ipPromise ??= ipLookup().then((r) => (ipResult = r));
+  void ipPromise.then(() => {
+    if (!best) publish(fromIp(gpsError));
+  });
 }
 
-/** Whatever has resolved so far, without waiting (null until first resolve). */
+function stopWatching() {
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+  clearTimeout(stopTimer);
+}
+
+function onFix(pos: GeolocationPosition) {
+  // Keep the first reading and every tighter one; a looser reading is noise.
+  if (best && pos.coords.accuracy >= best.coords.accuracy) return;
+  best = pos;
+  const { latitude: lat, longitude: lon, accuracy } = pos.coords;
+
+  if (named && metresBetween(lat, lon, named.lat, named.lon) <= SAME_PLACE_M) {
+    // Same spot as the last named fix: reuse its address, no lookup.
+    publish(fromGps(pos, named.place));
+  } else {
+    // Show this reading straight away, then name the exact spot. The previous
+    // street is kept only while it is still inside this reading's accuracy
+    // circle; otherwise only its city stays until the new name arrives. A late
+    // answer for an older reading is discarded.
+    const prev = named?.place ?? null;
+    const stillHere = !!named && metresBetween(lat, lon, named.lat, named.lon) <= accuracy;
+    publish(fromGps(pos, stillHere || !prev ? prev : { ...prev, locality: null, address: null, landmark: null, plus_code: null }));
+    const seq = ++geocodeSeq;
+    void namePlace(lat, lon).then((place) => {
+      if (seq !== geocodeSeq || best !== pos) return;
+      named = { lat, lon, place };
+      publish(fromGps(pos, place));
+    });
+  }
+  if (accuracy <= GOOD_FIX_M) stopWatching();
+}
+
+function start() {
+  if (watchId !== null) return;
+  if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+    showIpFallback("unsupported");
+    return;
+  }
+  best = null;
+  // The IP lookup runs alongside, for the public IP and the fallback; it never
+  // delays a GPS answer.
+  ipPromise = ipLookup().then((r) => {
+    ipResult = r;
+    if (cache?.source === "gps" && r?.ip && !cache.ip) publish({ ...cache, ip: r.ip });
+    return r;
+  });
+  watchId = navigator.geolocation.watchPosition(
+    onFix,
+    (err) => {
+      if (err.code === 1) stopWatching(); // denied: asking again will not help
+      showIpFallback(err.code === 1 ? "denied" : err.code === 3 ? "timeout" : "unavailable");
+    },
+    // A reading up to 30 s old answers instantly; fresh readings then refine it.
+    { enableHighAccuracy: true, maximumAge: 30_000, timeout: GPS_TIMEOUT_MS },
+  );
+  stopTimer = setTimeout(stopWatching, REFINE_MS);
+  setTimeout(() => showIpFallback("timeout"), IP_FALLBACK_AFTER_MS);
+}
+
+/** Follow the customer's location: called now with what is known, then again
+ * each time it sharpens. Returns the unsubscribe function. */
+export function subscribeGeolocation(fn: Listener): () => void {
+  listeners.add(fn);
+  cache ??= restore();
+  if (cache) fn(cache);
+  if (!fresh(cache)) start();
+  return () => {
+    listeners.delete(fn);
+  };
+}
+
+/** Start locating ahead of need, but only where permission is already granted,
+ * so no prompt appears on a screen that does not use location. */
+export function prewarmGeolocation(): void {
+  cache ??= restore();
+  if (fresh(cache)) return;
+  void locationPermission().then((state) => {
+    if (state === "granted") start();
+  });
+}
+
+/** The first location known, GPS or fallback. Kept for one-shot callers. */
+export function collectGeolocation(): Promise<GeoLocation> {
+  return new Promise((resolve) => {
+    // The listener can fire synchronously (a cached location), before `off`
+    // exists, so it only resolves here and unsubscribes on the next tick.
+    let done = false;
+    const off = subscribeGeolocation((loc) => {
+      if (done) return;
+      done = true;
+      resolve(loc);
+      queueMicrotask(() => off());
+    });
+  });
+}
+
+/** Whatever is known so far, without waiting (null until the first reading). */
 export function getGeolocationSnapshot(): GeoLocation | null {
   return cache;
 }
