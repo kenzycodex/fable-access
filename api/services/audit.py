@@ -52,6 +52,13 @@ ACCESS_DENIED = "security.access_denied"
 CUSTOMER_CREATED = "customer.created"
 CUSTOMER_UPDATED = "customer.updated"
 IMPORT_APPLIED = "import.applied"
+AGREEMENTS_CONFIRMED = "institution.agreements_confirmed"
+INSTITUTION_SUSPENDED = "institution.suspended"
+INSTITUTION_REACTIVATED = "institution.reactivated"
+OWNER_INVITED = "institution.owner_invited"
+OPERATOR_LOGIN = "operator.login"
+OPERATOR_INVITED = "operator.invited"
+OPERATOR_CHANGED = "operator.changed"
 
 
 def _institution_of(user_id: str | None) -> str | None:
@@ -82,6 +89,15 @@ def _institution_of(user_id: str | None) -> str | None:
     return None
 
 
+def for_institution(payload: dict) -> dict:
+    """An event's details as a bank sees them. An action a Fable operator took
+    on the bank shows as Fable's, without naming the member of staff; the
+    operator platform keeps the name in its own view of the same event."""
+    if isinstance(payload, dict) and payload.get("operator"):
+        return {**payload, "operator": "Fable"}
+    return payload
+
+
 def record(event_type: str, user_id: str | None = None, **payload) -> None:
     """Append one event. Best effort, by design.
 
@@ -104,16 +120,16 @@ def record(event_type: str, user_id: str | None = None, **payload) -> None:
 def recent(institution_id: str | None = None, limit: int = 100) -> list[dict]:
     """Recent events, newest first.
 
-    Scoped on the event's own institution_id. Platform-level events (a startup
-    sweep, for instance) carry none and are included for every tenant, because
-    they describe the system rather than a bank's customers.
+    Scoped strictly on the event's own institution_id. Events with no
+    institution (operator sign-ins and team changes, startup housekeeping)
+    belong to Fable, not to any bank, and are never shown to one.
     """
     from core.db import loads, row_to_dict
 
     sql = "SELECT id, user_id, event_type, payload, created_at FROM audit_log"
     params: list = []
     if institution_id:
-        sql += " WHERE institution_id = ? OR institution_id IS NULL"
+        sql += " WHERE institution_id = ?"
         params.append(institution_id)
     sql += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
@@ -123,7 +139,7 @@ def recent(institution_id: str | None = None, limit: int = 100) -> list[dict]:
             cur.execute(sql, params)
             rows = [row_to_dict(r) for r in cur.fetchall()]
         for r in rows:
-            r["payload"] = loads(r.get("payload"), {}) or {}
+            r["payload"] = for_institution(loads(r.get("payload"), {}) or {})
         return rows
     except Exception as exc:  # noqa: BLE001
         logger.warning("Audit read failed: %s", exc)

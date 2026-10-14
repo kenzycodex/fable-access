@@ -11,6 +11,7 @@ institution's transactions.
 """
 import csv
 import io
+import json
 import re
 from datetime import datetime, timezone
 
@@ -30,6 +31,7 @@ from intelligence.context import (
 from intelligence.context import (
     fraud_prevented as fraud_prevented_for,
 )
+from services import audit as audit_log
 
 router = APIRouter(prefix="/v1/dashboard", tags=["dashboard"])
 
@@ -322,7 +324,7 @@ def export_audit(
     date_to: str | None = Query(None, alias="to"),
 ):
     institution = tenant_for_console(request)
-    where = "WHERE (institution_id = ? OR institution_id IS NULL)"
+    where = "WHERE institution_id = ?"
     params: list = [institution]
     for value, op in ((date_from, ">="), (date_to, "<=")):
         if value:
@@ -337,7 +339,11 @@ def export_audit(
         )
         rows = [row_to_dict(r) for r in cur.fetchall()]
 
-    out = ([r["id"], r["created_at"], r["event_type"], r.get("user_id"), r.get("payload") or ""] for r in rows)
+    out = (
+        [r["id"], r["created_at"], r["event_type"], r.get("user_id"),
+         json.dumps(audit_log.for_institution(loads(r.get("payload"), {}) or {})) if r.get("payload") else ""]
+        for r in rows
+    )
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
     return _csv_response(
         f"fable-audit-{institution}-{stamp}.csv",
@@ -545,7 +551,7 @@ def report(
                 if code:
                     signal_counts[code] = signal_counts.get(code, 0) + 1
 
-        audit_where = "WHERE (institution_id = ? OR institution_id IS NULL)"
+        audit_where = "WHERE institution_id = ?"
         audit_params: list = [institution]
         for value, op in ((date_from, ">="), (date_to, "<=")):
             if value:
