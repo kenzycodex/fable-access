@@ -31,12 +31,12 @@ import {
   inputClass,
 } from "@/components/app-kit";
 import { BehavioralTracker } from "@/lib/fable/biometrics";
-import { InsufficientFundsError, accountBalance } from "@/lib/fable/api";
+import { InsufficientFundsError, accountBalance, sandboxRecipients, type SavedRecipient } from "@/lib/fable/api";
 import { collectDeviceFingerprint, type DeviceFingerprint } from "@/lib/fable/fingerprint";
 import { formatNaira } from "@/lib/fable/format";
 import { getGeolocationSnapshot, subscribeGeolocation, type GeoLocation } from "@/lib/fable/geolocation";
 import { CHANNEL_LABELS } from "@/lib/fable/scoring";
-import { CONTACTS, QUICK_AMOUNTS } from "@/lib/fable/seed";
+import { QUICK_AMOUNTS } from "@/lib/fable/seed";
 import { ensureSession, getSessionContext, type BankingSession } from "@/lib/fable/session";
 import { submitTransfer } from "@/lib/fable/store";
 import type { Channel, Recipient } from "@/lib/fable/types";
@@ -64,14 +64,6 @@ const FALLBACK_HINTS: Record<string, string> = {
 let tracker: BehavioralTracker | null = null;
 const recordKey = (field: string) => () => tracker?.recordKey(field);
 const recordPaste = (field: string) => () => tracker?.recordPaste(field);
-
-// The names the seeded beneficiaries resolve to.
-const CONTACT_REAL_NAMES: Record<string, string> = {
-  Mum: "Adeola Musa",
-  Landlord: "Emeka Okafor",
-  Chioma: "Chioma Nnamdi",
-  Unknown: "Bello Mukhtar",
-};
 
 export default function TransferPage() {
   const { href, customer, institutionId } = useInstitution();
@@ -155,17 +147,32 @@ export default function TransferPage() {
   }, []);
 
   const bankByCode = useMemo(() => new Map(banks.map((b) => [b.code, b])), [banks]);
+  const bankCodeByName = useMemo(() => new Map(banks.map((b) => [b.name.toLowerCase(), b.code])), [banks]);
+
+  // Saved recipients are the people this customer has actually paid before.
+  const { data: savedData } = useSWR(
+    customer ? ["saved-recipients", customer.user_id] : null,
+    () => sandboxRecipients(customer!.user_id),
+  );
+  const saved = savedData?.recipients ?? null;
 
   const verifyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(verifyTimer.current), []);
 
-  function selectContact(c: Recipient) {
-    setContact({ ...c, name: CONTACT_REAL_NAMES[c.name] ?? c.name });
+  function selectContact(c: SavedRecipient) {
+    // Already verified: the server issued it from a completed transfer.
+    setContact({
+      name: c.name,
+      bank: c.bank ?? "",
+      bankCode: bankCodeByName.get((c.bank ?? "").toLowerCase()) ?? "",
+      accountNumber: "",
+      known: true,
+      token: c.token,
+      last4: c.account_last4,
+    });
     setMode("saved");
-    setVerify("verifying");
     setResolveSource(null);
-    clearTimeout(verifyTimer.current);
-    verifyTimer.current = setTimeout(() => setVerify("verified"), 700);
+    setVerify("verified");
   }
 
   function handleAccountInput(val: string) {
@@ -276,25 +283,48 @@ export default function TransferPage() {
             />
 
             {mode === "saved" ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {CONTACTS.map((c) => {
-                  const selected = contact?.accountNumber === c.accountNumber;
-                  return (
-                    <button
-                      key={c.accountNumber}
-                      type="button"
-                      onClick={() => selectContact(c)}
-                      className={`flex flex-col items-center gap-2 rounded-2xl border p-3.5 transition-all ${
-                        selected ? "border-brand bg-brand/[0.06] ring-4 ring-brand/10" : "border-d-border hover:bg-d-surface-2"
-                      }`}
-                    >
-                      <Avatar name={c.name} size="lg" />
-                      <span className="text-[13px] font-semibold text-d-text">{c.name}</span>
-                      <span className="text-[11px] text-d-muted">{c.bank}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              saved === null ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[0, 1, 2, 3].map((i) => <div key={i} className="h-[124px] animate-pulse rounded-2xl bg-d-surface-2" />)}
+                </div>
+              ) : saved.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-d-border px-4 py-8 text-center">
+                  <p className="text-[14px] font-semibold text-d-text">No saved recipients yet</p>
+                  <p className="max-w-[320px] text-[13px] text-d-muted">
+                    People this customer has paid before appear here. Send to a new account to start.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setMode("new")}
+                    className="rounded-xl bg-brand px-4 py-2 text-[13px] font-semibold text-white"
+                  >
+                    New account
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {saved.map((c) => {
+                    const selected = contact?.token === c.token;
+                    return (
+                      <button
+                        key={c.token}
+                        type="button"
+                        onClick={() => selectContact(c)}
+                        className={`flex flex-col items-center gap-2 rounded-2xl border p-3.5 transition-all ${
+                          selected ? "border-brand bg-brand/[0.06] ring-4 ring-brand/10" : "border-d-border hover:bg-d-surface-2"
+                        }`}
+                      >
+                        <Avatar name={c.name} size="lg" />
+                        <span className="line-clamp-1 text-center text-[13px] font-semibold text-d-text">{c.name}</span>
+                        <span className="text-[11px] text-d-muted">
+                          {c.bank ? `${c.bank} · ` : ""}
+                          <span className="tabular-nums">{c.account_last4}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Account number">
