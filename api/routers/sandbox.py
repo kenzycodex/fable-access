@@ -90,6 +90,23 @@ def customer_overview(user_id: str, request: Request, limit: int = Query(60, ge=
     }
 
 
+@router.get("/recipients/{user_id}", dependencies=[Depends(customer_guard)])
+def saved_recipients(user_id: str, request: Request):
+    """A test customer's saved recipients: who they have actually sent money to.
+
+    The guard has already confirmed the customer belongs to the caller's bank.
+    Only test customers are served, and account numbers are masked; a transfer
+    to one of these sends back its token, never the number.
+    """
+    from services import sandbox_recipients
+
+    if request.state.mode == "live":
+        raise HTTPException(status_code=409, detail="The sandbox app is switched off while the institution is live.")
+    if (request.state.customer.get("kind") or "test") != "test":
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    return {"recipients": sandbox_recipients.for_customer(user_id, request.state.institution_id)}
+
+
 class ResetBody(BaseModel):
     # The institution's id, typed by the owner, so a reset is never a misclick.
     confirm: str
