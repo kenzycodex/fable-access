@@ -71,6 +71,12 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     customer_ref = request.state.customer["external_ref"]
     sandbox = request.state.mode != "live"
 
+    # A saved recipient arrives as a token issued to this customer; the account
+    # number behind it is filled in here, server side.
+    from services.sandbox_recipients import apply_token
+
+    apply_token(transaction, request.state.customer["id"])
+
     # A replayed offline transfer must be recognised, not re-scored. Returning
     # the original decision keeps the customer's history and the console
     # consistent no matter how many times the client retries.

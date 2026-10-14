@@ -19,6 +19,9 @@ router = APIRouter(prefix="/v1/ghost", tags=["ghost"], dependencies=[Depends(cus
 def create(payload: GhostCreateRequest, request: Request, background: BackgroundTasks):
     transaction = payload.transaction.model_dump()
     institution_id = request.state.institution_id
+    from services.sandbox_recipients import apply_token
+
+    apply_token(transaction, request.state.customer["id"])
 
     # An institution that has switched Ghost off gets no containment. Refusing
     # here is the honest behaviour: silently containing anyway would make the

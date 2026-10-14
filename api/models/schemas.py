@@ -14,7 +14,10 @@ class Transaction(BaseModel):
     # "USD" transfer of 100 was scored and debited as ₦100.
     currency: Literal["NGN"] = "NGN"
     recipient_id: Optional[str] = None
-    recipient_account: str
+    # Either the account number, or a sandbox saved-recipient token that the
+    # server resolves to one (so the browser never holds the full number).
+    recipient_account: str = ""
+    recipient_token: Optional[str] = Field(None, max_length=1000)
     recipient_bank_code: Optional[str] = None
     recipient_bank: Optional[str] = None
     # The resolved account holder, exactly as the bank returned it.
