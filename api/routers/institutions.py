@@ -308,10 +308,21 @@ class ModePatch(BaseModel):
 
 @router.put("/{institution_id}/mode")
 def set_mode(institution_id: str, body: ModePatch, request: Request):
-    """Switch between sandbox (open, for the demo bank) and live (key required)."""
+    """Switch between sandbox (the sandbox app works) and live (customer requests
+    need the API key). Going live needs every required onboarding item done."""
     who = _own_institution(institution_id, request, "owner")
     if body.mode not in ("sandbox", "live"):
         raise HTTPException(status_code=400, detail="mode must be sandbox or live.")
+    if body.mode == "live":
+        from services import onboarding
+
+        ready = onboarding.checklist(institution_id)
+        if not ready["ready_to_go_live"]:
+            raise HTTPException(
+                status_code=409,
+                detail={"error": "not_ready", "message": "Finish the go-live checklist first.",
+                        "remaining": ready["required_remaining"]},
+            )
     with cursor() as cur:
         cur.execute("UPDATE institutions SET mode = ? WHERE institution_id = ?", (body.mode, institution_id))
     audit.record(audit.MODE_CHANGED, None, institution_id=institution_id, mode=body.mode, by=who["email"])
