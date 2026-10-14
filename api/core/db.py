@@ -377,6 +377,60 @@ CREATE TABLE IF NOT EXISTS customers (
     updated_at TEXT DEFAULT (datetime('now')),
     UNIQUE (institution_id, external_ref)
 );
+
+-- A bank's past transfers, imported when it joins so its customers do not
+-- start cold. Kept apart from transactions, which are Shield's decisions:
+-- history was never scored, raised no alerts and must not count as decisions
+-- in the console. Scoring reads both through the customer_history view.
+CREATE TABLE IF NOT EXISTS transaction_history (
+    id TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    reference TEXT NOT NULL,
+    amount REAL NOT NULL,
+    recipient_account TEXT,
+    recipient_bank TEXT,
+    recipient_name TEXT,
+    channel TEXT,
+    device_fingerprint TEXT,
+    city TEXT,
+    country TEXT,
+    hour_of_day INTEGER,
+    -- completed, reversed, or fraud (confirmed by the bank). Only completed
+    -- transfers teach the baseline; fraud is kept as a label for training.
+    outcome TEXT NOT NULL DEFAULT 'completed',
+    confirmed_legitimate INTEGER NOT NULL DEFAULT 1,
+    import_job_id TEXT,
+    created_at TEXT NOT NULL,
+    imported_at TEXT DEFAULT (datetime('now')),
+    UNIQUE (institution_id, reference)
+);
+
+-- One upload or batch of customers or history, from validation to applied.
+CREATE TABLE IF NOT EXISTS import_jobs (
+    id TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    filename TEXT,
+    status TEXT NOT NULL,
+    total INTEGER DEFAULT 0,
+    valid INTEGER DEFAULT 0,
+    invalid INTEGER DEFAULT 0,
+    inserted INTEGER DEFAULT 0,
+    skipped INTEGER DEFAULT 0,
+    errors TEXT,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    finished_at TEXT
+);
+
+-- Rows that passed validation, waiting for the bank to confirm the import.
+-- Deleted once the job is applied or discarded.
+CREATE TABLE IF NOT EXISTS import_rows (
+    job_id TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    data TEXT NOT NULL
+);
 """
 
 # The tenant every pre-multi-tenant row belongs to. Existing databases were
@@ -541,9 +595,35 @@ def _migrate(conn):
     )
 
     _backfill_customers(conn)
+    _create_history_view(conn)
 
     # No institution is created here. One used to be inserted into an empty
     # database; institutions now come only from provisioning.
+    conn.commit()
+
+
+HISTORY_COLUMNS = (
+    "user_id, institution_id, amount, recipient_account, channel, device_fingerprint, "
+    "city, country, hour_of_day, confirmed_legitimate, created_at"
+)
+
+
+def _create_history_view(conn) -> None:
+    """Live decisions and imported history, as one stream for the baselines.
+
+    Rebuilt on every start, because a view cannot be altered and its columns
+    have to exist before it is created (some arrive by migration).
+    """
+    conn.execute("DROP VIEW IF EXISTS customer_history")
+    conn.execute(
+        f"""CREATE VIEW customer_history AS
+            SELECT {HISTORY_COLUMNS}, client_timezone, session_duration_seconds,
+                   time_to_submit_seconds, 'live' AS origin
+              FROM transactions
+            UNION ALL
+            SELECT {HISTORY_COLUMNS}, NULL, NULL, NULL, 'import' AS origin
+              FROM transaction_history"""
+    )
     conn.commit()
 
 
@@ -671,6 +751,10 @@ CREATE INDEX IF NOT EXISTS ix_notes_txn          ON case_notes(transaction_id);
 CREATE INDEX IF NOT EXISTS ix_hooks_inst         ON webhooks(institution_id);
 CREATE INDEX IF NOT EXISTS ix_deliveries_hook    ON webhook_deliveries(webhook_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_customers_inst     ON customers(institution_id, kind, status);
+CREATE INDEX IF NOT EXISTS ix_history_user       ON transaction_history(user_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_history_inst       ON transaction_history(institution_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_import_rows_job    ON import_rows(job_id, line);
+CREATE INDEX IF NOT EXISTS ix_import_jobs_inst   ON import_jobs(institution_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_txn_inst_clientref ON transactions(institution_id, client_reference);
 """
 

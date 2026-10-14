@@ -45,7 +45,7 @@ def get_user_baseline(user_id: str) -> dict | None:
 
     with cursor() as cur:
         cur.execute(
-            """SELECT * FROM transactions
+            """SELECT * FROM customer_history
                WHERE user_id = ? AND created_at >= ? AND confirmed_legitimate = 1
                ORDER BY created_at ASC""",
             (user_id, ninety_days_ago),
@@ -65,7 +65,7 @@ def get_user_baseline(user_id: str) -> dict | None:
     recipient_cutoff = (utcnow() - timedelta(days=RECIPIENT_MEMORY_DAYS)).isoformat()
     with cursor() as cur:
         cur.execute(
-            """SELECT DISTINCT recipient_account FROM transactions
+            """SELECT DISTINCT recipient_account FROM customer_history
                WHERE user_id = ? AND created_at >= ? AND confirmed_legitimate = 1
                  AND recipient_account IS NOT NULL AND recipient_account != ''""",
             (user_id, recipient_cutoff),
@@ -175,7 +175,7 @@ def get_population_baseline(institution_id: str | None) -> dict | None:
         params.append(institution_id)
 
     with cursor() as cur:
-        cur.execute(f"SELECT amount, hour_of_day, city, country FROM transactions {where}", params)
+        cur.execute(f"SELECT amount, hour_of_day, city, country FROM customer_history {where}", params)
         rows = [row_to_dict(r) for r in cur.fetchall()]
 
     if len(rows) < POPULATION_MIN_TRANSACTIONS:
@@ -220,7 +220,7 @@ def get_user_history_arrays(user_id: str) -> tuple[list[float], list[int]]:
     ninety_days_ago = (utcnow() - timedelta(days=90)).isoformat()
     with cursor() as cur:
         cur.execute(
-            """SELECT amount, hour_of_day FROM transactions
+            """SELECT amount, hour_of_day FROM customer_history
                WHERE user_id = ? AND created_at >= ? AND confirmed_legitimate = 1""",
             (user_id, ninety_days_ago),
         )
