@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import useSWR from "swr";
 import {
@@ -301,11 +301,26 @@ function BottomNav() {
 }
 
 /** The demo bank's frame: sidebar on desktop, top bar and tab bar on a phone. */
+/** Every screen the navigation can open. */
+const PREFETCH = [...MAIN, ...OTHERS].map((item) => item.path);
+
 export function DemoShell({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const { href } = useInstitution();
+
   // Locate in the background from the first screen, so the transfer screen
   // already has the place. Only where permission was granted before: no
   // location prompt appears on a screen that does not use it.
   useEffect(() => prewarmGeolocation(), []);
+
+  // These routes are dynamic (each bank's branding and customers are read
+  // fresh), so by default a click waits on a server round trip, and a cold
+  // serverless start made that wait visible as a spinner. The screens load
+  // their own data in the browser, so their server payload is small: fetch it
+  // for every screen up front and a click switches instantly.
+  useEffect(() => {
+    for (const path of PREFETCH) router.prefetch(href(path));
+  }, [router, href]);
 
   return (
     <>
