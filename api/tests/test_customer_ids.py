@@ -212,15 +212,16 @@ def test_rows_are_never_written_without_an_institution():
             require_institution_id(missing)
 
 
-def test_an_unidentified_request_is_refused_when_several_institutions_exist():
-    """With more than one bank and nothing naming one, any guess would hand one
-    bank's data to another, so the request is refused instead."""
+def test_a_request_without_a_credential_names_no_institution():
+    """There is no fallback bank any more, not even "the only one": a request
+    without a credential is refused before any bank is chosen."""
     from fastapi import HTTPException
+    from starlette.requests import Request
 
-    from core.tenancy import _fallback_institution, register_institution
+    from core.tenancy import caller_institution, register_institution
 
-    register_institution("firstbank_x", "First X", "a@x.ng")
-    register_institution("secondbank_x", "Second X", "b@x.ng")
+    register_institution("onlyone_x", "Only One", "a@x.ng")
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": [], "query_string": b""})
     with pytest.raises(HTTPException) as err:
-        _fallback_institution()
-    assert err.value.status_code == 400
+        caller_institution(request)
+    assert err.value.status_code == 401

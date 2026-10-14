@@ -26,18 +26,44 @@ USER = user_id_for("endpointbank", "chioma")
 PIN = "8317"
 
 
+def _session(email: str, institution: str) -> dict:
+    from core import sessions
+
+    return {"X-Fable-Session": sessions.issue(email, institution)["token"]}
+
+
 @pytest.fixture(scope="module")
 def client():
+    """Signed in to Endpoint Bank's console, the way the sandbox app calls the
+    API. Every customer endpoint needs the caller's bank from a credential."""
     from fastapi.testclient import TestClient
 
     from agents.copilot.demo_customers import seed_institution
+    from core import db
     from core.tenancy import register_institution
     from main import app
 
     register_institution("endpointbank", "Endpoint Bank", "risk@endpoint.ng")
     seed_institution("endpointbank", days=90)
-    with TestClient(app) as c:
+    db._backfill_customers(db.get_conn())
+    # Customers the PIN tests use beyond the seeded ones. A customer endpoint
+    # only serves customers the bank already has.
+    from core import customers
+
+    for ref in ("endpointbank_ada", "endpointbank_rules", "endpointbank_weak"):
+        customers.ensure("endpointbank", ref, kind="test", source="console")
+    with TestClient(app, headers=_session("risk@endpoint.ng", "endpointbank")) as c:
         yield c
+
+
+@pytest.fixture(scope="module")
+def anon():
+    """No credential at all."""
+    from fastapi.testclient import TestClient
+
+    from main import app
+
+    return TestClient(app)
 
 
 def test_health_reports_what_can_be_silently_wrong(client):
@@ -119,14 +145,14 @@ def test_negative_amount_is_rejected_at_the_edge(client):
     assert res.status_code == 422
 
 
-def test_credentials_and_provisioning_stay_gated(client):
-    assert client.get("/v1/institutions/endpointbank/credentials").status_code == 401
-    assert client.post("/admin/provision", json={
+def test_credentials_and_provisioning_stay_gated(anon):
+    assert anon.get("/v1/institutions/endpointbank/credentials").status_code == 401
+    assert anon.post("/admin/provision", json={
         "institution_name": "Sneaky", "admin_email": "a@b.c",
     }).status_code == 401
 
 
-def test_tenant_cannot_be_switched_by_query_parameter(client):
+def test_tenant_cannot_be_switched_by_query_parameter(client, anon):
     """S0-4. Reads took their tenant from an unbound query parameter, and
     omitting it aggregated every institution together."""
     from core import sessions
@@ -135,7 +161,7 @@ def test_tenant_cannot_be_switched_by_query_parameter(client):
     res = client.get("/v1/agents/overview?institution=some_other_bank",
                      headers={"X-Fable-Session": token})
     assert res.status_code == 200
-    assert client.get("/v1/agents/overview").status_code == 401
+    assert anon.get("/v1/agents/overview").status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +214,7 @@ def test_pin_rules_come_from_the_environment_not_the_code(client, monkeypatch):
     assert locked.status_code == 400 and "Too many" in locked.json()["detail"]
 
 
-def test_institution_can_clear_its_own_customers_pin_only(client):
+def test_institution_can_clear_its_own_customers_pin_only(client, anon):
     from core import security, sessions
 
     user = user_id_for("endpointbank", "chioma")
@@ -196,7 +222,7 @@ def test_institution_can_clear_its_own_customers_pin_only(client):
     assert security.status(user)["pin_set"] is True
 
     url = f"/v1/institutions/endpointbank/customers/{user}/pin/reset"
-    assert client.post(url).status_code == 401  # no session
+    assert anon.post(url).status_code == 401  # no session
 
     other = sessions.issue("risk@other.ng", "someotherbank")["token"]
     assert client.post(url, headers={"X-Fable-Session": other}).status_code == 404
@@ -215,11 +241,11 @@ def test_institution_can_clear_its_own_customers_pin_only(client):
 # Institution profile
 # ---------------------------------------------------------------------------
 
-def test_institution_can_edit_its_own_profile_only(client):
+def test_institution_can_edit_its_own_profile_only(client, anon):
     from core import sessions
 
     url = "/v1/institutions/endpointbank"
-    assert client.patch(url, json={"name": "New Name"}).status_code == 401
+    assert anon.patch(url, json={"name": "New Name"}).status_code == 401
 
     other = sessions.issue("risk@other.ng", "someotherbank")["token"]
     assert client.patch(url, json={"name": "Hijack"}, headers={"X-Fable-Session": other}).status_code == 404
@@ -259,9 +285,12 @@ def test_renaming_an_institution_id_moves_everything_and_keeps_the_old_one_worki
 
     register_institution("oldbank", "Old Bank", "risk@old.ng")
     seed_institution("oldbank", days=30)
+    from core import db
+    db._backfill_customers(db.get_conn())
     old_tunde = user_id_for("oldbank", "tunde")
     new_tunde = user_id_for("newbank", "tunde")
-    assert client.post(f"/v1/accounts/{old_tunde}/security/pin", json={"pin": "4821"}).status_code == 200
+    assert client.post(f"/v1/accounts/{old_tunde}/security/pin", json={"pin": "4821"},
+                       headers=_session("risk@old.ng", "oldbank")).status_code == 200
 
     def counts(conn):
         return {
