@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AskFable } from "@/components/dashboard/AskFable";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
+import { useConsoleLayout } from "@/lib/fable/layout";
 import { useFableStore } from "@/lib/fable/store";
 
 /**
@@ -14,6 +15,7 @@ import { useFableStore } from "@/lib/fable/store";
 export default function DashboardAppLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const store = useFableStore();
   const [menuOpen, setMenuOpen] = useState(false);
+  const layout = useConsoleLayout();
 
   // Backstop for arriving here without a session (expired token, direct URL,
   // a tab left open overnight). logout() navigates by itself, so this normally
@@ -45,9 +47,9 @@ export default function DashboardAppLayout({ children }: Readonly<{ children: Re
   }
 
   return (
-    <div className="console-shell min-h-dvh bg-d-bg text-d-text transition-colors duration-300">
+    <div data-layout={layout} className="console-shell min-h-dvh bg-d-bg text-d-text transition-colors duration-300">
       <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
-      <div className="lg:pl-[272px] print:!pl-0">
+      <div className="transition-[padding] duration-200 lg:pl-[var(--sidebar-w)] print:!pl-0">
         <TopBar onMenu={() => setMenuOpen(true)} />
         <main className="mx-auto flex w-full max-w-[1360px] flex-col gap-6 px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pb-12 lg:pt-8">
           {children}

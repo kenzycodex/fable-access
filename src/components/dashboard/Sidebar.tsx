@@ -20,7 +20,7 @@ function ReviewBadge({ active }: { active: boolean }) {
   if (!n) return null;
   return (
     <span
-      className={`ml-auto min-w-6 rounded-full px-2 py-0.5 text-center text-[11px] font-bold tabular-nums ${
+      className={`nav-badge ml-auto min-w-6 rounded-full px-2 py-0.5 text-center text-[11px] font-bold tabular-nums ${
         active ? "bg-white/25 text-white" : "bg-red-500 text-white"
       }`}
     >
@@ -49,7 +49,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[272px] print:hidden flex-col border-r border-d-border bg-d-surface transition-transform duration-200 lg:z-40 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[272px] print:hidden flex-col border-r border-d-border bg-d-surface transition-[transform,width] duration-200 lg:z-40 lg:w-[var(--sidebar-w)] lg:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -70,7 +70,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               className="block h-7 w-auto dark:hidden"
             />
           </Link>
-          <span className="rounded-full bg-brand/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-brand">
+          <span className="nav-wide-only rounded-full bg-brand/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-brand">
             Console
           </span>
           <button
@@ -84,10 +84,10 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         </div>
 
         {/* Scrolls on a short window; the account row below never does. */}
-        <nav className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pb-4 pt-6">
+        <nav className="nav-scroll flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-4 pb-4 pt-6">
           {DASHBOARD_NAV_GROUPS.map((group) => (
             <div key={group.label}>
-              <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-d-faint">{group.label}</p>
+              <p className="nav-group-title mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-d-faint">{group.label}</p>
               <div className="flex flex-col gap-1">
                 {group.items.map((item) => {
                   const active = item.match(pathname);
@@ -98,12 +98,13 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                       href={item.href}
                       aria-current={active ? "page" : undefined}
                       onClick={onClose}
-                      className={`flex h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-medium transition-colors ${
+                      title={item.label}
+                      className={`nav-item relative flex h-11 items-center gap-3 rounded-xl px-3 text-[14px] font-medium transition-colors ${
                         active ? "bg-brand text-white shadow-sm" : "text-d-muted hover:bg-d-surface-2 hover:text-d-text"
                       }`}
                     >
                       <Icon size={19} weight={active ? "fill" : "regular"} />
-                      {item.label}
+                      <span className="nav-text">{item.label}</span>
                       {item.badge === "review" && <ReviewBadge active={active} />}
                     </Link>
                   );
@@ -121,10 +122,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                   href={item.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex h-10 items-center gap-3 rounded-xl px-3 text-[13px] font-medium text-d-muted transition-colors hover:bg-d-surface-2 hover:text-d-text"
+                  title={item.label}
+                  className="nav-item flex h-10 items-center gap-3 rounded-xl px-3 text-[13px] font-medium text-d-muted transition-colors hover:bg-d-surface-2 hover:text-d-text"
                 >
                   <Icon size={17} />
-                  {item.label}
+                  <span className="nav-text">{item.label}</span>
                 </a>
               );
             })}
@@ -169,7 +171,7 @@ function AccountMenu() {
       {open && (
         <div
           role="menu"
-          className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-2xl border border-d-border bg-d-surface shadow-[0_18px_40px_-12px_rgba(0,0,0,0.25)]"
+          className="nav-menu absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-2xl border border-d-border bg-d-surface shadow-[0_18px_40px_-12px_rgba(0,0,0,0.25)]"
         >
           {who && (
             <div className="border-b border-d-border px-4 py-3">
@@ -208,7 +210,8 @@ function AccountMenu() {
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition-colors hover:bg-d-surface-2 ${open ? "bg-d-surface-2" : ""}`}
+        title={name}
+        className={`nav-item flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition-colors hover:bg-d-surface-2 ${open ? "bg-d-surface-2" : ""}`}
       >
         {branding?.logo_url ? (
           <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-d-border bg-white p-1">
@@ -218,11 +221,11 @@ function AccountMenu() {
         ) : (
           <Avatar name={name} size="sm" />
         )}
-        <span className="min-w-0 flex-1">
+        <span className="nav-text min-w-0 flex-1">
           <span className="block truncate text-[13px] font-semibold leading-tight text-d-text">{name}</span>
           <span className="block truncate text-[11px] leading-tight text-d-muted">{who ? who.name || who.email : "Console"}</span>
         </span>
-        <CaretUp size={14} className={`shrink-0 text-d-faint transition-transform ${open ? "" : "rotate-180"}`} />
+        <CaretUp size={14} className={`nav-wide-only shrink-0 text-d-faint transition-transform ${open ? "" : "rotate-180"}`} />
       </button>
     </div>
   );

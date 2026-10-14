@@ -551,6 +551,102 @@ html:has([data-surface="app"]) {
   background-attachment: fixed;
 }
 
+/* ── Console layouts (Settings → General → Layout) ────────────────────────────
+ *
+ * One attribute on the shell restyles every page, so no screen needs its own
+ * variant. The sidebar's width is a variable for the same reason.
+ */
+.console-shell {
+  --sidebar-w: 272px;
+}
+
+/* Sharp: square corners, hairline rules and no shadows, on neutral greys rather
+   than violet tints. Avatars, dots and switches stay round; everything else
+   squares off. Figures line up in columns. */
+.console-shell[data-layout="sharp"] {
+  --d-bg: #f4f4f5;
+  --d-surface: #ffffff;
+  --d-surface-2: #f4f4f5;
+  --d-border: rgba(24, 24, 27, 0.14);
+  --d-text: #09090b;
+  --d-muted: #52525b;
+  --d-faint: #8a8a93;
+  --d-shadow: none;
+  font-variant-numeric: tabular-nums;
+}
+.dark .console-shell[data-layout="sharp"] {
+  --d-bg: #09090b;
+  --d-surface: #111113;
+  --d-surface-2: #1b1b1f;
+  --d-border: rgba(244, 244, 245, 0.13);
+  --d-text: #fafafa;
+  --d-muted: #a1a1aa;
+  --d-faint: #71717a;
+  background-image: none;
+}
+.console-shell[data-layout="sharp"] [class*="rounded"]:not([class*="rounded-full"]) {
+  border-radius: 0 !important;
+}
+.console-shell[data-layout="sharp"] [class*="shadow"],
+.console-shell[data-layout="sharp"] .demo-card {
+  box-shadow: none !important;
+}
+
+/* Compact: an icon rail instead of the full sidebar, flat panels with no
+   border or shadow set off by the canvas alone, a small radius and tighter
+   rhythm, so more of each page fits on screen. Phones keep the full drawer. */
+.console-shell[data-layout="compact"] {
+  --d-shadow: none;
+}
+@media (min-width: 1024px) {
+  .console-shell[data-layout="compact"] {
+    --sidebar-w: 76px;
+  }
+  .console-shell[data-layout="compact"] .nav-text,
+  .console-shell[data-layout="compact"] .nav-group-title,
+  .console-shell[data-layout="compact"] .nav-wide-only {
+    display: none !important;
+  }
+  .console-shell[data-layout="compact"] .nav-item {
+    justify-content: center;
+    padding-inline: 0;
+  }
+  .console-shell[data-layout="compact"] .nav-scroll {
+    padding-inline: 12px;
+  }
+  /* The review count becomes a corner marker on the icon. */
+  .console-shell[data-layout="compact"] .nav-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    min-width: 0;
+    padding: 0 4px;
+    font-size: 9px;
+    line-height: 14px;
+  }
+  /* The account menu opens wider than the rail it sits in. */
+  .console-shell[data-layout="compact"] .nav-menu {
+    right: auto;
+    width: 248px;
+  }
+}
+.console-shell[data-layout="compact"] [class*="rounded"]:not([class*="rounded-full"]) {
+  border-radius: 6px !important;
+}
+.console-shell[data-layout="compact"] .demo-card {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+.console-shell[data-layout="compact"] main {
+  max-width: none !important;
+  gap: 1rem !important;
+}
+.console-shell[data-layout="compact"] main td,
+.console-shell[data-layout="compact"] main th {
+  padding-top: 0.55rem !important;
+  padding-bottom: 0.55rem !important;
+}
+
 /* Printing from the console (the board report): light palette whatever the
    theme, white page, and colour bars kept as drawn. */
 @media print {

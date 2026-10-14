@@ -5,6 +5,7 @@ import { useTheme } from "next-themes";
 import { mutate as swrMutate } from "swr";
 import { Desktop, Moon, Sun } from "@phosphor-icons/react";
 import { Badge, Button, Card, CardHeader, Field, Notice, TextInput, inputClass } from "@/components/dashboard/primitives";
+import { LAYOUTS, setConsoleLayout, useConsoleLayout, type ConsoleLayout } from "@/lib/fable/layout";
 import { ALL_INSTITUTION_TYPES, INSTITUTION_TYPE_GROUPS, OTHER_TYPE } from "@/data/institution-types";
 import { updateInstitutionProfile } from "@/lib/fable/api";
 import { useFableStore } from "@/lib/fable/store";
@@ -28,7 +29,78 @@ export default function GeneralSettingsPage() {
         />
       </div>
       <AppearanceCard />
+      <div className="lg:col-span-3">
+        <LayoutCard />
+      </div>
     </div>
+  );
+}
+
+/** A small drawing of each layout, in SVG so it keeps its own shape whatever
+ * layout the console is in while you choose. */
+function LayoutPreview({ id }: { id: ConsoleLayout }) {
+  const r = id === "soft" ? 6 : id === "compact" ? 2 : 0;
+  const rail = id === "compact" ? 14 : 38;
+  const card = "var(--d-surface)";
+  const stroke = id === "compact" ? "none" : "var(--d-border)";
+  const shadow = id === "soft";
+  return (
+    <svg viewBox="0 0 200 112" className="h-auto w-full" aria-hidden>
+      <defs>
+        <filter id={`lift-${id}`} x="-20%" y="-20%" width="140%" height="160%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="#4c1d95" floodOpacity="0.12" />
+        </filter>
+      </defs>
+      <rect width="200" height="112" fill={id === "sharp" ? "#f4f4f5" : "var(--d-bg)"} />
+      <rect width={rail} height="112" fill="var(--d-surface)" stroke="var(--d-border)" />
+      {Array.from({ length: 5 }).map((_, i) => (
+        <rect key={i} x={id === "compact" ? 4 : 6} y={12 + i * 14} width={id === "compact" ? 6 : rail - 12} height="6" rx={r / 2} fill={i === 0 ? "var(--brand-primary)" : "var(--d-border)"} />
+      ))}
+      {[0, 1, 2].map((i) => (
+        <rect key={i} x={rail + 8 + i * ((200 - rail - 16) / 3)} y="10" width={(200 - rail - 16) / 3 - 6} height="26" rx={r}
+          fill={i === 0 && id !== "sharp" ? "var(--brand-primary)" : card} stroke={stroke} filter={shadow ? `url(#lift-${id})` : undefined} />
+      ))}
+      <rect x={rail + 8} y="44" width={200 - rail - 16} height="58" rx={r} fill={card} stroke={stroke} filter={shadow ? `url(#lift-${id})` : undefined} />
+      {[0, 1, 2].map((i) => (
+        <rect key={i} x={rail + 14} y={54 + i * (id === "compact" ? 11 : 14)} width={200 - rail - 28} height="4" rx="1" fill="var(--d-border)" />
+      ))}
+    </svg>
+  );
+}
+
+function LayoutCard() {
+  const layout = useConsoleLayout();
+  return (
+    <Card>
+      <CardHeader title="Layout" subtitle="How the console looks for you, on this device. Every page follows it." />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {LAYOUTS.map((l) => {
+          const active = layout === l.id;
+          return (
+            <button
+              key={l.id}
+              type="button"
+              onClick={() => setConsoleLayout(l.id)}
+              aria-pressed={active}
+              className={`flex flex-col gap-3 rounded-xl border p-3 text-left transition-colors ${
+                active ? "border-brand bg-brand/[0.06] ring-1 ring-brand/30" : "border-d-border bg-d-surface-2 hover:border-brand/30"
+              }`}
+            >
+              <span className="block overflow-hidden rounded-lg border border-d-border">
+                <LayoutPreview id={l.id} />
+              </span>
+              <span>
+                <span className="flex items-center justify-between text-[14px] font-semibold text-d-text">
+                  {l.name}
+                  {active && <Badge tone="brand">In use</Badge>}
+                </span>
+                <span className="mt-0.5 block text-[12px] leading-relaxed text-d-muted">{l.summary}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 
