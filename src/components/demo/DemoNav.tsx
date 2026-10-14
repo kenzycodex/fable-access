@@ -22,6 +22,7 @@ import { HeaderActions } from "@/components/demo/HeaderActions";
 import { Avatar } from "@/components/app-kit";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { customerNotifications } from "@/lib/fable/api";
+import { prewarmGeolocation } from "@/lib/fable/geolocation";
 
 // Paths are relative to the institution root; the provider's href() prefixes
 // them with /demo/{institution}.
@@ -301,6 +302,11 @@ function BottomNav() {
 
 /** The demo bank's frame: sidebar on desktop, top bar and tab bar on a phone. */
 export function DemoShell({ children }: { children: ReactNode }) {
+  // Locate in the background from the first screen, so the transfer screen
+  // already has the place. Only where permission was granted before: no
+  // location prompt appears on a screen that does not use it.
+  useEffect(() => prewarmGeolocation(), []);
+
   return (
     <>
       <Sidebar />

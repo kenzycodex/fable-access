@@ -34,7 +34,7 @@ import { BehavioralTracker } from "@/lib/fable/biometrics";
 import { InsufficientFundsError, accountBalance } from "@/lib/fable/api";
 import { collectDeviceFingerprint, type DeviceFingerprint } from "@/lib/fable/fingerprint";
 import { formatNaira } from "@/lib/fable/format";
-import { collectGeolocation, getGeolocationSnapshot, type GeoLocation } from "@/lib/fable/geolocation";
+import { getGeolocationSnapshot, subscribeGeolocation, type GeoLocation } from "@/lib/fable/geolocation";
 import { CHANNEL_LABELS } from "@/lib/fable/scoring";
 import { CONTACTS, QUICK_AMOUNTS } from "@/lib/fable/seed";
 import { ensureSession, getSessionContext, type BankingSession } from "@/lib/fable/session";
@@ -110,7 +110,8 @@ export default function TransferPage() {
     tracker = t;
 
     void collectDeviceFingerprint().then(setDevice);
-    void collectGeolocation().then(setLocation);
+    // Shown the moment a first reading exists, then updated as it sharpens.
+    const stopLocation = subscribeGeolocation(setLocation);
 
     // Browser-only state (the session clock and the detected channel) is set up
     // from a callback rather than synchronously in the effect body, so the first
@@ -132,6 +133,7 @@ export default function TransferPage() {
 
     return () => {
       clearTimeout(init);
+      stopLocation();
       if (tick) clearInterval(tick);
       t.stop();
       if (tracker === t) tracker = null;
@@ -546,9 +548,6 @@ function LocationStatus({ location }: { location: GeoLocation | null }) {
       <>
         {(street && !exact ? "Near " : "") + place}
         {location.landmark && `, by ${location.landmark}`}
-        {location.attribution && (
-          <span className="mt-0.5 block text-[10px] text-d-faint">{location.attribution}</span>
-        )}
       </>
     );
   }
