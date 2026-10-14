@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from agents.copilot.assistant import answer
 from core import sessions
+from core.tenancy import require_role
 
 router = APIRouter(prefix="/v1/assistant", tags=["assistant"])
 
@@ -49,20 +50,10 @@ class ChatRequest(BaseModel):
 def chat(payload: ChatRequest, request: Request, institution: str | None = Query(None)):
     _rate_limit(request.client.host if request.client else "unknown")
 
-    # The tenant grounding this answer must come from the session, never from
-    # the caller. The agent's own docstring says a missing id must not let it
-    # "aggregate every tenant's numbers into one answer, which is a data leak
-    # between institutions" — but only None was guarded, so passing another
-    # bank's id returned an answer grounded in *their* real figures, via an LLM,
-    # which is a considerably more fluent leak than raw rows.
-    #
-    # The client-supplied values are still accepted as a fallback while the
-    # console is migrated to sessions, and are ignored the moment one is
-    # present. That fallback goes away with the rest of the query-parameter
-    # tenancy.
-    try:
-        tenant = sessions.verify(sessions.extract_token(request))["inst"]
-    except sessions.SessionError:
-        tenant = payload.institution_id or institution
+    # The bank grounding this answer comes from the caller's credential and
+    # nothing else. A bank named in the body or query used to be accepted when
+    # there was no session, which answered with another bank's figures, through
+    # an LLM. Those fields are now ignored.
+    tenant = require_role(request, "viewer")["inst"]
 
     return answer(payload.message, [t.model_dump() for t in payload.history], tenant)

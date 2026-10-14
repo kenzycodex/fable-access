@@ -1,7 +1,8 @@
-"""Institution registry.
+"""An institution's own settings, and the little the public may know of it.
 
-The demo bank calls this to validate the institution slug in its URL
-(/demo/{institution}) and to render the tenant's name and customer roster.
+Nothing here lists institutions or their customers. A bank's members see their
+own profile; anyone else sees only its name and whether it is in sandbox or
+live mode, which the sandbox app needs to render.
 """
 import re
 from typing import Optional
@@ -9,28 +10,34 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from agents.copilot.demo_customers import customers_for_institution
+from core import customers as customer_store
 from core import security, sessions
 from core.db import cursor
-from core.tenancy import get_institution, institution_from_api_key, institution_mode, list_institutions, require_role
+from core.tenancy import console_identity, get_institution, institution_from_api_key, institution_mode, require_role
 from services import audit
 
 router = APIRouter(prefix="/v1/institutions", tags=["institutions"])
 
 
-@router.get("")
-def index():
-    return {"institutions": list_institutions()}
+PUBLIC_FIELDS = ("institution_id", "name", "type", "mode", "status")
 
 
 @router.get("/{institution_id}")
-def detail(institution_id: str):
+def detail(institution_id: str, request: Request):
+    """The institution's profile: in full for its own members, otherwise only
+    its public fields. There used to be an unauthenticated list of every
+    institution with its contact address, and this returned the customer
+    roster to anyone; both are gone."""
     inst = get_institution(institution_id)
     if not inst:
         raise HTTPException(status_code=404, detail="Institution not found")
-    # Deliberately no credentials here: the demo bank calls this endpoint, and
-    # it must never be able to read an institution's secret key.
-    return {**inst, "customers": customers_for_institution(institution_id)}
+    try:
+        own = console_identity(request)["inst"] == institution_id
+    except HTTPException:
+        own = False
+    if own:
+        return inst
+    return {k: inst.get(k) for k in PUBLIC_FIELDS}
 
 
 class ResolveKeyRequest(BaseModel):
@@ -123,28 +130,6 @@ def credentials(institution_id: str, request: Request):
     }
 
 
-def _customer_belongs(institution_id: str, user_id: str) -> bool:
-    """Is this customer one of the institution's own?
-
-    Checked across every place a customer can first appear, because an account
-    row only exists after a first balance read and a transaction only after a
-    first transfer, while the roster is the one thing a freshly provisioned
-    tenant always has.
-    """
-    roster = {c["user_id"] for c in customers_for_institution(institution_id)}
-    if user_id in roster:
-        return True
-    with cursor() as cur:
-        for table in ("accounts", "fable_users", "transactions"):
-            cur.execute(
-                f"SELECT 1 FROM {table} WHERE user_id = ? AND institution_id = ? LIMIT 1",
-                (user_id, institution_id),
-            )
-            if cur.fetchone():
-                return True
-    return False
-
-
 @router.post("/{institution_id}/customers/{user_id}/pin/reset")
 def reset_customer_pin(institution_id: str, user_id: str, request: Request):
     """Clear a customer's transaction PIN so they can choose a new one.
@@ -163,10 +148,12 @@ def reset_customer_pin(institution_id: str, user_id: str, request: Request):
     except sessions.SessionError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
 
-    if payload["inst"] != institution_id or not _customer_belongs(institution_id, user_id):
+    customer = customer_store.get(institution_id, user_id) if payload["inst"] == institution_id else None
+    if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
     require_role(request, "analyst")
 
+    user_id = customer["id"]
     status = security.clear_pin(user_id)
     audit.record(audit.SECURITY_CHANGED, user_id, institution_id=institution_id,
                  change="pin_reset", via="institution", admin=payload["sub"])
