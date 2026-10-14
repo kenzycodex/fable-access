@@ -162,8 +162,10 @@ def copilot_customers(request: Request, limit: int = Query(50, ge=1, le=200), in
     where, params = tenant_clause(institution)
     with cursor() as cur:
         cur.execute(
-            f"""SELECT user_id, COUNT(*) AS tx, SUM(is_seed = 0) AS live_tx, MAX(created_at) AS last_seen
-               FROM transactions{where} GROUP BY user_id ORDER BY tx DESC LIMIT ?""",
+            # Imported history counts too, so a customer imported with past
+            # transfers shows the baseline they already have.
+            f"""SELECT user_id, COUNT(*) AS tx, SUM(origin = 'live') AS live_tx, MAX(created_at) AS last_seen
+               FROM customer_history{where} GROUP BY user_id ORDER BY tx DESC LIMIT ?""",
             params + [limit],
         )
         users = [row_to_dict(r) for r in cur.fetchall()]
