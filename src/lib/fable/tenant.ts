@@ -94,10 +94,10 @@ export function restoreCustomer(): void {
   if (state.customerId !== before) emit();
 }
 
-/** The user_id Shield scores against. Falls back to the institution's Ada so a
- * transfer is never attributed to a null customer. */
+/** The customer Shield scores against: the one picked in the sandbox app. Empty
+ * when none is picked; the server then refuses rather than inventing one. */
 export function activeUserId(): string {
-  return state.customerId ?? `${state.institutionId}_ada`;
+  return state.customerId ?? "";
 }
 
 export function activeInstitution(): string {

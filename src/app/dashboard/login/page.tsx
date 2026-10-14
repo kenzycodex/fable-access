@@ -9,6 +9,14 @@ import { AuthShell, AuthSpinner, authButton, authInput } from "@/components/dash
 import { API_BASE } from "@/lib/fable/api";
 import { login, useFableStore } from "@/lib/fable/store";
 
+/** Where to go after signing in: `?next=` when it is a path on this site (the
+ * sandbox app sends people here and back), otherwise the console. */
+function nextPath(): string {
+  if (typeof window === "undefined") return "/dashboard";
+  const next = new URLSearchParams(window.location.search).get("next") ?? "";
+  return next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+}
+
 export default function DashboardLoginPage() {
   const router = useRouter();
   const store = useFableStore();
@@ -23,7 +31,7 @@ export default function DashboardLoginPage() {
 
   useEffect(() => {
     // While a sign-in is in flight, handleSignIn owns the navigation.
-    if (store?.session.loggedIn && !submitting) router.replace("/dashboard");
+    if (store?.session.loggedIn && !submitting) router.replace(nextPath());
   }, [store, router, submitting]);
 
   async function handleSignIn() {
@@ -51,7 +59,7 @@ export default function DashboardLoginPage() {
       // redirect and leaves a freshly signed-in user on the login screen until
       // they reload, which is most visible on mobile. A hard navigation skips
       // the cache and sends the cookie we just set.
-      window.location.assign("/dashboard");
+      window.location.assign(nextPath());
     } catch {
       toast.error("Failed to connect to Fable API.");
       setSubmitting(false);

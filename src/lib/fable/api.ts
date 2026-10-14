@@ -47,6 +47,51 @@ async function fetchJson<T>(path: string, init?: RequestInit, timeoutMs = 8_000)
   }
 }
 
+/** A test customer in the sandbox app. */
+export interface SandboxCustomer {
+  user_id: string;
+  reference: string;
+  name: string;
+  segment: string | null;
+}
+
+/** Why the sandbox roster could not be read. */
+export class SandboxUnavailable extends Error {
+  constructor(public status: number) {
+    super(`Sandbox unavailable (${status})`);
+  }
+}
+
+/** GET /v1/sandbox/customers: the signed-in bank's test customers. Needs the
+ * console session; 401 means signed out, 409 means the bank is live. */
+export async function sandboxCustomers(): Promise<{ institution_id: string; customers: SandboxCustomer[] }> {
+  const res = await fetch(`${API_BASE}/v1/sandbox/customers`, { headers: authHeaders() });
+  if (!res.ok) throw new SandboxUnavailable(res.status);
+  return (await res.json()) as { institution_id: string; customers: SandboxCustomer[] };
+}
+
+/** A bank's customer as its console sees it. */
+export interface BankCustomer {
+  id: string;
+  reference: string;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  segment: string | null;
+  kind: "test" | "real";
+  status: "active" | "closed";
+  source: "console" | "csv" | "api";
+  created_at: string | null;
+}
+
+/** GET /v1/customers: the signed-in bank's customers. */
+export function listCustomers(params: { q?: string; kind?: string; status?: string; limit?: number; offset?: number } = {}) {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "") q.set(k, String(v));
+  const qs = q.toString();
+  return fetchJson<{ customers: BankCustomer[]; total: number }>(`/v1/customers${qs ? `?${qs}` : ""}`);
+}
+
 /** Query fragment scoping a dashboard read to one institution. `first`
  * omits the leading ampersand when it opens the query string. */
 function tenantParam(institution?: string | null, first = false): string {
@@ -896,8 +941,6 @@ export interface InstitutionProfile {
   name: string;
   type: string;
   contact_email: string | null;
-  /** The institution's customers, with the names the demo bank shows. */
-  customers?: { user_id: string; name: string }[];
 }
 
 /** GET /v1/institutions/{id} — the signed-in tenant's real profile.

@@ -9,23 +9,15 @@ export const metadata: Metadata = {
   description: "A working demo of Fable protecting a live transfer, end to end.",
 };
 
-export interface DemoCustomer {
-  user_id: string;
-  key: string;
-  name: string;
-  persona: string;
-  description: string;
-  typical_range: string;
-  /** Starting float; the home screen derives the live balance from it. */
-  opening_balance: number;
-  city: string;
-}
+/** A test customer the bank added in its console. */
+export type { SandboxCustomer as DemoCustomer } from "@/lib/fable/api";
 
 interface InstitutionDetail {
   institution_id: string;
   name: string;
   type: string;
-  customers: DemoCustomer[];
+  mode?: string;
+  status?: string;
 }
 
 export interface Branding {
@@ -181,7 +173,7 @@ export default async function DemoInstitutionLayout({
 
   const offline = detail === "offline";
   const resolved = offline
-    ? { institution_id: institutionId, name: institutionId, type: "", customers: [] as DemoCustomer[] }
+    ? { institution_id: institutionId, name: institutionId, type: "", mode: "sandbox", status: "active" }
     : detail;
   // The bank's own name wins over the registry name when it has set one.
   const displayName = branding.display_name || resolved.name;
@@ -190,7 +182,7 @@ export default async function DemoInstitutionLayout({
     <InstitutionProvider
       institutionId={resolved.institution_id}
       name={displayName}
-      customers={resolved.customers}
+      mode={resolved.mode ?? "sandbox"}
       offline={offline}
       branding={branding}
     >

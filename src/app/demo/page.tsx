@@ -1,86 +1,40 @@
-import { notFound, redirect } from "next/navigation";
-import { API_BASE } from "@/lib/fable/api";
+"use client";
 
-/** `/demo` is the un-scoped entry point that the marketing CTA points at.
- *
- * It used to redirect to a tenant id compiled into the bundle, which silently
- * broke the "See Live Demo" button the moment the deployment's institutions
- * changed: after re-provisioning it pointed at a bank that no longer existed.
- *
- * Resolution order, most explicit first:
- *
- *   1. `FABLE_DEMO_INSTITUTION` — read at request time (this is a server
- *      component, so it needs no NEXT_PUBLIC_ prefix and no rebuild to
- *      change). This is the setting to use in production: it is deterministic
- *      and does not depend on what the database happens to return first.
- *   2. The API's institution list — a sensible default for a single-tenant
- *      deployment, and for local development where nobody has configured
- *      anything.
- *   3. `notFound()` — better than redirecting into a 404 or an error page,
- *      because the failure is legible.
- *
- * The tenant route itself already resolves vanity slugs and 404s on unknown
- * institutions, so all this has to produce is a segment.
- */
-export const dynamic = "force-dynamic";
-
-async function resolveLandingInstitution(): Promise<string | null> {
-  const configured = process.env.FABLE_DEMO_INSTITUTION?.trim();
-  if (configured) return configured;
-
-  try {
-    const res = await fetch(`${API_BASE}/v1/institutions`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(4_000),
-    });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { institutions?: { institution_id: string }[] };
-    const institutions = body.institutions ?? [];
-    // Only auto-pick when there is no ambiguity. With several tenants the
-    // "first" one is just whichever was created earliest, which is not a
-    // decision this page should be making on the operator's behalf.
-    return institutions.length === 1 ? institutions[0].institution_id : null;
-  } catch {
-    return null;
-  }
-}
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { LockKey } from "@phosphor-icons/react";
+import { AuthShell, authButton } from "@/components/dashboard/AuthShell";
+import { useFableStore } from "@/lib/fable/store";
 
 /**
- * The address people should actually see for an institution: the URL its owner
- * chose in Settings, falling back to its id.
+ * `/demo`, the entry point the site's "See the sandbox" links use.
  *
- * The entry point used to redirect to the institution's id, and the tenant page
- * then rewrote the address to the chosen URL once it loaded. That showed the old
- * name for a moment before switching. Resolving the final address here, before
- * redirecting, means the browser only ever sees the right one.
- *
- * `segment` may be an id or a slug, so it is resolved to an id first.
+ * The sandbox belongs to a bank and opens for that bank's signed-in team, so
+ * this sends a signed-in member to their own bank's sandbox and asks anyone
+ * else to sign in. It used to pick a bank from a public list of every
+ * institution, which no longer exists.
  */
-async function canonicalSegment(segment: string): Promise<string> {
-  try {
-    const resolved = await fetch(`${API_BASE}/v1/branding/resolve/${encodeURIComponent(segment)}`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(4_000),
-    });
-    if (!resolved.ok) return segment;
-    const { institution_id } = (await resolved.json()) as { institution_id: string };
+export default function DemoIndexPage() {
+  const store = useFableStore();
+  const router = useRouter();
+  const institutionId = store?.session.loggedIn ? store.session.institutionId : null;
 
-    const branding = await fetch(`${API_BASE}/v1/branding/${encodeURIComponent(institution_id)}`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(4_000),
-    });
-    if (!branding.ok) return institution_id;
-    const { slug } = (await branding.json()) as { slug?: string | null };
-    return slug || institution_id;
-  } catch {
-    // The tenant page can still resolve either form, so a lookup failure here
-    // only costs the brief address change, never a broken link.
-    return segment;
-  }
-}
+  useEffect(() => {
+    if (institutionId) router.replace(`/demo/${encodeURIComponent(institutionId)}`);
+  }, [institutionId, router]);
 
-export default async function DemoIndexPage() {
-  const institution = await resolveLandingInstitution();
-  if (!institution) notFound();
-  redirect(`/demo/${await canonicalSegment(institution)}`);
+  if (store === null || institutionId) return <div className="min-h-dvh bg-black" />;
+
+  return (
+    <AuthShell title="Open the sandbox" description="The sandbox is your institution's test banking app. Sign in to the console to open it.">
+      <div className="flex w-full flex-col items-center gap-6">
+        <span className="flex size-14 items-center justify-center rounded-full bg-[#7C3AED]/15 text-[#a78bfa] ring-1 ring-[#7C3AED]/30">
+          <LockKey size={26} weight="duotone" />
+        </span>
+        <a href="/dashboard/login?next=/demo" className={authButton}>
+          Sign in to the console
+        </a>
+      </div>
+    </AuthShell>
+  );
 }

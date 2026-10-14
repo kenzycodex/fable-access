@@ -16,7 +16,7 @@
  */
 import { useMemo } from "react";
 import useSWR from "swr";
-import { institutionProfile, type InstitutionProfile } from "./api";
+import { institutionProfile, listCustomers, type InstitutionProfile } from "./api";
 import { useFableStore } from "./store";
 
 export function useSignedInInstitution(): {
@@ -37,18 +37,19 @@ export function useSignedInInstitution(): {
 }
 
 /**
- * Turn an internal customer id into the customer's name.
- *
- * Ids like `union_bank_chioma` are keys: they are built from the institution's
- * name when it is provisioned and never change, because every transaction, hold
- * and API key hangs off them. They are meant for machines. The console shows the
- * customer's name instead, and falls back to the id for anyone not on the roster.
+ * Turn a customer id into what the bank calls them: their name, else the bank's
+ * own reference, else the id. Read from the bank's customers.
  */
 export function useCustomerNames(): (userId: string | null | undefined) => string {
-  const { institution } = useSignedInInstitution();
+  const { institutionId } = useSignedInInstitution();
+  const { data } = useSWR(
+    institutionId ? ["customers:names", institutionId] : null,
+    () => listCustomers({ limit: 200 }),
+    { revalidateOnFocus: false, keepPreviousData: true },
+  );
   const names = useMemo(
-    () => new Map((institution?.customers ?? []).map((c) => [c.user_id, c.name])),
-    [institution],
+    () => new Map((data?.customers ?? []).map((c) => [c.id, c.name || c.reference])),
+    [data],
   );
   return (userId) => (userId ? (names.get(userId) ?? userId) : "-");
 }

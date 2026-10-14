@@ -215,7 +215,7 @@ export default function TransferPage() {
   const amountValue = Number(amount) || 0;
   const available = account?.available ?? null;
   const overBalance = available !== null && amountValue > available;
-  const canSubmit = contact !== null && verify === "verified" && amountValue > 0 && !overBalance && !submitting;
+  const canSubmit = customer !== null && contact !== null && verify === "verified" && amountValue > 0 && !overBalance && !submitting;
 
   async function handleSubmit() {
     if (!canSubmit || !contact) return;

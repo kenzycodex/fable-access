@@ -245,7 +245,7 @@ export async function submitTransfer(input: TransactionInput, sdk?: Partial<SdkT
     enqueue({
       reference: id,
       institutionId: tenant.institutionId,
-      userId: tenant.customerId ?? `${tenant.institutionId}_ada`,
+      userId: tenant.customerId ?? "",
       input,
       sdk: sdk ?? null,
     });
@@ -264,7 +264,7 @@ export async function submitTransfer(input: TransactionInput, sdk?: Partial<SdkT
     recipientBank: input.recipient.bank,
     recipientAccount: input.recipient.accountNumber,
     customerName: getTenant().customerName ?? "Unknown customer",
-    userId: getTenant().customerId ?? `${getTenant().institutionId}_guest`,
+    userId: getTenant().customerId ?? "",
     live: true,
     remote,
   };
@@ -329,7 +329,7 @@ export function recordCredit(amount: number, source: string): Transaction {
     recipientBank: "Fable",
     recipientAccount: "",
     customerName: tenant.customerName ?? "You",
-    userId: tenant.customerId ?? `${tenant.institutionId}_ada`,
+    userId: tenant.customerId ?? "",
     riskScore: 0,
     action: "PASS",
     signals: [],
@@ -353,7 +353,7 @@ export async function approvePending(stepupToken?: string | null): Promise<Trans
   const txn = read().pending;
   if (!txn) return null;
   const tenant = getTenant();
-  const userId = tenant.customerId ?? `${tenant.institutionId}_ada`;
+  const userId = tenant.customerId ?? "";
 
   // Deliberately not swallowed: a step-up refusal must reach the UI so it can
   // run the factor rather than silently marking the transfer sent.

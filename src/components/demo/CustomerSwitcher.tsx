@@ -46,14 +46,8 @@ export function SwitchCustomerSheet({ open, onClose }: { open: boolean; onClose:
                   <span className="truncate text-[14px] font-semibold text-d-text">{c.name}</span>
                   {active && <CheckCircle size={18} weight="fill" className="shrink-0 text-brand" />}
                 </span>
-                {/* A phone gets the name and one line; the story and the range chip are for
-                    larger screens, where there is room to read them. */}
-                <span className="mt-0.5 block truncate text-[12px] text-d-muted sm:hidden">
-                  {c.persona} · {c.typical_range}
-                </span>
-                <span className="mt-0.5 hidden text-[12px] leading-relaxed text-d-muted sm:block">{c.description}</span>
-                <span className="mt-2 hidden rounded-md bg-d-surface-2 px-2 py-0.5 text-[11px] font-semibold text-d-muted sm:inline-flex">
-                  {c.persona} - typically {c.typical_range}
+                <span className="mt-0.5 block truncate text-[12px] text-d-muted">
+                  {c.segment ? `${c.segment} · ` : ""}Ref {c.reference}
                 </span>
               </span>
             </button>
@@ -99,7 +93,7 @@ export function CustomerSwitcher() {
           </span>
           {customer && (
             <span className="block max-w-[120px] truncate text-[11px] leading-tight text-d-muted">
-              {customer.persona}
+              {customer.segment ?? `Ref ${customer.reference}`}
             </span>
           )}
         </span>

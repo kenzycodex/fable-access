@@ -19,6 +19,7 @@ import {
 import type { Icon } from "@phosphor-icons/react";
 import { SwitchCustomerSheet } from "@/components/demo/CustomerSwitcher";
 import { HeaderActions } from "@/components/demo/HeaderActions";
+import { SandboxGate } from "@/components/demo/SandboxGate";
 import { Avatar } from "@/components/app-kit";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { customerNotifications } from "@/lib/fable/api";
@@ -220,7 +221,7 @@ function AccountMenu() {
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-semibold leading-tight text-d-text">{displayName}</span>
           <span className="block truncate text-[11px] leading-tight text-d-muted">
-            {customer ? customer.persona : "Demo account"}
+            {customer ? (customer.segment ?? `Ref ${customer.reference}`) : "No test customer"}
           </span>
         </span>
         <CaretUp size={14} className={`shrink-0 text-d-faint transition-transform ${open ? "" : "rotate-180"}`} />
@@ -327,7 +328,9 @@ export function DemoShell({ children }: { children: ReactNode }) {
       <Sidebar />
       <div className="min-h-dvh lg:pl-[256px]">
         <MobileTopBar />
-        <main className="pb-28 lg:pb-8">{children}</main>
+        <main className="pb-28 lg:pb-8">
+          <SandboxGate>{children}</SandboxGate>
+        </main>
       </div>
       <BottomNav />
     </>
