@@ -20,8 +20,8 @@ export default function GeneralSettingsPage() {
   const institutionId = store?.session.institutionId ?? null;
 
   return (
-    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
-      <div className="lg:col-span-2">
+    <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
+      <div className="lg:col-span-2 [&>*]:h-full">
         <ProfileCard
           key={institution ? `${institution.name}|${institution.type}|${institution.contact_email}` : "loading"}
           institutionId={institutionId}
@@ -106,16 +106,18 @@ function LayoutCard() {
 
 function AppearanceCard() {
   const { theme, setTheme } = useTheme();
-  const options: { value: ThemeChoice; label: string; icon: React.ReactNode }[] = [
-    { value: "light", label: "Light", icon: <Sun size={16} /> },
-    { value: "dark", label: "Dark", icon: <Moon size={16} /> },
-    { value: "system", label: "System", icon: <Desktop size={16} /> },
+  const options: { value: ThemeChoice; label: string; hint: string; icon: React.ReactNode }[] = [
+    { value: "light", label: "Light", hint: "Bright surfaces, best by day", icon: <Sun size={18} /> },
+    { value: "dark", label: "Dark", hint: "Easy on the eyes at night", icon: <Moon size={18} /> },
+    { value: "system", label: "System", hint: "Follows your device setting", icon: <Desktop size={18} /> },
   ];
 
+  // Stretches to the height of the profile card beside it, with the choices as
+  // full tiles, so the row reads as one balanced block.
   return (
-    <Card>
-      <CardHeader title="Appearance" subtitle="Just for you, on this device. System follows your OS." />
-      <div className="grid grid-cols-3 gap-2">
+    <Card className="flex h-full flex-col">
+      <CardHeader title="Appearance" subtitle="Just for you, on this device." />
+      <div className="grid flex-1 grid-cols-3 gap-2 lg:grid-cols-1">
         {options.map((o) => {
           const active = theme === o.value;
           return (
@@ -124,12 +126,15 @@ function AppearanceCard() {
               type="button"
               onClick={() => setTheme(o.value)}
               aria-pressed={active}
-              className={`flex h-12 items-center justify-center gap-2 rounded-xl border text-[13px] font-semibold transition-colors ${
+              className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl border px-3 py-2.5 text-[13px] font-semibold transition-colors lg:flex-row lg:justify-start lg:gap-3 ${
                 active ? "border-brand/40 bg-brand/10 text-brand" : "border-d-border bg-d-surface-2 text-d-muted hover:text-d-text"
               }`}
             >
               {o.icon}
-              {o.label}
+              <span className="flex flex-col items-center lg:items-start">
+                {o.label}
+                <span className="hidden text-[12px] font-normal text-d-muted lg:block">{o.hint}</span>
+              </span>
             </button>
           );
         })}
