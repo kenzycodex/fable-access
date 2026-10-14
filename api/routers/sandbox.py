@@ -5,6 +5,7 @@ going live. It needs the console sign-in of that bank, and it only ever sees the
 bank's test customers, never its real ones.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from core import customers
 from core.db import cursor, loads, row_to_dict
@@ -87,3 +88,29 @@ def customer_overview(user_id: str, request: Request, limit: int = Query(60, ge=
         "baseline": get_transparency_data(user_id).get("what_we_know", {}),
         "scoring_baseline": scoring_baseline,
     }
+
+
+class ResetBody(BaseModel):
+    # The institution's id, typed by the owner, so a reset is never a misclick.
+    confirm: str
+
+
+@router.post("/reset")
+def reset(body: ResetBody, request: Request):
+    """Remove the institution's test customers and everything they did.
+
+    Owner only, sandbox only. Real customers and their history are never
+    touched, and the institution's setup stays as it is.
+    """
+    from services import data_admin
+
+    who = require_role(request, "owner")
+    institution_id = who["inst"]
+    if institution_mode(institution_id) == "live":
+        raise HTTPException(status_code=409, detail="The sandbox can only be reset while the institution is in sandbox mode.")
+    if body.confirm.strip() != institution_id:
+        raise HTTPException(status_code=400, detail=f"Type {institution_id} to confirm.")
+    try:
+        return data_admin.reset_sandbox(institution_id, who["email"])
+    except data_admin.DataAdminError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

@@ -310,6 +310,64 @@ def invite_owner(institution_id: str, body: OwnerInvite, request: Request, backg
     return invite
 
 
+class DestructiveBody(BaseModel):
+    # The institution's id, typed by the operator, and why. Both are recorded.
+    confirm: str
+    reason: str = Field(min_length=5, max_length=300)
+
+
+def _confirmed(institution_id: str, body: DestructiveBody) -> None:
+    if body.confirm.strip() != institution_id:
+        raise HTTPException(status_code=400, detail=f"Type {institution_id} to confirm.")
+
+
+@router.get("/institutions/{institution_id}/export.zip")
+def export(institution_id: str, request: Request):
+    """Everything about the institution's customers, as CSVs, for the bank to
+    keep before its data is cleared or the institution is deleted."""
+    from fastapi.responses import Response
+
+    from services import data_admin
+
+    op = operators.require(request, "platform_admin")
+    if not get_institution(institution_id):
+        raise HTTPException(status_code=404, detail="Institution not found.")
+    operators.record("institution.exported", op["email"], institution_id)
+    return Response(
+        data_admin.export_institution(institution_id),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="fable-{institution_id}-export.zip"'},
+    )
+
+
+@router.post("/institutions/{institution_id}/clear-data")
+def clear_data(institution_id: str, body: DestructiveBody, request: Request):
+    """Remove every customer and their activity, keeping the institution, its
+    team, keys, policy, webhooks and audit trail. Platform owners only."""
+    from services import data_admin
+
+    op = operators.require(request, "platform_owner")
+    _confirmed(institution_id, body)
+    try:
+        return data_admin.clear_institution(institution_id, op["email"], body.reason.strip())
+    except data_admin.DataAdminError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/institutions/{institution_id}/delete")
+def delete(institution_id: str, body: DestructiveBody, request: Request):
+    """Offboard a suspended institution: everything is removed except its audit
+    trail, which records the deletion. Platform owners only."""
+    from services import data_admin
+
+    op = operators.require(request, "platform_owner")
+    _confirmed(institution_id, body)
+    try:
+        return data_admin.delete_institution(institution_id, op["email"], body.reason.strip())
+    except data_admin.DataAdminError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 # ── Operator team ────────────────────────────────────────────────────────────
 
 @router.get("/team")
@@ -444,6 +502,7 @@ def remove_operator(email: str, request: Request):
 PLATFORM_EVENTS = (
     audit.INSTITUTION_PROVISIONED, audit.INSTITUTION_SUSPENDED, audit.INSTITUTION_REACTIVATED,
     audit.OWNER_INVITED, audit.OPERATOR_LOGIN, audit.OPERATOR_INVITED, audit.OPERATOR_CHANGED,
+    "institution.exported", "institution.data_cleared", "institution.deleted",
 )
 
 
