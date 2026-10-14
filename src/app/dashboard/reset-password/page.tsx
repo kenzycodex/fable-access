@@ -136,7 +136,7 @@ function ResetPasswordScreen() {
 
   return (
     <AuthShell
-      title={invited ? "Join your team on Fable" : "Create new password"}
+      title={invited ? "Join your team" : "Create new password"}
       description={invited ? "Choose a password to accept your invitation to the console." : "Enter a new secure password for your dashboard access."}
     >
       <ResetPasswordForm invited={invited} onDone={() => setDone(true)} />
