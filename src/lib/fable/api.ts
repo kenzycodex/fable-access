@@ -649,24 +649,54 @@ export function apiChannelLabel(channel: string): string {
 // Fable Copilot assistant + intelligence endpoints
 // ---------------------------------------------------------------------------
 
-export interface AssistantReply {
-  reply: string;
-  /** "openai" | "anthropic" | "deterministic" | "guard" — which path answered. */
-  engine: string;
-  /** Follow-up questions this institution's data can actually answer. */
-  suggestions?: string[];
+export type AssistantTurn = { role: "user" | "assistant"; content: string };
+
+/** What the answer stream can say: a piece of text, the end, or a failure. */
+export type AssistantEvent =
+  | { type: "delta"; text: string }
+  | { type: "done"; engine: string; suggestions: string[] }
+  | { type: "error"; message: string };
+
+/**
+ * POST /v1/assistant/chat/stream: the grounded analyst assistant, as server-sent
+ * events. The institution comes from the console session, never the request.
+ * `shown` lists the follow-ups already offered, so they are not offered again.
+ */
+export async function streamAssistant(
+  body: { message: string; history: AssistantTurn[]; shown: string[] },
+  onEvent: (event: AssistantEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/v1/assistant/chat/stream`, {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    const detail = await res.json().then((b) => (typeof b?.detail === "string" ? b.detail : null)).catch(() => null);
+    throw new Error(detail ?? (res.status === 401 ? "Your session has ended. Sign in again." : "Fable couldn't answer just now."));
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let cut: number;
+    while ((cut = buffer.indexOf("\n\n")) >= 0) {
+      const frame = buffer.slice(0, cut);
+      buffer = buffer.slice(cut + 2);
+      const data = frame.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6)).join("\n");
+      if (data) onEvent(JSON.parse(data) as AssistantEvent);
+    }
+  }
 }
 
-/** POST /v1/assistant/chat — the grounded analyst assistant. */
-export async function assistantChat(
-  message: string,
-  history: { role: "user" | "assistant"; content: string }[] = [],
-  institution?: string | null,
-): Promise<AssistantReply> {
-  return fetchJson<AssistantReply>("/v1/assistant/chat", {
-    method: "POST",
-    body: JSON.stringify({ message, history, institution_id: institution ?? null }),
-  }, 30_000);
+/** GET /v1/assistant/starters: opening questions from this bank's own data. */
+export function assistantStarters(page?: string) {
+  return fetchJson<{ questions: string[] }>(`/v1/assistant/starters${page ? `?page=${encodeURIComponent(page)}` : ""}`);
 }
 
 export interface ScamPatternStat {
