@@ -355,6 +355,28 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     attempt INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now'))
 );
+
+-- A bank's customers. The bank knows a customer by its own reference
+-- (external_ref); Fable keys everything else by id, which is unique across
+-- banks. Two banks can both have a customer "10293" without sharing a
+-- baseline, a balance or a history.
+CREATE TABLE IF NOT EXISTS customers (
+    id TEXT PRIMARY KEY,
+    institution_id TEXT NOT NULL,
+    external_ref TEXT NOT NULL,
+    display_name TEXT,
+    phone TEXT,
+    email TEXT,
+    segment TEXT,
+    -- test: a sandbox customer the bank created to try Fable. real: a customer
+    -- of the bank, from an import or its live traffic.
+    kind TEXT NOT NULL DEFAULT 'real',
+    status TEXT NOT NULL DEFAULT 'active',
+    source TEXT NOT NULL DEFAULT 'api',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE (institution_id, external_ref)
+);
 """
 
 # The tenant every pre-multi-tenant row belongs to. Existing databases were
@@ -439,6 +461,9 @@ MIGRATIONS = {
         # sandbox: anyone may score against it by name (the public demo bank).
         # live: every write must carry this institution's API key.
         "mode": "TEXT DEFAULT 'sandbox'",
+        # active, or suspended by a Fable operator. A suspended bank's console,
+        # keys and sandbox are refused until it is reactivated.
+        "status": "TEXT DEFAULT 'active'",
     },
     "admins": {
         # owner: everything. analyst: review work and reads. viewer: reads.
@@ -515,9 +540,48 @@ def _migrate(conn):
            WHERE review_state IS NULL AND action_taken IN ('FLAG', 'BLOCK')"""
     )
 
+    _backfill_customers(conn)
+
     # No institution is created here. One used to be inserted into an empty
     # database; institutions now come only from provisioning.
     conn.commit()
+
+
+def _backfill_customers(conn) -> None:
+    """Give every customer that predates the customers table a row in it.
+
+    The id stays the user_id the rows already use, so no history moves, and the
+    bank's reference starts out as that same value. Customers created before
+    this were sandbox customers, so they are marked as test customers. Runs on
+    every start and only inserts what is missing.
+    """
+    try:
+        from agents.copilot.demo_customers import customer_name_for
+    except Exception:  # noqa: BLE001 - names are a nicety, never a blocker
+        def customer_name_for(_user_id):
+            return None
+
+    rows = conn.execute(
+        """SELECT user_id, institution_id FROM (
+               SELECT user_id, institution_id FROM fable_users
+               UNION SELECT user_id, institution_id FROM accounts
+               UNION SELECT user_id, institution_id FROM transactions
+           )
+           WHERE user_id IS NOT NULL AND institution_id IS NOT NULL
+             AND user_id NOT IN (SELECT id FROM customers)"""
+    ).fetchall()
+    added = 0
+    for user_id, institution_id in rows:
+        cur = conn.execute(
+            """INSERT OR IGNORE INTO customers
+                   (id, institution_id, external_ref, display_name, kind, source)
+               VALUES (?, ?, ?, ?, 'test', 'console')""",
+            (user_id, institution_id, user_id, customer_name_for(user_id)),
+        )
+        added += cur.rowcount
+    conn.commit()
+    if added:
+        logger.info("Recorded %d existing customer(s) in the customers table.", added)
 
 
 def require_institution_id(institution_id: str | None) -> str:
@@ -606,6 +670,8 @@ CREATE INDEX IF NOT EXISTS ix_login_fail_ip      ON login_failures(ip, at);
 CREATE INDEX IF NOT EXISTS ix_notes_txn          ON case_notes(transaction_id);
 CREATE INDEX IF NOT EXISTS ix_hooks_inst         ON webhooks(institution_id);
 CREATE INDEX IF NOT EXISTS ix_deliveries_hook    ON webhook_deliveries(webhook_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_customers_inst     ON customers(institution_id, kind, status);
+CREATE INDEX IF NOT EXISTS ix_txn_inst_clientref ON transactions(institution_id, client_reference);
 """
 
 # Offline-replay idempotency rests entirely on client_reference, and the lookup
