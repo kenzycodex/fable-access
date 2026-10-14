@@ -26,10 +26,10 @@ if config.SENTRY_DSN:
 async def lifespan(_app: FastAPI):
     """Work to do once at startup. FastAPI deprecated @app.on_event for this.
 
-    The two functions are defined further down; they exist by the time this runs.
+    The functions are defined further down; they exist by the time this runs.
     """
     sweep_expired_containments()
-    ensure_default_admin()
+    note_if_no_admins()
     yield
 
 
@@ -125,22 +125,6 @@ if _missing:
     )
 
 
-# Default demo admin so the console is reachable on a fresh database.
-#
-# The password used to be the literal "fable-demo", committed to a public
-# repository, and created on every startup. Anyone who read the source could
-# sign into the demo tenant; chained with the tenant-from-query-parameter hole
-# that meant every tenant's data and API key.
-#
-# It is now taken from the environment, and when unset a random one is
-# generated and logged ONCE at startup so a fresh deployment is still usable
-# without configuration. Nothing is created if the admin already exists, so an
-# existing password is never silently reset.
-DEFAULT_ADMIN_EMAIL = os.getenv("FABLE_DEMO_ADMIN_EMAIL", "risk@meridian.ng")
-DEFAULT_ADMIN_PASSWORD = os.getenv("FABLE_DEMO_ADMIN_PASSWORD", "").strip()
-DEFAULT_ADMIN_INSTITUTION = os.getenv("FABLE_DEMO_ADMIN_INSTITUTION", "meridian")
-
-
 def sweep_expired_containments() -> None:
     """Resolve holds whose cooling window closed while the API was down.
 
@@ -158,66 +142,29 @@ def sweep_expired_containments() -> None:
         logger.warning("Could not sweep expired containments: %s", exc)
 
 
-def ensure_default_admin() -> None:
+def note_if_no_admins() -> None:
+    """Say how to create the first institution when the database has none.
+
+    Startup used to seed a "Meridian MFB" institution, a console admin and an
+    API key into an empty database, with a default email and a password from the
+    environment. Nothing is created automatically now: every institution, with
+    its owner login and API key, comes from provisioning, so no deployment ships
+    with a known account.
+    """
     try:
         from core.db import cursor
-        from core.utils import hash_password
 
         with cursor() as cur:
-            # Seed only a brand-new deployment: one where the default institution
-            # has no console admin at all. This used to check for the configured
-            # email alone, so after an admin's email was changed the next restart
-            # quietly recreated the old address with the .env password, and both
-            # addresses could sign in to the same bank.
-            #
-            # Only a deployment with no console admin at all is new. Checking for
-            # the default institution's admin recreated a login for an institution
-            # that had been removed on purpose.
             cur.execute("SELECT 1 FROM admins LIMIT 1")
-            if not cur.fetchone():
-                password = DEFAULT_ADMIN_PASSWORD or secrets.token_urlsafe(12)
-                cur.execute(
-                    "INSERT INTO admins (email, institution_id, hashed_password) VALUES (?, ?, ?)",
-                    (DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_INSTITUTION, hash_password(password)),
-                )
-                if DEFAULT_ADMIN_PASSWORD:
-                    logger.info("Seeded demo admin %s from FABLE_DEMO_ADMIN_PASSWORD.", DEFAULT_ADMIN_EMAIL)
-                else:
-                    # Printed once, on creation only. The hash is all that is
-                    # stored, so this line is the only chance to capture it.
-                    logger.warning(
-                        "Seeded demo admin %s with a GENERATED password: %s\n"
-                        "Record it now; it is not recoverable. Set "
-                        "FABLE_DEMO_ADMIN_PASSWORD to choose your own.",
-                        DEFAULT_ADMIN_EMAIL, password,
-                    )
-
-            # The default tenant predates provisioning — it comes from the
-            # multi-tenancy backfill — so it has no API key unless we issue
-            # one. Without it the console shows an empty credentials panel
-            # and the demo bank can't authenticate as Meridian.
-            cur.execute(
-                "SELECT 1 FROM api_keys WHERE institution_id = ?", (DEFAULT_ADMIN_INSTITUTION,)
-            )
-            has_key = cur.fetchone() is not None
-            cur.execute(
-                "SELECT 1 FROM institutions WHERE institution_id = ?", (DEFAULT_ADMIN_INSTITUTION,)
-            )
-            # Only for a default institution that still exists; one that was
-            # removed on purpose does not get a key issued for it on restart.
-            if cur.fetchone() is not None and not has_key:
-                # `secrets` is imported at module scope. A second import here
-                # made the name function-local, so the earlier use of
-                # secrets.token_urlsafe() above raised UnboundLocalError and
-                # the whole seeding step failed with a confusing message.
-                from core import apikeys
-
-                # Stored as a hash, and never logged. The owner rotates it in
-                # the console to get a key they can see and copy.
-                apikeys.insert(cur, apikeys.generate(), DEFAULT_ADMIN_INSTITUTION, "Meridian MFB", DEFAULT_ADMIN_EMAIL)
-                logger.info("Issued an API key for the default institution. Rotate it in the console to view it.")
-    except Exception as exc:  # noqa: BLE001 — never let seeding crash boot
-        logger.warning("Could not seed default admin: %s", exc)
+            if cur.fetchone():
+                return
+        logger.info(
+            "No console admin exists yet. Create the first institution and its owner "
+            "with POST /admin/provision (send the X-Fable-Operator-Key header; needs "
+            "FABLE_OPERATOR_KEY set)."
+        )
+    except Exception as exc:  # noqa: BLE001 - never block boot
+        logger.warning("Could not check for console admins: %s", exc)
 
 
 @app.get("/health", tags=["system"])

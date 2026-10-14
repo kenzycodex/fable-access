@@ -152,25 +152,14 @@ def test_removing_institutions_keeps_only_the_named_one():
     conn.close()
 
 
-def test_restart_does_not_bring_back_a_removed_default_institution():
-    """The default institution and admin are for an empty database only. Seeding
-    them on every start undid removing Meridian the moment the API restarted."""
-    import main
-    from agents.copilot.demo_customers import seed_institution
-    from core import config, db
-    from core.tenancy import register_institution
+def test_an_empty_database_gets_no_default_institution():
+    """Startup used to insert "Meridian MFB" into an empty database, so a
+    deployment shipped with an institution nobody provisioned."""
+    from core import db
 
-    conn = sqlite3.connect(config.DB_PATH, timeout=30)
-    register_institution("onlybank", "Only Bank", "risk@only.ng")
-    seed_institution("onlybank", days=10)
-    conn.execute("INSERT OR REPLACE INTO admins (email, institution_id, hashed_password) VALUES ('boss@only.ng', 'onlybank', 'x')")
-    for table in ("institutions", "admins", "api_keys"):
-        conn.execute(f"DELETE FROM {table} WHERE institution_id = ?", (main.DEFAULT_ADMIN_INSTITUTION,))
-    conn.commit()
-    db._migrate(db.get_conn())
-    main.ensure_default_admin()
-
-    assert conn.execute("SELECT COUNT(*) FROM institutions WHERE institution_id = ?", (main.DEFAULT_ADMIN_INSTITUTION,)).fetchone()[0] == 0
-    assert conn.execute("SELECT COUNT(*) FROM admins WHERE institution_id = ?", (main.DEFAULT_ADMIN_INSTITUTION,)).fetchone()[0] == 0
-    assert conn.execute("SELECT COUNT(*) FROM api_keys WHERE institution_id = ?", (main.DEFAULT_ADMIN_INSTITUTION,)).fetchone()[0] == 0
-    conn.close()
+    empty = sqlite3.connect(":memory:")
+    empty.executescript(db.SCHEMA)
+    db._migrate(empty)
+    assert empty.execute("SELECT COUNT(*) FROM institutions").fetchone()[0] == 0
+    assert empty.execute("SELECT COUNT(*) FROM admins").fetchone()[0] == 0
+    assert empty.execute("SELECT COUNT(*) FROM api_keys").fetchone()[0] == 0

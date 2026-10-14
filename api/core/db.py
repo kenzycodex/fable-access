@@ -540,15 +540,8 @@ def _migrate(conn):
            WHERE review_state IS NULL AND action_taken IN ('FLAG', 'BLOCK')"""
     )
 
-    # Only into an empty database. This ran on every start, so removing the
-    # default institution (scripts/remove_institutions.py) was undone by the next
-    # restart. A database that already has institutions is left exactly as it is.
-    if conn.execute("SELECT COUNT(*) FROM institutions").fetchone()[0] == 0:
-        conn.execute(
-            """INSERT OR IGNORE INTO institutions (institution_id, name, type, contact_email)
-               VALUES (?, 'Meridian MFB', 'Microfinance Bank', 'risk@meridian.ng')""",
-            (DEFAULT_INSTITUTION_ID,),
-        )
+    # No institution is created here. One used to be inserted into an empty
+    # database; institutions now come only from provisioning.
     conn.commit()
 
 

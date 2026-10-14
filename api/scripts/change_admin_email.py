@@ -12,11 +12,6 @@ On the server:
 It updates the three places the address is stored: the login (`admins`), the
 institution's API-key record, and the institution's contact address. Nothing
 else changes, so the password, the API key and every customer stay as they are.
-
-After running it, also set FABLE_DEMO_ADMIN_EMAIL in api/.env to the new
-address. Startup creates the default admin when no row has that email, so
-leaving the old value there would quietly create a second admin with the old
-address on the next restart.
 """
 import os
 import re
@@ -61,7 +56,6 @@ def main() -> int:
         )
 
     print(f"Admin for '{institution_id}' is now {new}. The password is unchanged.")
-    print("Remember to set FABLE_DEMO_ADMIN_EMAIL in api/.env and NEXT_PUBLIC_DEMO_EMAIL on Vercel.")
     return 0
 
 

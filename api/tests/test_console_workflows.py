@@ -373,22 +373,24 @@ def test_board_report_is_computed_over_the_range(client):
     assert client.get("/v1/dashboard/report").status_code == 401
 
 
-def test_a_renamed_admin_is_not_recreated_on_restart():
-    """Changing the console email used to leave both addresses able to sign in,
-    because startup re-seeded the configured one whenever it was missing."""
+def test_startup_creates_no_admin_institution_or_key():
+    """Startup used to seed a default institution, admin and API key whenever
+    they were missing, which brought back a renamed admin's old address and a
+    removed institution. Every account now comes from provisioning."""
     import main
+    from core import db
     from core.db import cursor
 
-    with cursor() as cur:
-        cur.execute("DELETE FROM admins WHERE email = ?", (main.DEFAULT_ADMIN_EMAIL,))
-        cur.execute(
-            "INSERT OR REPLACE INTO admins (email, institution_id, hashed_password) VALUES (?, ?, 'x')",
-            ("renamed@meridian.ng", main.DEFAULT_ADMIN_INSTITUTION),
-        )
-    main.ensure_default_admin()
-    with cursor() as cur:
-        cur.execute("SELECT 1 FROM admins WHERE email = ?", (main.DEFAULT_ADMIN_EMAIL,))
-        assert cur.fetchone() is None
+    def counts():
+        with cursor() as cur:
+            return [cur.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("institutions", "admins", "api_keys")]
+
+    before = counts()
+    db._migrate(db.get_conn())
+    main.note_if_no_admins()
+    main.sweep_expired_containments()
+    assert counts() == before
+    assert not hasattr(main, "ensure_default_admin")
 
 
 # --- API keys are stored as hashes -----------------------------------------
