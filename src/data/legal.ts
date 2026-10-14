@@ -275,7 +275,7 @@ export const privacyNotice: LegalDocument = {
 export const termsOfService: LegalDocument = {
   title: "Terms of Service",
   summary:
-    "The agreement between Fable and the institutions and people who use our website, the Fable Console, the API and the demo bank, including who owns what.",
+    "The agreement between Fable and the institutions and people who use our website, the Fable Console, the API and the sandbox app, including who owns what.",
   effective: EFFECTIVE,
   version: VERSION,
   sections: [
@@ -283,7 +283,7 @@ export const termsOfService: LegalDocument = {
       id: "agreement",
       title: "1. Agreement",
       blocks: [
-        p("These Terms are a binding agreement between Fable (\"Fable\", \"we\", \"us\") and you. \"You\" means the institution, business or person that accesses or uses our website, the Fable Console, our API and SDKs, or the demo bank (together, the \"Service\"). If you accept these Terms for an institution, you confirm you have authority to bind it."),
+        p("These Terms are a binding agreement between Fable (\"Fable\", \"we\", \"us\") and you. \"You\" means the institution, business or person that accesses or uses our website, the Fable Console, our API and SDKs, or the sandbox app (together, the \"Service\"). If you accept these Terms for an institution, you confirm you have authority to bind it."),
         p("By accessing the Service, creating an account, using an API key, or clicking to accept, you agree to these Terms and to our Privacy Notice. If you do not agree, do not use the Service."),
         p("If you have signed a separate written agreement with us, that agreement governs where it conflicts with these Terms."),
       ],
@@ -298,7 +298,7 @@ export const termsOfService: LegalDocument = {
           "Shield scores a transfer, returns a decision of pass, flag or block with the signals behind it, and writes a plain-language explanation.",
           "Ghost holds a transfer that a customer chooses to send despite a block in a cooling window, notifies the customer, and releases or returns the money only on the right proof.",
         ),
-        p("The Service also includes the Fable Console for institution staff, step-up verification (PIN, passkeys and emailed codes), and a demo bank used to try the product. A passive monitoring agent called Watch is planned and is not part of the Service today."),
+        p("The Service also includes the Fable Console for institution staff, step-up verification (PIN, passkeys and emailed codes), and a sandbox app an institution's own team uses to try the product with test customers. A passive monitoring agent called Watch is planned and is not part of the Service today."),
         note("Fable is software. We are not a bank, payment service provider, payment processor or licensed financial institution. We do not hold customer funds, issue accounts, or move money between banks. The institution remains the regulated party and is responsible for its own licences and compliance."),
       ],
     },
@@ -340,16 +340,16 @@ export const termsOfService: LegalDocument = {
           "overload the Service, evade rate limits, or use automated means to scrape it;",
           "submit data you have no right to submit, or data that is unlawful, or that contains malware;",
           "use the Service to build or train a competing product, or to copy how our scoring works;",
-          "send a customer's real personal data into the demo bank or any sandbox, or use real credentials there;",
+          "send a customer's real personal data into the sandbox app, or use real credentials there;",
           "present the Service as your own, or imply that we endorse you.",
         ),
       ],
     },
     {
       id: "demo",
-      title: "6. The demo bank and sandbox",
+      title: "6. The sandbox app",
       blocks: [
-        p("The demo bank and sandbox are for evaluation. The balances and transfers in them are simulated: no real money moves, and a \"held\" or \"released\" amount is a record in our system, not a movement of funds. A recipient's name may be looked up from a real account number through a third-party service, so use test data and do not enter real customers' details."),
+        p("The sandbox app is for evaluation, by the institution's own team, signed in to its console. The balances and transfers in them are simulated: no real money moves, and a \"held\" or \"released\" amount is a record in our system, not a movement of funds. A recipient's name may be looked up from a real account number through a third-party service, so use test data and do not enter real customers' details."),
         p("Demo content, accounts and data may be reset or removed at any time, with or without notice. Do not rely on the demo for production decisions."),
       ],
     },

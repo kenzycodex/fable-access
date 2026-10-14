@@ -153,7 +153,7 @@ export function BrandingSettings({ institutionId }: { institutionId: string | nu
           </Field>
 
           <Field
-            label="Demo bank URL"
+            label="Sandbox app URL"
             right={
               slugLocked ? (
                 <Badge tone="warning">
