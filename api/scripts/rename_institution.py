@@ -64,6 +64,9 @@ def _customer_ids(conn: sqlite3.Connection, tables: dict[str, list[str]], old: s
                 f"SELECT DISTINCT user_id FROM {table} WHERE institution_id = ? AND user_id IS NOT NULL", (old,)
             ):
                 found.add(uid)
+    if "customers" in tables:
+        for (cid,) in conn.execute("SELECT id FROM customers WHERE institution_id = ?", (old,)):
+            found.add(cid)
     try:
         from agents.copilot.demo_customers import legacy_user_id_for, roster_for, user_id_for
         for c in roster_for():
@@ -129,7 +132,7 @@ def plan(conn: sqlite3.Connection, old: str, new: str) -> dict:
     clash = [n for n in mapping.values() if any(
         conn.execute(f"SELECT 1 FROM {t} WHERE user_id = ? LIMIT 1", (n,)).fetchone()
         for t, cols in tables.items() if "user_id" in cols
-    )]
+    ) or ("customers" in tables and conn.execute("SELECT 1 FROM customers WHERE id = ?", (n,)).fetchone())]
     if clash:
         raise RenameError(f"Customer ids already exist under the new name: {', '.join(clash)}")
 
@@ -165,6 +168,17 @@ def apply(conn: sqlite3.Connection, old: str, new: str, the_plan: dict) -> None:
         if "user_id" in cols:
             for u, n in mapping.items():
                 conn.execute(f"UPDATE {table} SET user_id = ? WHERE user_id = ?", (n, u))
+
+    # The customers table keys a customer by id rather than user_id. A customer
+    # whose bank reference was the old id keeps matching under the new one.
+    if "customers" in tables:
+        for u, n in mapping.items():
+            conn.execute(
+                """UPDATE customers SET id = ?,
+                       external_ref = CASE WHEN external_ref = ? THEN ? ELSE external_ref END
+                   WHERE id = ?""",
+                (n, u, n, u),
+            )
 
     if "audit_log" in tables:
         conn.execute("UPDATE audit_log SET payload = REPLACE(payload, ?, ?) WHERE payload LIKE ?",
