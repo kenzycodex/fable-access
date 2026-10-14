@@ -317,10 +317,11 @@ curl -X POST http://localhost:8000/v1/demo/seed-institution \
 
 - **Watch is not built.** The dashboard marks it "coming soon" rather than
   faking it.
-- **GPS reverse geocoding uses free providers.** Coordinates are real and the
-  place name comes from Nominatim, falling back to BigDataCloud and then to the
-  IP lookup. Customer coordinates therefore leave the origin, which is an NDPR
-  consideration that has not been formally assessed.
+- **Reverse geocoding uses third-party map services.** The device's GPS fix is
+  named by the API (Google, LocationIQ or Geoapify when keyed, else
+  OpenStreetMap), with browser-side OpenStreetMap and BigDataCloud as the last
+  fallback. Customer coordinates therefore leave the origin, which the DPIA
+  required under the NDPA 2023 and GAID 2025 has to cover.
 - **Paystack's IP allowlist rotates.** Dynamic ISP addresses change, so
   `/api/paystack-status` exists to diagnose it in one call.
 - **Ghost is simulated containment.** It models the cooling window in SQLite;
