@@ -1104,7 +1104,7 @@ export async function customerOverview(
       transaction_count: number;
       tenure_discount: number;
     } | null;
-  }>(`/v1/demo/overview/${encodeURIComponent(userId)}?limit=${limit}${tenantParam(institution)}`);
+  }>(`/v1/sandbox/overview/${encodeURIComponent(userId)}?limit=${limit}${tenantParam(institution)}`);
 
   // Cache the real baseline so the offline engine scores this customer against
   // their own history rather than a single hardcoded average shared by

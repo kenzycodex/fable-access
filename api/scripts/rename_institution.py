@@ -54,8 +54,8 @@ def _tables(conn: sqlite3.Connection) -> dict[str, list[str]]:
 def _customer_ids(conn: sqlite3.Connection, tables: dict[str, list[str]], old: str) -> set[str]:
     """Every customer id that belongs to this institution.
 
-    Taken from the tables that tag a customer with an institution, plus the demo
-    roster, because a customer can exist in some tables before others.
+    Taken from every table that tags a customer with an institution, because a
+    customer can exist in some tables before others.
     """
     found: set[str] = set()
     for table, cols in tables.items():
@@ -67,33 +67,14 @@ def _customer_ids(conn: sqlite3.Connection, tables: dict[str, list[str]], old: s
     if "customers" in tables:
         for (cid,) in conn.execute("SELECT id FROM customers WHERE institution_id = ?", (old,)):
             found.add(cid)
-    try:
-        from agents.copilot.demo_customers import legacy_user_id_for, roster_for, user_id_for
-        for c in roster_for():
-            found.add(user_id_for(old, c["key"]))
-            found.add(legacy_user_id_for(old, c["key"]))
-    except Exception:  # noqa: BLE001 - the roster is only a safety net
-        pass
     # Only ids in the "{institution}_{suffix}" shape can be rewritten by prefix.
     return {u for u in found if u.startswith(old + "_")}
 
 
 def _new_customer_id(old_id: str, old: str, new: str) -> str:
-    """What a customer of `old` becomes at `new`.
-
-    A demo customer's id follows the person, and the person is chosen from the
-    institution's id, so renaming the institution picks new people. The id has to
-    follow, or it would name someone the roster no longer lists. Any other id just
-    swaps the prefix.
-    """
-    try:
-        from agents.copilot.demo_customers import archetype_of, user_id_for
-
-        found = archetype_of(old_id)
-        if found and found[0] == old:
-            return user_id_for(new, found[1])
-    except Exception:  # noqa: BLE001 - fall back to the plain prefix swap
-        pass
+    """What a customer of `old` becomes at `new`: older customer ids carry the
+    institution's id as a prefix, which is swapped. Ids issued since the
+    customers table (cus_...) carry no institution and never change."""
     return new + old_id[len(old):]
 
 
