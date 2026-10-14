@@ -22,10 +22,13 @@ export function AuthShell({
   title,
   description,
   children,
+  wide = false,
 }: {
   title?: string;
   description?: string;
   children: ReactNode;
+  /** Room for two columns, for steps with more to show (an authenticator QR code). */
+  wide?: boolean;
 }) {
   return (
     <div data-surface="app" className="min-h-dvh w-full bg-black">
@@ -34,9 +37,9 @@ export function AuthShell({
           <Image src="/images/brand/login-bg.jpg" alt="" fill priority className="object-cover" />
         </div>
 
-        <div className="relative z-10 flex flex-col justify-center bg-black px-6 py-8 sm:px-12 lg:px-16">
-          <div className="mx-auto flex w-full max-w-[340px] flex-col items-center">
-            <div className={`flex justify-center ${title ? "mb-8" : "mb-10"}`}>
+        <div className={`relative z-10 flex flex-col justify-center bg-black px-6 py-8 sm:px-12 ${wide ? "lg:px-10" : "lg:px-16"}`}>
+          <div className={`mx-auto flex w-full flex-col items-center ${wide ? "max-w-[540px]" : "max-w-[340px]"}`}>
+            <div className={`flex justify-center ${wide ? "mb-6" : title ? "mb-8" : "mb-10"}`}>
               <Link href="/" aria-label="Fable home" className="relative flex w-fit items-center">
                 <Image
                   src="/images/brand/fable-logo-white.png"
@@ -50,9 +53,9 @@ export function AuthShell({
             </div>
 
             {title && (
-              <div className="mb-8 w-full text-center">
-                <h1 className="mb-2 text-xl font-bold text-white">{title}</h1>
-                {description && <p className="text-sm text-gray-400">{description}</p>}
+              <div className={`w-full text-center ${wide ? "mb-6" : "mb-8"}`}>
+                <h1 className={`font-bold text-white ${wide ? "mb-1.5 whitespace-nowrap text-[clamp(1.35rem,6.2vw,2.1rem)]" : "mb-2 text-xl"}`}>{title}</h1>
+                {description && <p className={wide ? "text-[13px] leading-relaxed text-gray-400" : "text-sm text-gray-400"}>{description}</p>}
               </div>
             )}
 
