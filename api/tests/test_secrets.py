@@ -336,3 +336,18 @@ def test_logs_never_carry_a_loaded_key(caplog):
     vault.ScrubFilter().filter(record)
     assert KEY not in record.getMessage() and "[secret]" in record.getMessage()
     assert vault.scrub("token sk-ant-abcdefghijklmnop end") == "token [secret] end"
+
+
+def test_env_keys_can_be_imported_on_the_server_without_printing_them(client, monkeypatch, capsys):
+    import scripts.import_env_secrets as importer
+    from core import secrets as vault
+
+    monkeypatch.setenv("GEOAPIFY_API_KEY", "geo-" + "G" * 20)
+    monkeypatch.setattr(sys, "argv", ["import", "--apply"])
+    assert importer.main() == 0
+    out = capsys.readouterr().out
+    assert "GEOAPIFY_API_KEY" in out and "G" * 20 not in out
+    monkeypatch.delenv("GEOAPIFY_API_KEY")
+    vault.bump_generation()
+    assert vault.get("GEOAPIFY_API_KEY") == "geo-" + "G" * 20
+    assert vault.source("GEOAPIFY_API_KEY") == "console"
