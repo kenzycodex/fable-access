@@ -183,8 +183,9 @@ Feedback is accepted only for your own institution's transactions.
 
 ## 6. Go live
 
-Every institution starts in **sandbox** mode, which lets the public demo bank
-send test transfers by name. Before real customers use it:
+Every institution starts in **sandbox** mode, where your team can also try
+transfers as test customers in the sandbox app, signed in to the console.
+Before real customers use it:
 
 1. Make sure every call from your servers sends `X-API-Key`.
 2. Add and test at least one webhook endpoint.
@@ -192,11 +193,13 @@ send test transfers by name. Before real customers use it:
 4. Review your thresholds under **Settings → Risk policy**.
 5. An owner switches the environment to **Live** under **Settings → API & webhooks**.
 
-In live mode, any request about your institution or one of its customers that
-does not carry your key is refused with `401`. That includes verification,
-Ghost holds and approvals, so your app reaches Fable through your own servers,
-never directly from a phone or browser. Nothing else changes: existing data,
-keys and webhooks carry over.
+In live mode, every request about one of your customers must carry your key:
+without it the answer is `401`, and with only a console session it is `403`.
+That includes verification, Ghost holds and approvals, so your app reaches Fable
+through your own servers, never directly from a phone or browser. Fable keeps no
+balances for a live institution: your core banking system checks funds and
+moves the money, and Fable returns the decision. Nothing else changes: existing
+data, keys and webhooks carry over.
 
 ## SDKs
 

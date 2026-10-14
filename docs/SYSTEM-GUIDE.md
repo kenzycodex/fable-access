@@ -77,12 +77,13 @@ Two paths, and the authenticated one always wins:
 | **URL** | `/demo/zenith_test_bank` — the slug in the path | Asserted, validated against the registry |
 | **API key** | "Connect institution" field → `X-API-Key` header on every call | Authenticated |
 
-`api/core/tenancy.py::resolve_institution` decides: API key → claimed slug → the
-only institution, when exactly one exists. There is no default tenant: with
-several institutions and nothing naming one, the request is refused (400)
-rather than guessed, and an unknown slug never creates a phantom tenant. This is
-why pasting a Zenith key into a Meridian URL still books the transfer to Zenith:
-the key is proof, the URL is just a claim.
+`api/core/tenancy.py` decides which institution a request acts for, from its
+credential only: the API key, or the console session. A name in the URL, query
+or body is never used, there is no default tenant, and a request with no
+credential is a `401`. Customers are `(institution, your reference)`, held in the
+`customers` table; `customer_guard` checks that every customer, hold and
+transaction a request touches belongs to the caller's institution, and answers
+`404` otherwise. Cross-institution attempts are written to the audit log.
 
 ---
 

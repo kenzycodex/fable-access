@@ -28,10 +28,22 @@ a control hidden in the console is also refused by the server. An API key acts
 with analyst rights: it can read and report outcomes, but cannot manage people,
 keys, webhooks or policy.
 
-An institution in **live** mode refuses, without its key, any request that
-names it or concerns one of its customers, holds or transactions: scoring,
-balances, verification, Ghost holds, approvals and notifications alike. Sandbox
-institutions, including every demo bank, accept these by name.
+**Every request names its institution by credential, never by name.** The API
+key or the console session decides which institution a request acts for. An
+`institution_id` in a request body or query string is ignored, and there is no
+default institution: a request without a credential is refused with `401`.
+
+**Customers belong to one institution.** `user_id` is your own reference for the
+customer (an account or CIF number, for example: 1 to 64 letters, digits, or
+`.` `_` `:` `-`). Two institutions can use the same reference without sharing
+anything. A customer, hold or transaction that belongs to another institution
+returns `404`, whatever credential is used.
+
+**Sandbox and live.** In **sandbox** mode, a signed-in console member may also
+act on the institution's test customers, which is how the sandbox app works.
+In **live** mode, requests about customers must come from your servers with your
+API key; a console session is refused with `403`. A suspended institution is
+refused everywhere with `403`.
 
 `/`, `/health`, `/docs` and `/openapi.json` are always public. Requests are rate
 limited per client (default 180 per 60 seconds), and exceeding it returns `429`.
@@ -42,7 +54,7 @@ limited per client (default 180 per 60 seconds), and exceeding it returns `429`.
 
 | Field | Type | Notes |
 |---|---|---|
-| `user_id` | string | **Required.** Unique per customer |
+| `user_id` | string | **Required.** Your reference for the customer. A reference seen for the first time enrols the customer |
 | `transaction.amount` | number | **Required.** Greater than 0 |
 | `transaction.recipient_account` | string | **Required** |
 | `transaction.currency` | enum | `NGN` only today |
@@ -153,7 +165,7 @@ reference.
 | Endpoint | Purpose |
 |---|---|
 | `POST /admin/provision` | Create a tenant, seed it, email credentials. Operator key required. Optional `institution_type` (a commercial bank, a fintech, a payment gateway...) |
-| `GET /v1/institutions/{id}` | Detail and customer roster. Never returns credentials |
+| `GET /v1/institutions/{id}` | The full profile for the institution's own members; anyone else gets only its name, type, mode and status. Never returns credentials or customers |
 | `PATCH /v1/institutions/{id}` | Edit the institution's name, type and contact email. Owner only. The id, sign-in email and demo URL do not change |
 | `GET /v1/institutions/{id}/credentials` | The institution's API key, masked. The full key is never returned: only a hash is stored |
 | `POST /v1/institutions/{id}/keys/rotate` | Issue a new key and retire the old one immediately. Owner only. The new key is returned once |
@@ -165,6 +177,14 @@ reference.
 | `GET /v1/branding/resolve/{slug}` | Vanity slug to institution |
 | `PATCH /v1/branding/{id}` | Update branding. Owner only. A slug change locks for a cooling period |
 | `POST` / `DELETE /v1/branding/{id}/logo` | Upload or remove the logo. Owner only |
+
+## Customers
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/customers` | Your customers, newest first. Filters: `q` (name, reference, email or phone), `kind` (`test` or `real`), `status`, `limit`, `offset` |
+| `GET /v1/customers/{id}` | One customer, by Fable id or by your reference |
+| `GET /v1/sandbox/customers` | Your active test customers, for the sandbox app. Needs a console session; `409` while the institution is live |
 
 ## Console auth
 
