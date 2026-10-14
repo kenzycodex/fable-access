@@ -169,7 +169,14 @@ def stream(
             return
 
     system = f"{SYSTEM_PROMPT}\n\nINSTITUTION DATA (live, this institution only):\n{grounding}"
-    fenced = f"<analyst_question>\n{message}\n</analyst_question>"
+    # Nothing that identifies a customer leaves for a provider: names and the
+    # bank's references become "Customer A"..., numbers and contacts become
+    # placeholders (see redact.py). The figures-only path never needs this.
+    from agents.copilot.redact import scrubber
+
+    scrub = scrubber(institution_id, [message, *[t["content"] for t in history]]) if opts.use_model else (lambda t: t)
+    history = [{**t, "content": scrub(t["content"])} for t in history]
+    fenced = f"<analyst_question>\n{scrub(message)}\n</analyst_question>"
 
     engine, notice, parts = "deterministic", None, []
     providers = (("openai", _openai_stream), ("anthropic", _anthropic_stream)) if opts.use_model else ()
