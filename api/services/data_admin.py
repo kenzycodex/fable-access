@@ -35,6 +35,7 @@ SETUP_TABLES = {
     "webhook_deliveries", "audit_log", "institution_aliases", "password_resets", "operators",
     "operator_invites", "login_failures", "explanation_cache", "import_jobs", "import_rows",
     "platform_settings", "institution_assistant", "assistant_usage",
+    "platform_secrets", "secret_changes", "secret_audit", "operator_passkeys", "operator_stepup",
 }
 
 

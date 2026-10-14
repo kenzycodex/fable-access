@@ -71,6 +71,19 @@ ALLOW_DEBUG_OTP = (
     and ENVIRONMENT != "production"
 )
 
+# --- Integration keys managed from the operator console (core/secrets.py) ---
+# The master key that wraps every stored key: 32 random bytes, urlsafe base64.
+# It lives only here, never in the database. Without it the console can show
+# what is configured but cannot store or read any key. Losing it makes stored
+# keys unreadable (re-enter them, or put them back in .env). Back it up offline.
+# python -c "import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+SECRETS_KEY = os.getenv("FABLE_SECRETS_KEY", "").strip()
+SECRETS_KEY_ID = os.getenv("FABLE_SECRETS_KEY_ID", "k1").strip() or "k1"
+# Break-glass: "off" makes the console read-only for keys.
+SECRETS_WRITE = os.getenv("FABLE_SECRETS_WRITE", "on").strip().lower() not in ("off", "0", "false", "no")
+# Model names an operator may choose, beyond the built-in allowlist.
+EXTRA_MODELS = {m.strip() for m in os.getenv("FABLE_MODEL_ALLOWLIST", "").split(",") if m.strip()}
+
 # --- Customer PIN and verification rules ---
 # Every number here is an operator choice, not something the code decides on
 # its own. The values below are the defaults; set the variable to change one.

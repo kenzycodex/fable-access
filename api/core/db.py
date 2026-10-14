@@ -464,6 +464,90 @@ CREATE TABLE IF NOT EXISTS platform_settings (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Integration keys managed from the operator console (see core/secrets.py).
+-- One row per name and version. Values are envelope-encrypted: AES-256-GCM
+-- under a per-value data key, which is itself wrapped by the master key held
+-- only in the server environment. Nothing here is readable without it.
+CREATE TABLE IF NOT EXISTS platform_secrets (
+    name TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    status TEXT NOT NULL,                 -- active | retired | revoked
+    ciphertext BLOB,                      -- NULL once revoked or wiped
+    nonce BLOB,
+    wrapped_key BLOB,
+    kid TEXT,
+    last4 TEXT,
+    fingerprint TEXT,
+    rotation_reason TEXT,                 -- initial | routine | compromised | rollback
+    set_by TEXT,
+    approved_by TEXT,
+    change_id TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    retired_at TEXT,
+    PRIMARY KEY (name, version)
+);
+
+-- A proposed change to an integration key, waiting for a second owner (or a
+-- cooling-off period when there is only one). The proposed value is encrypted
+-- the same way, bound to this change, and wiped once decided.
+CREATE TABLE IF NOT EXISTS secret_changes (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    action TEXT NOT NULL,                 -- set | rollback | remove
+    status TEXT NOT NULL,                 -- pending | cooling | applied | rejected | cancelled | expired
+    rotation_reason TEXT,
+    reason TEXT,
+    target_version INTEGER,
+    ciphertext BLOB,
+    nonce BLOB,
+    wrapped_key BLOB,
+    kid TEXT,
+    last4 TEXT,
+    fingerprint TEXT,
+    proposed_by TEXT NOT NULL,
+    single_approver INTEGER NOT NULL DEFAULT 0,
+    decided_by TEXT,
+    decided_at TEXT,
+    apply_after TEXT,
+    expires_at TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Every secret action, hash-chained: each row carries the hash of the one
+-- before it, so a deleted or edited row breaks the chain
+-- (scripts/verify_secret_audit.py). Also copied to the log stream.
+CREATE TABLE IF NOT EXISTS secret_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    event TEXT NOT NULL,
+    name TEXT,
+    version INTEGER,
+    change_id TEXT,
+    actor TEXT,
+    detail TEXT,
+    prev_hash TEXT NOT NULL,
+    hash TEXT NOT NULL
+);
+
+-- Operators' passkeys, the preferred factor for step-up on secret actions.
+CREATE TABLE IF NOT EXISTS operator_passkeys (
+    credential_id TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    sign_count INTEGER NOT NULL DEFAULT 0,
+    label TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    last_used_at TEXT
+);
+
+-- Failed step-ups for secret actions. Locks secret actions only, never the
+-- operator's account.
+CREATE TABLE IF NOT EXISTS operator_stepup (
+    email TEXT PRIMARY KEY,
+    failures INTEGER NOT NULL DEFAULT 0,
+    locked_until TEXT
+);
+
 -- Ask Fable for one institution, where an operator has overridden the
 -- platform setting. NULL means "use the platform setting".
 CREATE TABLE IF NOT EXISTS institution_assistant (
