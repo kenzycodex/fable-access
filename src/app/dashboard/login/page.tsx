@@ -9,24 +9,6 @@ import { AuthShell, AuthSpinner, authButton, authInput } from "@/components/dash
 import { API_BASE } from "@/lib/fable/api";
 import { login, useFableStore } from "@/lib/fable/store";
 
-/** Demo credentials shown on the sign-in card.
- *
- * Configured rather than hardcoded. The previous version baked an email and
- * password into the bundle, which meant that after re-provisioning the page
- * advertised an account that no longer existed, so the only thing it reliably
- * produced was a failed login.
- *
- * Set both in Vercel to show the card, or leave either unset to hide it
- * entirely (which is what you want the moment this stops being a demo):
- *   NEXT_PUBLIC_DEMO_EMAIL, NEXT_PUBLIC_DEMO_PASSWORD
- *
- * These are NEXT_PUBLIC_ and therefore inlined into the client bundle, which is
- * fine only because the whole point is to publish them. Never put a real
- * operator credential here.
- */
-const DEMO_EMAIL = process.env.NEXT_PUBLIC_DEMO_EMAIL ?? "";
-const DEMO_PASSWORD = process.env.NEXT_PUBLIC_DEMO_PASSWORD ?? "";
-
 export default function DashboardLoginPage() {
   const router = useRouter();
   const store = useFableStore();
@@ -123,19 +105,6 @@ export default function DashboardLoginPage() {
           <Link href="/dashboard/forgot-password" className="text-[14px] text-[#7C3AED] transition-colors hover:text-[#8b5cf6] hover:underline">
             Forgot your password?
           </Link>
-          {/* Fills the form without printing the password on the page. */}
-          {DEMO_EMAIL && DEMO_PASSWORD && (
-            <button
-              type="button"
-              onClick={() => {
-                setEmail(DEMO_EMAIL);
-                setPassword(DEMO_PASSWORD);
-              }}
-              className="text-[13px] text-gray-400 transition-colors hover:text-white hover:underline"
-            >
-              Use the demo account
-            </button>
-          )}
         </div>
 
         <button type="submit" disabled={submitting} className={`mt-2 ${authButton}`}>
