@@ -154,10 +154,14 @@ def _shape(house_number, street, area, city_state, region, country, country_code
 
 def _parse_osm_address(body: dict, source: str) -> dict:
     """Nominatim and LocationIQ share OpenStreetMap's address breakdown. The
-    matched object's own name ("Faculty of Engineering") is the landmark."""
+    matched object's own name ("Faculty of Engineering") is the landmark.
+
+    LocationIQ's normalised form differs in two places: the name sits inside
+    the address, and a Lagos LGA comes as `county` with no city.
+    """
     a = body.get("address") or {}
-    city = a.get("city") or a.get("town") or a.get("village")
-    landmark = body.get("name") or a.get("amenity") or a.get("building") or a.get("shop") or a.get("office")
+    city = a.get("city") or a.get("town") or a.get("village") or a.get("county")
+    landmark = body.get("name") or a.get("name") or a.get("amenity") or a.get("building") or a.get("shop") or a.get("office")
     return _shape(
         a.get("house_number"),
         a.get("road") or a.get("pedestrian") or a.get("footway"),

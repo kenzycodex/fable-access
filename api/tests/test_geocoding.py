@@ -123,6 +123,24 @@ def test_free_providers_in_order(monkeypatch):
     assert [c for c in calls if "locationiq" in c] and not [c for c in calls if "nominatim" in c]
 
 
+def test_locationiq_normalised_shape(monkeypatch):
+    # The real reply for UNILAG's Senate Building.
+    _reset(monkeypatch, locationiq="liq")
+    _serve(monkeypatch, {"locationiq.com": {
+        "name": None,
+        "address": {
+            "name": "Senate Building, University of Lagos", "road": "Otunba Payne Street",
+            "suburb": "Akoka", "county": "Shomolu", "state": "Lagos State",
+            "country": "Nigeria", "country_code": "ng",
+        },
+    }})
+    place = geocoding.reverse(6.5197112, 3.3988169)
+    assert place["street_line"] == "Otunba Payne Street"
+    assert place["landmark"] == "Senate Building, University of Lagos"
+    assert place["city"] == "Lagos" and place["district"] == "Shomolu"
+    assert "LocationIQ" in place["attribution"]
+
+
 def test_cached_lookup_costs_one_call(monkeypatch):
     _reset(monkeypatch)
     calls = _serve(monkeypatch, {"nominatim.openstreetmap.org": NOMINATIM_CAMPUS})
