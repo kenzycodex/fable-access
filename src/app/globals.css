@@ -610,6 +610,11 @@ html:has([data-surface="app"]) {
   .console-shell[data-layout="compact"] .nav-rail-only {
     display: block !important;
   }
+  .console-shell[data-layout="compact"] .nav-account {
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-inline: 0;
+  }
   .console-shell[data-layout="compact"] .nav-brand {
     justify-content: center;
     padding-inline: 0;
