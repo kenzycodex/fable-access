@@ -563,9 +563,7 @@ html:has([data-surface="app"]) {
 /* Sharp: square corners, hairline rules and no shadows, on neutral greys rather
    than violet tints. Avatars, dots and switches stay round; everything else
    squares off. Figures line up in columns. */
-/* Sharp and Compact share the neutral palette; only Soft keeps the tinted one. */
-.console-shell[data-layout="sharp"],
-.console-shell[data-layout="compact"] {
+.console-shell[data-layout="sharp"] {
   --d-bg: #f4f4f5;
   --d-surface: #ffffff;
   --d-surface-2: #f4f4f5;
@@ -576,8 +574,7 @@ html:has([data-surface="app"]) {
   --d-shadow: none;
   font-variant-numeric: tabular-nums;
 }
-.dark .console-shell[data-layout="sharp"],
-.dark .console-shell[data-layout="compact"] {
+.dark .console-shell[data-layout="sharp"] {
   --d-bg: #09090b;
   --d-surface: #111113;
   --d-surface-2: #1b1b1f;
