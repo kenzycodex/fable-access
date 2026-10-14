@@ -31,7 +31,12 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    const detail = typeof body?.detail === "string" ? body.detail : `Request failed (${res.status}).`;
+    const detail =
+      typeof body?.detail === "string"
+        ? body.detail
+        : typeof body?.detail?.message === "string"
+          ? body.detail.message
+          : `Request failed (${res.status}).`;
     throw new ConsoleError(detail, res.status);
   }
   return (await res.json()) as T;
