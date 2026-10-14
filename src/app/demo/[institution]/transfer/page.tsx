@@ -540,8 +540,17 @@ function LocationStatus({ location }: { location: GeoLocation | null }) {
     // stand behind it; a looser fix says "near", which is the honest reading.
     const exact = acc !== null && acc <= 50;
     const street = location.address ?? (exact ? location.plus_code?.split(" ")[0] : null);
-    const place = [street, location.locality, location.city].filter(Boolean).join(", ") || "Device location";
-    return <>{(street && !exact ? "Near " : "") + place}</>;
+    const place =
+      [street, location.locality, location.district, location.city].filter(Boolean).join(", ") || "Device location";
+    return (
+      <>
+        {(street && !exact ? "Near " : "") + place}
+        {location.landmark && `, by ${location.landmark}`}
+        {location.attribution && (
+          <span className="mt-0.5 block text-[10px] text-d-faint">{location.attribution}</span>
+        )}
+      </>
+    );
   }
   return <>{[location.city, location.country].filter(Boolean).join(", ") || "Not available"}</>;
 }
