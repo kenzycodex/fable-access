@@ -8,7 +8,7 @@ import os
 import statistics
 from datetime import datetime, timedelta
 
-from core.db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict
+from core.db import cursor, require_institution_id, row_to_dict
 from core.utils import utcnow
 
 MIN_TRANSACTIONS_FOR_BASELINE = 3
@@ -320,7 +320,7 @@ def log_transaction(
                 context.get("time_to_submit_seconds"),
                 context.get("client_timestamp"),
                 context.get("client_timezone") or device.get("timezone"),
-                institution_id or DEFAULT_INSTITUTION_ID,
+                require_institution_id(institution_id),
                 transaction.get("recipient_name"),
                 client_reference,
                 latency_ms,

@@ -15,7 +15,7 @@ On the server:
 
     cd /var/www/fable/api
     docker compose exec api python scripts/pin_tool.py list
-    docker compose exec api python scripts/pin_tool.py clear meridian_ada
+    docker compose exec api python scripts/pin_tool.py clear ecobank_segun
 
 `check` and `list` only read. `clear` asks before it changes anything.
 """

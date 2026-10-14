@@ -163,3 +163,64 @@ def test_an_empty_database_gets_no_default_institution():
     assert empty.execute("SELECT COUNT(*) FROM institutions").fetchone()[0] == 0
     assert empty.execute("SELECT COUNT(*) FROM admins").fetchone()[0] == 0
     assert empty.execute("SELECT COUNT(*) FROM api_keys").fetchone()[0] == 0
+
+
+def test_a_table_created_with_the_old_default_is_rebuilt_without_it(tmp_path):
+    """Databases created before the default tenant was removed carry
+    `DEFAULT 'meridian'` in their schema. Startup rebuilds those tables without
+    it, keeping every row and index."""
+    from core import db
+
+    conn = sqlite3.connect(tmp_path / "old.db")
+    conn.executescript(db.SCHEMA)
+    conn.execute("DROP TABLE fable_users")
+    conn.execute(
+        """CREATE TABLE fable_users (
+            user_id TEXT PRIMARY KEY,
+            institution_id TEXT DEFAULT 'meridian',
+            enrolled_at TEXT DEFAULT (datetime('now')),
+            copilot_enabled INTEGER DEFAULT 1,
+            shield_enabled INTEGER DEFAULT 1,
+            ghost_enabled INTEGER DEFAULT 1
+        )"""
+    )
+    conn.execute("CREATE INDEX ix_old_users_inst ON fable_users (institution_id)")
+    conn.execute("INSERT INTO fable_users (user_id, institution_id) VALUES ('ecobank_segun', 'ecobank')")
+    conn.execute("INSERT INTO fable_users (user_id) VALUES ('orphan')")
+    conn.commit()
+
+    db._migrate(conn)
+
+    sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'fable_users'").fetchone()[0]
+    assert "meridian" not in sql
+    rows = dict(conn.execute("SELECT user_id, institution_id FROM fable_users").fetchall())
+    assert rows == {"ecobank_segun": "ecobank", "orphan": "meridian"}  # data is never rewritten
+    assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'ix_old_users_inst'").fetchone()
+    conn.execute("INSERT INTO fable_users (user_id) VALUES ('new')")
+    assert conn.execute("SELECT institution_id FROM fable_users WHERE user_id = 'new'").fetchone()[0] is None
+
+    db._migrate(conn)  # a second start is a no-op
+    conn.close()
+
+
+def test_rows_are_never_written_without_an_institution():
+    from core.db import require_institution_id
+
+    assert require_institution_id("ecobank") == "ecobank"
+    for missing in (None, ""):
+        with pytest.raises(ValueError):
+            require_institution_id(missing)
+
+
+def test_an_unidentified_request_is_refused_when_several_institutions_exist():
+    """With more than one bank and nothing naming one, any guess would hand one
+    bank's data to another, so the request is refused instead."""
+    from fastapi import HTTPException
+
+    from core.tenancy import _fallback_institution, register_institution
+
+    register_institution("firstbank_x", "First X", "a@x.ng")
+    register_institution("secondbank_x", "Second X", "b@x.ng")
+    with pytest.raises(HTTPException) as err:
+        _fallback_institution()
+    assert err.value.status_code == 400

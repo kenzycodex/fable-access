@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from agents.ghost.account import calculate_cooling_window
 from core import config
-from core.db import DEFAULT_INSTITUTION_ID, cursor, loads, row_to_dict
+from core.db import cursor, loads, row_to_dict
 from core.tenancy import customer_scope, resolve_institution
 from core.utils import utcnow
 from models.schemas import DemoSeedRequest, InstitutionSeedRequest
@@ -216,7 +216,7 @@ THREAT_TEMPLATES = [
 ]
 
 
-def seed_threat_history(user_id: str, days: int, institution_id: str = DEFAULT_INSTITUTION_ID,
+def seed_threat_history(user_id: str, days: int, institution_id: str,
                         count: int = 22, rng: random.Random | None = None) -> int:
     """Seed historical BLOCK/FLAG activity for one customer.
 

@@ -28,11 +28,10 @@ _initialized = False
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS fable_users (
     user_id TEXT PRIMARY KEY,
-    -- 'demo_bank' used to be the default here and hardcoded in the seed
-    -- endpoint, while DEFAULT_INSTITUTION_ID is 'meridian'. No institutions row
-    -- has ever existed for 'demo_bank', so anything created through that path
-    -- was orphaned to a tenant no dashboard could select.
-    institution_id TEXT DEFAULT 'meridian',
+    -- No default: every customer is created for a named institution. A default
+    -- tenant ('demo_bank', later 'meridian') used to fill this in, and rows
+    -- written without one landed on a bank that might not exist.
+    institution_id TEXT,
     enrolled_at TEXT DEFAULT (datetime('now')),
     copilot_enabled INTEGER DEFAULT 1,
     shield_enabled INTEGER DEFAULT 1,
@@ -360,7 +359,6 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
 
 # The tenant every pre-multi-tenant row belongs to. Existing databases were
 # single-tenant, so their history is backfilled to this institution.
-DEFAULT_INSTITUTION_ID = "meridian"
 
 # Columns added after the original schema shipped. Existing fable.db files are
 # upgraded in place at boot via PRAGMA table_info diffing.
@@ -489,34 +487,11 @@ def _migrate(conn):
             if column not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
 
-    # Backfill: pre-multi-tenant rows all belong to the original tenant.
-    conn.execute(
-        "UPDATE transactions SET institution_id = ? WHERE institution_id IS NULL",
-        (DEFAULT_INSTITUTION_ID,),
-    )
-    # Scoped to containers whose owner genuinely belongs to the default tenant.
-    #
-    # This was an unconditional claim on every NULL, which turned a one-off
-    # backfill into a permanent trap: seeding wrote containers with no tenant,
-    # and the next startup handed all of them to the default institution
-    # regardless of which bank they belonged to. One bank's "fraud prevented"
-    # appeared on another's dashboard. The insert is fixed, so this now only
-    # has genuine pre-multi-tenancy rows to catch, and it can no longer take a
-    # container whose transactions point elsewhere.
-    conn.execute(
-        """UPDATE ghost_containers SET institution_id = ?
-           WHERE institution_id IS NULL
-             AND user_id NOT IN (
-                 SELECT DISTINCT user_id FROM transactions
-                 WHERE institution_id IS NOT NULL AND institution_id != ?
-             )""",
-        (DEFAULT_INSTITUTION_ID, DEFAULT_INSTITUTION_ID),
-    )
-    # Legacy rows from when the schema defaulted to a tenant that never existed.
-    conn.execute(
-        "UPDATE fable_users SET institution_id = ? WHERE institution_id = 'demo_bank'",
-        (DEFAULT_INSTITUTION_ID,),
-    )
+    # The pre-multi-tenancy backfills that assigned unattributed rows to a
+    # default 'meridian' tenant are gone with that tenant. They ran on every
+    # start for months, so no deployment still has rows waiting for them.
+    _drop_legacy_default(conn)
+
     # Existing API keys predate institution_id; derive it from the stored name.
     for row in conn.execute(
         "SELECT key, institution_name FROM api_keys WHERE institution_id IS NULL"
@@ -543,6 +518,63 @@ def _migrate(conn):
     # No institution is created here. One used to be inserted into an empty
     # database; institutions now come only from provisioning.
     conn.commit()
+
+
+def require_institution_id(institution_id: str | None) -> str:
+    """Every row belongs to a named institution; refuse to write one without.
+
+    A default tenant used to be filled in here, so a caller that forgot the
+    institution wrote rows onto a bank that might not exist.
+    """
+    if not institution_id:
+        raise ValueError("institution_id is required: every row belongs to a named institution.")
+    return institution_id
+
+
+LEGACY_DEFAULT = "DEFAULT 'meridian'"
+
+
+def _drop_legacy_default(conn) -> None:
+    """Remove the old `DEFAULT 'meridian'` from tables created with it.
+
+    SQLite cannot alter a column's default, so a table that still has one is
+    rebuilt the way SQLite's documentation prescribes: create the new shape,
+    copy every row, drop the old table, rename, and recreate its indexes, all in
+    one transaction so a failure leaves the original untouched. Tables without
+    the default (the usual case) are not touched at all.
+    """
+    tables = conn.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql LIKE ?",
+        (f"%{LEGACY_DEFAULT}%",),
+    ).fetchall()
+    if not tables:
+        return
+
+    conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for name, sql in tables:
+            temp = f"{name}__rebuild"
+            indexes = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL",
+                    (name,),
+                )
+            ]
+            head, rest = sql.split("(", 1)
+            conn.execute(f'CREATE TABLE "{temp}" (' + rest.replace(" " + LEGACY_DEFAULT, ""))
+            columns = ", ".join(f'"{row[1]}"' for row in conn.execute(f'PRAGMA table_info("{name}")'))
+            conn.execute(f'INSERT INTO "{temp}" ({columns}) SELECT {columns} FROM "{name}"')
+            conn.execute(f'DROP TABLE "{name}"')
+            conn.execute(f'ALTER TABLE "{temp}" RENAME TO "{name}"')
+            for index_sql in indexes:
+                conn.execute(index_sql)
+            logger.info("Removed the legacy 'meridian' default from %s.", name)
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
 
 def slugify_institution(name: str) -> str:

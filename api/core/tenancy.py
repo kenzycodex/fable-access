@@ -11,7 +11,7 @@ it, so one tenant can never see another's transactions.
 """
 from fastapi import Request
 
-from core.db import DEFAULT_INSTITUTION_ID, cursor, row_to_dict, slugify_institution
+from core.db import cursor, row_to_dict, slugify_institution
 
 
 def institution_from_api_key(key: str | None) -> str | None:
@@ -41,9 +41,9 @@ def extract_api_key(request) -> str | None:
 def resolve_institution(request, claimed: str | None = None) -> str:
     """The institution a write belongs to.
 
-    Precedence: authenticated API key > slug claimed by the client > default.
-    An unknown claimed slug falls back to the default rather than creating a
-    phantom tenant, so a typo in the URL can't silently fork the data.
+    Precedence: authenticated API key > slug claimed by the client > the only
+    institution, when there is exactly one. An unknown claimed slug never
+    creates a phantom tenant, so a typo in the URL can't silently fork the data.
     """
     from_key = institution_from_api_key(extract_api_key(request))
     if from_key:
@@ -65,24 +65,27 @@ def resolve_institution(request, claimed: str | None = None) -> str:
 
 
 def _fallback_institution() -> str:
-    """The tenant to attribute a write to when nothing identifies one.
+    """The tenant for a request that names none: the only institution, if there
+    is exactly one.
 
-    This used to return DEFAULT_INSTITUTION_ID unconditionally, which is only
-    correct while that institution exists. After re-provisioning it does not,
-    so unattributed writes were tagged to a tenant with no institutions row —
-    orphaning them exactly the way the old 'demo_bank' default did.
-
-    Prefers the configured default when it is real, then falls back to the only
-    institution when there is exactly one. With several tenants and nothing
-    identifying the caller there is no safe guess, so the configured default
-    stands and the caller should be sending a key.
+    There used to be a default tenant ('meridian') to fall back on. Writes
+    tagged with it after that bank was removed belonged to nobody, and with
+    several banks any guess hands one bank's data to another. So with none or
+    several, the request is refused and the caller is told to identify itself.
     """
-    if institution_exists(DEFAULT_INSTITUTION_ID):
-        return DEFAULT_INSTITUTION_ID
+    from fastapi import HTTPException
+
     with cursor() as cur:
         cur.execute("SELECT institution_id FROM institutions ORDER BY created_at ASC LIMIT 2")
         rows = cur.fetchall()
-    return rows[0]["institution_id"] if len(rows) == 1 else DEFAULT_INSTITUTION_ID
+    if len(rows) == 1:
+        return rows[0]["institution_id"]
+    if not rows:
+        raise HTTPException(status_code=409, detail="No institution has been provisioned yet.")
+    raise HTTPException(
+        status_code=400,
+        detail="Say which institution this is for: send its API key, or name it.",
+    )
 
 
 def tenant_for_read(request, claimed: str | None = None) -> str:

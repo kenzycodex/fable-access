@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from core.config import GHOST_COOLING_HIGH, GHOST_COOLING_LOW, GHOST_COOLING_MED
-from core.db import DEFAULT_INSTITUTION_ID, cursor, dumps, loads, row_to_dict
+from core.db import cursor, dumps, loads, require_institution_id, row_to_dict
 
 
 def calculate_cooling_window(risk_score: float, institution_id: str | None = None) -> int:
@@ -58,7 +58,7 @@ def create_ghost_container(
                 explanation,
                 created_at.isoformat(),
                 expires_at.isoformat(),
-                institution_id or DEFAULT_INSTITUTION_ID,
+                require_institution_id(institution_id),
                 dumps(signals or []),
             ),
         )
