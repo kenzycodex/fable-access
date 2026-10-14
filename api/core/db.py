@@ -454,6 +454,39 @@ CREATE TABLE IF NOT EXISTS import_rows (
     line INTEGER NOT NULL,
     data TEXT NOT NULL
 );
+
+-- Platform-wide settings an operator can change, such as Ask Fable's limits.
+-- One JSON value per key; a missing key means the built-in default.
+CREATE TABLE IF NOT EXISTS platform_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_by TEXT,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Ask Fable for one institution, where an operator has overridden the
+-- platform setting. NULL means "use the platform setting".
+CREATE TABLE IF NOT EXISTS institution_assistant (
+    institution_id TEXT PRIMARY KEY,
+    enabled INTEGER,
+    daily_answers INTEGER,
+    updated_by TEXT,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Ask Fable usage per person per day (Lagos time): questions asked, how many
+-- were answered by a model, how many from the cache, and the tokens spent.
+CREATE TABLE IF NOT EXISTS assistant_usage (
+    institution_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    day TEXT NOT NULL,
+    questions INTEGER NOT NULL DEFAULT 0,
+    model_answers INTEGER NOT NULL DEFAULT 0,
+    cached_answers INTEGER NOT NULL DEFAULT 0,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (institution_id, email, day)
+);
 """
 
 # The tenant every pre-multi-tenant row belongs to. Existing databases were

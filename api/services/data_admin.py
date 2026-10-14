@@ -34,6 +34,7 @@ SETUP_TABLES = {
     "institutions", "admins", "api_keys", "institution_branding", "institution_settings", "webhooks",
     "webhook_deliveries", "audit_log", "institution_aliases", "password_resets", "operators",
     "operator_invites", "login_failures", "explanation_cache", "import_jobs", "import_rows",
+    "platform_settings", "institution_assistant", "assistant_usage",
 }
 
 
