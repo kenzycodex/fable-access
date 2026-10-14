@@ -8,7 +8,7 @@ import { useSyncExternalStore } from "react";
  * - soft: rounded cards, soft depth, the lavender canvas. The default.
  * - sharp: square corners, hairline rules, no shadows, neutral greys.
  * - compact: an icon rail instead of the full sidebar, flat panels and tighter
- *   spacing, so more of every page fits on screen.
+ *   spacing on the same neutral greys as sharp, so more of every page fits.
  *
  * A per-viewer preference, so it lives in localStorage: a different member of
  * the same bank keeps their own choice.
