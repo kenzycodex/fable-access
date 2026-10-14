@@ -104,3 +104,18 @@ def test_the_explainer_sends_signal_codes_not_client_text(monkeypatch):
         assert leak not in prompt, f"{leak!r} reached the provider"
     assert "amount_anomaly (at least 25x" in prompt and "scam_pattern (Urgency (Pidgin))" in prompt
     assert "location_anomaly" in prompt and "<decision>" in prompt
+
+
+def test_raw_keystrokes_are_never_accepted_or_stored():
+    """Only derived behavioural measures exist: a client that sends raw key
+    events has them dropped at the edge, and no column could hold them."""
+    from core.db import cursor
+    from models.schemas import Context
+
+    ctx = Context.model_validate({"typing_speed_ms": 180.0, "keystrokes": [{"key": "1", "t": 10}],
+                                  "key_events": "1,2,3", "typed_text": "0123456789"}).model_dump()
+    assert {"keystrokes", "key_events", "typed_text"}.isdisjoint(ctx)
+    with cursor() as cur:
+        cur.execute("PRAGMA table_info(transactions)")
+        columns = {r[1] for r in cur.fetchall()}
+    assert not {c for c in columns if "keystroke" in c or "typed" in c or "key_event" in c}
