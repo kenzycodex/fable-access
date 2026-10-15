@@ -1,6 +1,6 @@
-# Runs the same checks used locally on every push and pull request to main.
-# It only checks; deploys stay where they are (Vercel for the frontend, the
-# droplet for the API).
+# Runs the same checks used locally on every push and pull request to main,
+# then deploys the API to the droplet on a push to main once its tests pass.
+# The frontend deploys itself through Vercel.
 name: CI
 
 on:
@@ -9,9 +9,11 @@ on:
   pull_request:
     branches: [main]
 
+# A newer push cancels an older pull request run, but never a run on main:
+# that run may be part-way through a deploy.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   api:
@@ -47,3 +49,34 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --noEmit -p tsconfig.json
       - run: pnpm exec eslint src
+
+  deploy:
+    name: Deploy API
+    needs: api
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      # The key in DEPLOY_SSH_KEY can only run api/scripts/deploy_server.sh on
+      # the server (a forced command), so this step sends no command of its own.
+      # Until the three secrets are set (docs/DEPLOYMENT.md), it skips quietly.
+      - name: Deploy over SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_KNOWN_HOSTS" ]; then
+            echo "::notice::Deploy secrets are not set, so the API was not deployed. See docs/DEPLOYMENT.md."
+            exit 0
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -T -i ~/.ssh/deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+            "${DEPLOY_USER:-root}@${DEPLOY_HOST}"
