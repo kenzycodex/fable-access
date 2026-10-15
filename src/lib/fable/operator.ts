@@ -481,6 +481,175 @@ export const rejectSecretChange = (id: string, reason?: string) =>
 export const testSecret = (name: string) =>
   call<{ ok: boolean; message: string }>(`/operator/secrets/${encodeURIComponent(name)}/test`, { method: "POST" });
 
+// ── Engine (Shield's weights and thresholds) ────────────────────────────────
+
+export type EngineStatus =
+  | "draft" | "proposed" | "cooling" | "approved" | "shadow" | "active" | "retired"
+  | "rejected" | "cancelled" | "discarded" | "expired";
+
+export interface EngineParams {
+  weights: Record<string, number>;
+  thresholds: Record<string, { block: number; flag: number }>;
+}
+
+export type DecisionAction = "PASS" | "FLAG" | "BLOCK";
+export type DecisionMatrix = Record<DecisionAction, Record<DecisionAction, number>>;
+
+export interface BacktestGroup {
+  n: number;
+  changed: number;
+  block_before: number;
+  block_after: number;
+  flag_before: number;
+  flag_after: number;
+  block_rate_before: number;
+  block_rate_after: number;
+}
+
+export interface OutcomeLabel {
+  n: number;
+  low_sample: boolean;
+  before: Partial<Record<DecisionAction, number>>;
+  after: Partial<Record<DecisionAction, number>>;
+  caught_before?: number;
+  caught_after?: number;
+  missed_before?: number;
+  missed_after?: number;
+  newly_caught?: number;
+  newly_missed?: number;
+  blocked_before?: number;
+  blocked_after?: number;
+  newly_blocked?: number;
+}
+
+export interface Metrics {
+  precision: number;
+  recall: number;
+  f1: number;
+  false_positive_rate: number;
+  n: number;
+  low_sample: boolean;
+}
+
+export interface BacktestReport {
+  days: number;
+  since: string;
+  run_at: string;
+  params_hash: string;
+  rows: { replayed: number; exact: number; approximate: number; skipped: number; fidelity: number; truncated: boolean };
+  matrix: DecisionMatrix;
+  overall: BacktestGroup;
+  by_channel: (BacktestGroup & { channel: string })[];
+  by_bank: (BacktestGroup & { institution_id: string })[];
+  outcomes: {
+    fraud: OutcomeLabel;
+    legitimate: OutcomeLabel;
+    ghost_cancelled: OutcomeLabel;
+    no_outcome_blocked: number;
+    metrics_before: Metrics;
+    metrics_after: Metrics;
+  };
+  warnings: { kind: string; scope?: string; message: string }[];
+  needs_ack: boolean;
+  env_keys: { path: string; env: string }[];
+  policy_note: string;
+  min_sample: number;
+}
+
+export interface EngineVersion {
+  version: number;
+  status: EngineStatus;
+  params: EngineParams;
+  params_hash: string;
+  approved_hash: string | null;
+  base_version: number | null;
+  rollback_of: number | null;
+  backtest_at: string | null;
+  note: string | null;
+  drift_note: string | null;
+  impact_ack: boolean;
+  created_by: string | null;
+  created_at: string | null;
+  proposed_by: string | null;
+  proposed_at: string | null;
+  single_approver: boolean;
+  apply_after: string | null;
+  expires_at: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  decided_by: string | null;
+  shadow_started_at: string | null;
+  shadow_until: string | null;
+  activated_at: string | null;
+  activated_by: string | null;
+  retired_at: string | null;
+  backtest_summary?: { days: number; run_at: string; changed: number; replayed: number; warnings: number; fresh: boolean };
+}
+
+export interface EngineVersionDetail extends EngineVersion {
+  backtest?: BacktestReport;
+  changes: { path: string; label: string; from: number; to: number }[];
+  errors: string[];
+  drift: string[];
+}
+
+export interface ShadowDiff {
+  version: number | null;
+  since?: string;
+  scored: number;
+  disagreements: number;
+  matrix?: DecisionMatrix;
+  recent?: {
+    id: string; institution_id: string; channel: string; amount: number; risk_score: number;
+    action_taken: DecisionAction; shadow_score: number; shadow_action: DecisionAction; created_at: string;
+  }[];
+}
+
+export interface EngineOverview {
+  active: EngineVersion;
+  effective: { params: EngineParams; hash: string };
+  shadow: (EngineVersion & { diff: ShadowDiff | null }) | null;
+  versions: EngineVersion[];
+  activations: { id: number; version: number; started_at: string; ended_at: string | null; by: string; kind: string }[];
+  previous_live: number | null;
+  env_keys: { path: string; env: string; value: number }[];
+  bounds: {
+    weight_max: number; floors: Record<string, number>; threshold_min: number; threshold_max: number;
+    min_gap: number; max_step: number; drift_cap: number; drift_days: number; windows: number[];
+    backtest_max_age_hours: number; shadow_days_default: number; shadow_days_max: number;
+  };
+  catalogue: {
+    groups: { group: string; weights: { key: string; label: string; default: number; env: string }[] }[];
+    channels: string[];
+  };
+  owners: number;
+  me: { role: OperatorRole; email: string; can_draft: boolean; can_decide: boolean };
+}
+
+const engine = (path: string) => `/operator/engine${path}`;
+const v = (n: number, rest = "") => engine(`/versions/${n}${rest}`);
+
+export const useEngine = () => useSWR(["operator:engine"], () => call<EngineOverview>(engine("")));
+export const useEngineVersion = (n: number | null) =>
+  useSWR(n ? ["operator:engine:version", n] : null, () => call<EngineVersionDetail>(v(n!)));
+export const useShadowDiff = (on: boolean) =>
+  useSWR(on ? ["operator:engine:shadow"] : null, () => call<ShadowDiff>(engine("/shadow-diff")), { refreshInterval: 30_000 });
+export const createEngineDraft = (params: EngineParams, note?: string) =>
+  call<EngineVersionDetail>(engine("/drafts"), post({ params, note: note || null }));
+export const updateEngineDraft = (n: number, params: EngineParams, note?: string) =>
+  call<EngineVersionDetail>(v(n), { method: "PUT", body: JSON.stringify({ params, note: note || null }) });
+export const backtestEngine = (n: number, days: number) => call<BacktestReport>(v(n, "/backtest"), post({ days }));
+export const proposeEngine = (n: number, body: { note?: string; drift_note?: string; acknowledge_impact: boolean; step_up: StepUp }) =>
+  call<EngineVersionDetail>(v(n, "/propose"), post(body));
+export const approveEngine = (n: number, body: { acknowledge_impact: boolean; step_up: StepUp }) =>
+  call<EngineVersionDetail>(v(n, "/approve"), post(body));
+export const rejectEngine = (n: number, reason?: string) => call<EngineVersionDetail>(v(n, "/reject"), post({ reason: reason || null }));
+export const shadowEngine = (n: number, days: number, step_up: StepUp) => call<EngineVersionDetail>(v(n, "/shadow"), post({ days, step_up }));
+export const stopShadowEngine = (n: number) => call<EngineVersionDetail>(v(n, "/shadow/stop"), { method: "POST" });
+export const promoteEngine = (n: number, step_up: StepUp) => call<EngineVersionDetail>(v(n, "/promote"), post({ step_up }));
+export const rollbackEngine = (version: number, reason: string, step_up: StepUp) =>
+  call<EngineVersionDetail>(engine("/rollback"), post({ version, reason, step_up }));
+
 export interface OperatorPasskey {
   credential_id: string;
   label: string | null;
