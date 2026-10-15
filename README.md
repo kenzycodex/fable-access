@@ -233,7 +233,7 @@ If the API is unreachable, the demo bank falls back to a local scoring engine an
 
 ## 🎮 The 90-Second Demo
 
-Fable ships a simulated mobile banking app. Each institution gets its own at `/demo/{institution}`, pre-loaded with two customers (a trader and a student; set `FABLE_DEMO_CUSTOMERS=3` for a third) and 90 days of history. Provision an institution to try it (see the [quickstart](src/content/docs/02-quickstart.md)). Customer names differ from one institution to the next, but the two profiles are always the same.
+Fable ships a sandbox banking app. Each institution gets its own at `/demo/{institution}`, open to its console members, using the test customers it imports or adds. There is no built-in demo data: import a few test customers with history shaped like a trader, a salaried worker and a student (CSV templates are in **Settings > Data**), then try the scenarios below. See the [quickstart](src/content/docs/02-quickstart.md).
 
 ### ✅ Scenario 1: Same amount, different customers
 *Per-customer baselines in action.*
@@ -264,7 +264,10 @@ Sign in at `/dashboard/login` and see the same transfers from the institution's 
 | **Customers** | Each customer's baseline, verification status, history and cases |
 | **Agents, Insights** | What Copilot, Shield and Ghost are doing, and which scams and signals recur |
 | **Compliance** | The audit trail, an incident log, CSV export and a printable board report |
-| **Settings** | Profile, branding, risk policy (your own thresholds and hold windows), team and roles, API key and webhooks |
+| **Settings** | Profile, branding, risk policy (your own thresholds and hold windows), team and roles, data imports, API key and webhooks, and the go-live checklist |
+| **Ask Fable** | An analyst assistant that answers from the institution's own figures, with customers pseudonymised before any AI provider sees a question |
+
+Fable staff run a separate **operator platform** at `/operator` (password plus authenticator, with roles): they create institutions empty, follow their setup, set Ask Fable's limits, manage integration keys with two-owner approval (see [docs/SECRETS.md](docs/SECRETS.md)), and read the full audit log.
 
 Console users have a role, enforced by the API: **owner** (everything), **analyst** (works the review queue) or **viewer** (read only).
 

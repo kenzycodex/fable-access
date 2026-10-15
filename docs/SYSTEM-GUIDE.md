@@ -8,8 +8,9 @@ how to test it end to end.
 ## 1. The one-paragraph version
 
 Fable is fraud infrastructure that banks plug into. A bank is **provisioned**
-(gets a dashboard login, an API key, and its own demo bank URL). Its customers
-use a **banking app** (`/demo/{institution}`), which silently collects real
+by a Fable operator: it starts empty, its owner sets up the console, an API key
+and its customers. Its customers use the bank's own app (or, while testing, the
+**sandbox app** at `/demo/{institution}`), which collects real
 device, location, session and behavioural data on every transfer. That context
 goes to **Shield**, which scores the transfer against **Copilot's** learned
 baseline *for that specific customer*. Risky transfers land in **Ghost**, a
@@ -42,48 +43,43 @@ mid-pitch. The dashboard shows an offline notice instead of blank panels.
 ## 3. Onboarding flow (the "banks plug in once" story)
 
 ```
-POST /admin/provision  { institution_name, admin_email }
-        │
-        ├─ slugify name        →  "Zenith Test Bank" → zenith_test_bank
-        ├─ generate API key    →  fbl_live_da3c8f21...
-        ├─ generate password   →  temp password, hashed
-        ├─ register tenant     →  institutions table
-        ├─ SEED the tenant     →  2 customers × 90 days of history + threats
-        └─ email the admin     →  dashboard login + API key + demo URL
+Fable operator (operator platform, MFA)
+  └─ New institution  { name, type, owner email }
+        ├─ slugify name        →  "Clearwater MFB" → clearwater_mfb
+        ├─ register tenant     →  institutions table, mode = sandbox, EMPTY
+        └─ invite the owner    →  one-time set-password link (7 days)
+
+Owner (bank console)
+  ├─ Settings > Go live      →  the checklist below, derived from real state
+  ├─ API & webhooks           →  create the API key (shown once), add a webhook, test it
+  ├─ Risk policy              →  review thresholds and hold windows
+  ├─ Data                     →  import customers and past transfers (CSV or API)
+  ├─ Team                     →  invite analysts and viewers
+  └─ Go live                  →  confirm the DPA and DPIA; refused until required items are done
 ```
 
-Provisioning is an operator action, not a public endpoint: it needs the
-`X-Fable-Operator-Key` header, and is switched off when no operator key is set.
-Customer ids are the institution id plus the customer's first name
-(`zenith_test_bank_segun`). Each institution gets different people, but always
-the same two profiles, a trader and a student (`FABLE_DEMO_CUSTOMERS=3` adds a
-salaried one).
+There is no demo data and no default tenant. A new institution is empty until
+it imports its own customers. Customers are identified by **the bank's own
+reference** (account or CIF number); Fable keeps an internal id per
+`(institution, reference)`, so two banks can both have a customer `10293`
+without sharing anything.
 
-The welcome email contains three things:
+### The sandbox app
 
-1. **Dashboard URL** + admin email + temporary password
-2. **API key** (`fbl_live_...`) — the real integration credential
-3. **Demo bank URL** — `/demo/zenith_test_bank`, pre-loaded with customers
+Each institution gets a sandbox banking app at `/demo/<institution>` to try
+Fable with its own **test** customers. It needs a console sign-in to that
+institution, shows only test customers, and switches off when the institution
+goes live. Saved recipients come from each test customer's own history.
 
-Seeding at provisioning time is deliberate: a new tenant logs into a *populated*
-console, not an empty one.
-
-### How the demo bank knows which institution it is
-
-Two paths, and the authenticated one always wins:
-
-| Path | Mechanism | Trust |
-|---|---|---|
-| **URL** | `/demo/zenith_test_bank` — the slug in the path | Asserted, validated against the registry |
-| **API key** | "Connect institution" field → `X-API-Key` header on every call | Authenticated |
+### How a request knows its institution
 
 `api/core/tenancy.py` decides which institution a request acts for, from its
 credential only: the API key, or the console session. A name in the URL, query
 or body is never used, there is no default tenant, and a request with no
-credential is a `401`. Customers are `(institution, your reference)`, held in the
-`customers` table; `customer_guard` checks that every customer, hold and
+credential is a `401`. `customer_guard` checks that every customer, hold and
 transaction a request touches belongs to the caller's institution, and answers
-`404` otherwise. Cross-institution attempts are written to the audit log.
+`404` otherwise. Cross-institution attempts are written to the audit log, and
+operators see them on the operator overview.
 
 ---
 
@@ -92,7 +88,7 @@ transaction a request touches belongs to the caller's institution, and answers
 This is the core loop. Every numbered step is real, not simulated.
 
 ```
-1. Customer opens /demo/zenith_test_bank
+1. A test customer opens the sandbox app, /demo/<institution>
    └─ session.ts starts the banking session (login time, auth method)
       stored in sessionStorage — clears on tab close, like a real bank app
 
@@ -200,21 +196,19 @@ works the review queue, a **viewer** can only read.
 
 ---
 
-## 7. Why the customer picker matters
+## 7. Why per-customer baselines matter
 
-Two seeded customers per institution (three with `FABLE_DEMO_CUSTOMERS=3`), with
-deliberately different baselines. The names change from one institution to the
-next; the profiles do not:
+Each customer is judged against their own history, imported or learned. The
+same transfer means different things for different people:
 
 | Profile | Typical range |
 |---|---|
 | Student | ₦1,500 – ₦9,000 |
-| Salaried professional (the optional third) | ₦8,000 – ₦55,000 |
+| Salaried professional | ₦8,000 – ₦55,000 |
 | Trader / business owner | ₦80,000 – ₦400,000 |
 
 Send **the same ₦250,000** to a new recipient on the mobile app as each
-(measured with the current engine, with no device or location context, so a
-real session moves the scores slightly):
+(no device or location context):
 
 | Profile | Result | Why |
 |---|---|---|
@@ -222,23 +216,20 @@ real session moves the scores slightly):
 | Salaried | **FLAG** 0.76 | Several times their baseline |
 | Student | **BLOCK** 0.90 | Roughly fifty times their baseline |
 
-Same amount, same recipient, same device: three different verdicts. That is the
-entire pitch for per-customer behavioural baselines, and it is the single most
-convincing thing to demo.
+Same amount, same recipient, same device: three different verdicts. To see it,
+import three test customers with history shaped like these profiles.
 
 ---
 
 ## 8. Multi-tenant isolation
 
-Every transaction and ghost container carries `institution_id`. Every read is
-filtered by the institution the console logged in as (`/auth/login` returns it;
-it is no longer hardcoded).
-
-This is covered by tests: a session for one institution gets a 404 on another's cases and customers, its exports contain only its own rows, and a removed team member loses access on their next request.
-Neither can see the other.
-
-Data that predates multi-tenancy was migrated and backfilled to `meridian`, so
-nothing was orphaned.
+Every row belongs to one institution, and only that institution can reach it.
+`api/tests/test_tenant_isolation.py` pins the rules: no credential is a `401`;
+another bank's customer, hold or transaction is `404`, whatever credential is
+used; two banks can share a customer reference without sharing anything; a live
+bank's customers are reachable only with its API key; a suspended bank is
+refused everywhere. Exports and the audit log a bank sees contain only its own
+rows, and operator identities are shown to banks as "Fable".
 
 ---
 
@@ -266,51 +257,25 @@ broken integration hides.
 
 ### Full walkthrough
 
-1. **Provision a bank**
+1. **Create an operator** (once): `python scripts/create_operator.py you@company.com "Your Name"`,
+   then sign in at `/operator/login` and enrol your authenticator app.
+2. **Create an institution** from the operator platform. Open the owner's invite
+   link (shown when email is not set up) and choose a password.
+3. **Import customers** in the console under **Settings > Data**, from the
+   templates. Mark two or three as `test`, with an opening balance, and import
+   past transfers for them.
+4. **Open the sandbox app** from the console. Pick a test customer and send a
+   transfer that is unusual for them: it should FLAG or BLOCK. Choose "send
+   anyway" to see Ghost hold it, then cancel to recover the money.
+5. **Work the case** in the **Review queue**: assign, note, resolve. **Customers**
+   shows each customer's baseline; **Ask Fable** answers from the bank's figures.
+6. **Prove isolation:** create a second institution and sign in to it. Completely
+   different numbers, and the first bank's cases return 404.
+7. **Go live:** finish **Settings > Go live**. The sandbox app switches off and
+   customer requests then need the API key.
 
-   ```bash
-   curl -X POST http://localhost:8000/admin/provision \
-     -H "Content-Type: application/json" \
-     -H "X-Fable-Operator-Key: $FABLE_OPERATOR_KEY" \
-     -d '{"institution_name":"Zenith Test Bank","admin_email":"risk@zenithtest.ng"}'
-   ```
-
-   Note the `demo_url`, `api_key` and `temp_password` from the response.
-
-2. **Open the demo bank** at the returned `demo_url`. Confirm the sidebar shows
-   the bank's name and the customer picker lists two people.
-
-3. **Switch to the student.** Transfer **₦250,000** to any 10-digit
-   account. It should **BLOCK**.
-
-4. **Switch to the trader.** Send the same ₦250,000. It should **PASS**.
-   That contrast is the demo.
-
-5. **Trigger a block:** as the student, ₦500,000 over USSD with narration
-   `urgent help abeg`, to a new account. Then choose "send anyway" to see Ghost
-   hold it, and cancel to recover the money.
-
-6. **Log into the dashboard** with the provisioned email + temp password. You
-   should see *only* that bank's transfers.
-
-7. **Open the console.** The **Review queue** now holds the blocked transfer:
-   assign it to yourself, add a note, and resolve it. **Agents, Shield** shows
-   its full signal breakdown, and **Customers** shows each customer's baseline.
-
-8. **Prove isolation:** provision a second bank and sign in as its admin.
-   Completely different numbers, and the first bank's cases return 404.
-
-### Reseed between runs
-
-Test transfers that PASS are learned as legitimate and raise the customer's
-baseline — real behaviour, but it drifts the demo. Reset before pitching:
-
-```bash
-curl -X POST http://localhost:8000/v1/demo/seed-institution \
-  -H "Content-Type: application/json" \
-  -H "X-Fable-Operator-Key: $FABLE_OPERATOR_KEY" \
-  -d '{"institution_id":"zenith_test_bank","days":90}'
-```
+Passing test transfers teach the baseline, as real ones do. To start a test
+again, an owner can reset the sandbox under **Settings > Data**.
 
 ---
 
