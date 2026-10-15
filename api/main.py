@@ -48,6 +48,14 @@ async def lifespan(_app: FastAPI):
         secret_admin.sweep()  # apply finished cooling-off periods, expire stale proposals
     except Exception as exc:  # noqa: BLE001 - never block startup on this
         logger.warning("Could not sweep integration-key changes at startup: %s", type(exc).__name__)
+    try:
+        from core import engine_config
+        from services import engine_admin
+
+        engine_config.seed_if_empty()  # version 1 = the weights and thresholds in force today
+        engine_admin.sweep()
+    except Exception as exc:  # noqa: BLE001 - never block startup on this
+        logger.warning("Could not prepare engine versions at startup: %s", type(exc).__name__)
     yield
 
 
@@ -76,7 +84,7 @@ app.add_middleware(
 # Register routers resiliently: a missing or broken router module logs a
 # warning and is skipped, so one bad module never takes down the whole API.
 # `_optional` names are allowed to be absent without a warning.
-_ROUTERS = ["shield", "ghost", "copilot", "dashboard", "assistant", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "notifications", "review", "team", "webhooks", "geo", "sandbox", "customers", "imports", "onboarding", "operator", "operator_secrets"]
+_ROUTERS = ["shield", "ghost", "copilot", "dashboard", "assistant", "auth", "agents", "institutions", "stepup", "branding", "accounts", "transactions", "notifications", "review", "team", "webhooks", "geo", "sandbox", "customers", "imports", "onboarding", "operator", "operator_secrets", "operator_engine"]
 _OPTIONAL: set[str] = set()
 _loaded: list[str] = []
 
