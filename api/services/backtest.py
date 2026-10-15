@@ -69,16 +69,51 @@ def _closest(boost: float, keys: tuple[str, ...], ref: dict) -> str:
     return min(keys, key=lambda k: abs(ref[k] - boost))
 
 
-def _weighted(key: str, boost: float | None, ref: dict, rounded: bool = False) -> list:
+def _weighted(key: str, boost: float | None, ref: dict, rounded: bool = False, gate: float | None = None) -> list:
     """A term on `key` whose value under the reference weights equals `boost`."""
     if boost is None or abs(ref[key] - boost) < 1e-9:
-        return W.term({key: 1}, rounded=rounded)
+        return W.term({key: 1}, rounded=rounded, gate=gate)
     if ref[key] <= 0:
         return W.term(const=boost)
-    return W.term({key: boost / ref[key]}, rounded=rounded)
+    return W.term({key: boost / ref[key]}, rounded=rounded, gate=gate)
 
 
-def legacy_parts(signals: list[str], ref: dict) -> dict | None:
+def _quiet_channel(channel: str | None, ref: dict) -> list | None:
+    """The gated channel term for a row whose channel added nothing.
+
+    Only when the channel's reference weight is at or below the gate, so the
+    row replays as it was decided and a draft that raises it is seen. If the
+    reference weight is above the gate, the weights must have differed when
+    the row was scored, and adding it would invent points it never had.
+    """
+    key = W.channel_key(channel)
+    return W.term({key: 1}, gate=W.CHANNEL_GATE) if ref[key] <= W.CHANNEL_GATE else None
+
+
+def upgrade_parts(parts: dict, signals: list[str], channel: str | None, ref: dict) -> dict:
+    """Parts recorded before channel risk was a tunable weight (no "v").
+
+    Those stored the channel's points as a fixed number. Each term was recorded
+    alongside its signal, in order, and every signal but tenure has one, so the
+    channel term is found by its signal's position and put on the channel's
+    weight.
+    """
+    if parts.get("v", 1) >= 2:
+        return parts
+    parts = {**parts, "terms": [list(t) for t in parts.get("terms") or []], "v": 2}
+    with_terms = [s for s in signals or [] if not s.startswith("tenure")]
+    at = next((i for i, s in enumerate(with_terms) if s.startswith("channel_risk")), None)
+    if at is not None and at < len(parts["terms"]) and not parts["terms"][at][0]:
+        boost = parts["terms"][at][1]
+        parts["terms"][at] = _weighted(W.channel_key(channel), boost, ref, gate=W.CHANNEL_GATE)
+    elif at is None:
+        quiet = _quiet_channel(channel, ref)
+        if quiet:
+            parts["terms"].append(quiet)
+    return parts
+
+
+def legacy_parts(signals: list[str], ref: dict, channel: str | None = None) -> dict | None:
     """Score parts rebuilt from signal strings, against reference weights.
 
     `ref` are the weights believed in force when the row was scored (version
@@ -88,17 +123,23 @@ def legacy_parts(signals: list[str], ref: dict) -> dict | None:
     from agents.shield.analyzer import _amount_boost_from_sigma
     from agents.shield.nip_codes import get_nip_risk_signal
 
-    parts: dict = {"terms": [], "tenure": 0.0, "nip34": False}
+    parts: dict = {"v": 2, "terms": [], "tenure": 0.0, "nip34": False}
     add = parts["terms"].append
+    channel_seen = False
     for s in signals or []:
         name, _, text = s.partition(":")
         boost = _boost(s)
         if name == "system_error":
             return None
-        if name in ("cold_start", "channel_risk", "scam_pattern", "ml_anomaly"):
+        if name in ("cold_start", "scam_pattern", "ml_anomaly"):
             if boost is None:
                 return None
             add(W.term(const=boost))
+        elif name == "channel_risk":
+            if boost is None:
+                return None
+            channel_seen = True
+            add(_weighted(W.channel_key(text.strip().split(" ")[0] or channel), boost, ref, gate=W.CHANNEL_GATE))
         elif name == "amount_anomaly":
             mult = re.search(r"(\d+)x", text)
             if not mult or boost is None:
@@ -155,6 +196,10 @@ def legacy_parts(signals: list[str], ref: dict) -> dict | None:
             add(W.term(const=boost))  # a signal this reader does not know, kept as a fixed part
         else:
             return None
+    if not channel_seen:
+        quiet = _quiet_channel(channel, ref)
+        if quiet:
+            add(quiet)
     return parts
 
 
@@ -269,7 +314,8 @@ def replay(params: dict, days: int = 30, institution: str | None = None, now: da
         parts = None
         if row.get("score_parts"):
             try:
-                parts = json.loads(row["score_parts"])
+                parts = upgrade_parts(json.loads(row["score_parts"]),
+                                      json.loads(row.get("shield_signals") or "[]"), row["channel"], reference)
                 is_exact = True
             except ValueError:
                 parts = None
@@ -278,7 +324,7 @@ def replay(params: dict, days: int = 30, institution: str | None = None, now: da
                 signals = json.loads(row.get("shield_signals") or "[]")
             except ValueError:
                 signals = None
-            parts = legacy_parts(signals, reference) if isinstance(signals, list) else None
+            parts = legacy_parts(signals, reference, row["channel"]) if isinstance(signals, list) else None
             is_exact = False
         if parts is None:
             skipped += 1
@@ -356,4 +402,12 @@ def _reference_weights() -> dict:
         cur.execute("SELECT params FROM engine_versions WHERE version = 1")
         row = cur.fetchone()
     params = json.loads(row["params"]) if row else engine_config.apply_env(engine_config.code_defaults())
-    return engine_config.normalise(params)["weights"]
+    ref = engine_config.normalise(params)["weights"]
+    # A weight version 1 never held (the channel weights joined later) was
+    # scored with what is in force now: it came from the environment, which
+    # still wins, or was imported from it unchanged.
+    live = engine_config.active()["params"]["weights"]
+    for key in ref:
+        if key not in (params.get("weights") or {}):
+            ref[key] = live[key]
+    return ref
