@@ -9,8 +9,8 @@ simulated in SQLite — production wires this to the Open Banking
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from core.config import GHOST_COOLING_HIGH, GHOST_COOLING_LOW, GHOST_COOLING_MED
 from core.db import cursor, dumps, loads, require_institution_id, row_to_dict
+from core.secrets import setting
 
 
 def calculate_cooling_window(risk_score: float, institution_id: str | None = None) -> int:
@@ -20,10 +20,10 @@ def calculate_cooling_window(risk_score: float, institution_id: str | None = Non
 
         return cooling_minutes(institution_id, risk_score)
     if risk_score >= 0.9:
-        return GHOST_COOLING_HIGH
+        return setting("GHOST_COOLING_HIGH")
     elif risk_score >= 0.7:
-        return GHOST_COOLING_MED
-    return GHOST_COOLING_LOW
+        return setting("GHOST_COOLING_MED")
+    return setting("GHOST_COOLING_LOW")
 
 
 def create_ghost_container(

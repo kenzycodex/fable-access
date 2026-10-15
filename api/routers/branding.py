@@ -10,6 +10,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from core import config
+from core.secrets import setting
 from core.tenancy import require_role
 from services import audit
 from services.branding import BrandingError, get_branding, resolve_slug, update_branding
@@ -88,8 +89,8 @@ async def upload_logo(institution_id: str, request: Request, file: UploadFile = 
         )
 
     data = await file.read()
-    if len(data) > config.BRANDING_MAX_LOGO_BYTES:
-        limit_kb = config.BRANDING_MAX_LOGO_BYTES // 1024
+    if len(data) > setting("BRANDING_MAX_LOGO_BYTES"):
+        limit_kb = setting("BRANDING_MAX_LOGO_BYTES") // 1024
         raise HTTPException(status_code=413, detail=f"Logo must be under {limit_kb}KB.")
     if not data:
         raise HTTPException(status_code=400, detail="That file is empty.")

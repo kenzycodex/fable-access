@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 from core import config
 from core.db import cursor, row_to_dict
+from core.secrets import setting
 
 
 class InsufficientFunds(Exception):
@@ -236,25 +237,25 @@ def top_up(user_id: str, amount: float, institution_id: str | None = None,
     if amount <= 0:
         raise TopUpRejected("Enter an amount greater than zero.", "invalid")
 
-    if amount > config.TOPUP_MAX_AMOUNT:
+    if amount > setting("TOPUP_MAX_AMOUNT"):
         raise TopUpRejected(
-            f"Single top-up limit is ₦{config.TOPUP_MAX_AMOUNT:,.0f}.",
+            f"Single top-up limit is ₦{setting("TOPUP_MAX_AMOUNT"):,.0f}.",
             "per_transaction",
         )
 
     today_total, today_count = _today_totals(user_id)
 
-    if today_count >= config.TOPUP_DAILY_COUNT:
+    if today_count >= setting("TOPUP_DAILY_COUNT"):
         raise TopUpRejected(
-            f"You've reached {config.TOPUP_DAILY_COUNT} top-ups today. Resets at midnight.",
+            f"You've reached {setting("TOPUP_DAILY_COUNT")} top-ups today. Resets at midnight.",
             "daily_count",
             resets_at="midnight",
         )
 
-    if today_total + amount > config.TOPUP_DAILY_MAX:
-        remaining = max(config.TOPUP_DAILY_MAX - today_total, 0)
+    if today_total + amount > setting("TOPUP_DAILY_MAX"):
+        remaining = max(setting("TOPUP_DAILY_MAX") - today_total, 0)
         raise TopUpRejected(
-            f"Daily top-up limit is ₦{config.TOPUP_DAILY_MAX:,.0f}. "
+            f"Daily top-up limit is ₦{setting("TOPUP_DAILY_MAX"):,.0f}. "
             f"You have ₦{remaining:,.0f} left today.",
             "daily_total",
             resets_at="midnight",
@@ -265,15 +266,15 @@ def top_up(user_id: str, amount: float, institution_id: str | None = None,
         **snapshot,
         "credited": round(amount, 2),
         "method": method,
-        "remaining_today": round(max(config.TOPUP_DAILY_MAX - (today_total + amount), 0), 2),
-        "top_ups_left_today": max(config.TOPUP_DAILY_COUNT - (today_count + 1), 0),
+        "remaining_today": round(max(setting("TOPUP_DAILY_MAX") - (today_total + amount), 0), 2),
+        "top_ups_left_today": max(setting("TOPUP_DAILY_COUNT") - (today_count + 1), 0),
     }
 
 
 def limits() -> dict:
     """What the client should show before a top-up is attempted."""
     return {
-        "max_amount": config.TOPUP_MAX_AMOUNT,
-        "daily_max": config.TOPUP_DAILY_MAX,
-        "daily_count": config.TOPUP_DAILY_COUNT,
+        "max_amount": setting("TOPUP_MAX_AMOUNT"),
+        "daily_max": setting("TOPUP_DAILY_MAX"),
+        "daily_count": setting("TOPUP_DAILY_COUNT"),
     }

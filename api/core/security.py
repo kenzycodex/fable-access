@@ -13,11 +13,13 @@ from datetime import datetime, timedelta, timezone
 
 from core import config
 from core.db import cursor, row_to_dict
+from core.secrets import setting
 
 PBKDF2_ROUNDS = 200_000
 # The PIN rules (length, wrong attempts before a lock, lock time, whether weak
-# PINs are refused) all come from the environment, see config.py. They are read
-# when used, so an operator's choice is never baked in at import time.
+# PINs are refused) are platform settings: the server environment, else what an
+# operator approved in the console, else config.py's default. They are read when
+# used, so an approved change applies without a restart.
 
 class SecurityError(ValueError):
     """Rejected input, with a message meant for the customer."""
@@ -102,8 +104,8 @@ def status(user_id: str) -> dict:
         # How many digits the customer's PIN has. A PIN set before the length
         # was recorded (or under another configured length) still reports its
         # real size, so the entry boxes match what they typed when they set it.
-        "pin_length": ((row or {}).get("pin_length") or config.PIN_LENGTH) if (row and row.get("pin_hash")) else config.PIN_LENGTH,
-        "pin_policy": {"length": config.PIN_LENGTH, "block_weak": config.PIN_BLOCK_WEAK},
+        "pin_length": ((row or {}).get("pin_length") or setting("FABLE_PIN_LENGTH")) if (row and row.get("pin_hash")) else setting("FABLE_PIN_LENGTH"),
+        "pin_policy": {"length": setting("FABLE_PIN_LENGTH"), "block_weak": setting("FABLE_PIN_BLOCK_WEAK")},
         "pin_set_at": (row or {}).get("pin_set_at"),
         "pin_locked": bool(locked),
         "pin_locked_until": locked.isoformat() if locked else None,
@@ -206,9 +208,9 @@ def _is_weak(pin: str) -> bool:
 
 
 def _validate_pin(pin: str) -> None:
-    if len(pin) != config.PIN_LENGTH:
-        raise SecurityError(f"Your PIN must be {config.PIN_LENGTH} digits.")
-    if config.PIN_BLOCK_WEAK and _is_weak(pin):
+    if len(pin) != setting("FABLE_PIN_LENGTH"):
+        raise SecurityError(f"Your PIN must be {setting("FABLE_PIN_LENGTH")} digits.")
+    if setting("FABLE_PIN_BLOCK_WEAK") and _is_weak(pin):
         raise SecurityError("That PIN is too easy to guess. Choose another.")
 
 
@@ -306,8 +308,8 @@ def check_pin(user_id: str, pin: str) -> bool:
 
     attempts = (row.get("failed_attempts") or 0) + 1
     lock_until = (
-        (_now() + timedelta(minutes=config.PIN_LOCKOUT_MINUTES)).isoformat()
-        if attempts >= config.PIN_MAX_ATTEMPTS
+        (_now() + timedelta(minutes=setting("FABLE_PIN_LOCKOUT_MINUTES"))).isoformat()
+        if attempts >= setting("FABLE_PIN_MAX_ATTEMPTS")
         else None
     )
     with cursor() as cur:
@@ -323,7 +325,7 @@ def check_pin(user_id: str, pin: str) -> bool:
 
     if lock_until:
         raise SecurityError(
-            f"Too many wrong attempts. Locked for {config.PIN_LOCKOUT_MINUTES} minutes."
+            f"Too many wrong attempts. Locked for {setting("FABLE_PIN_LOCKOUT_MINUTES")} minutes."
         )
     return False
 

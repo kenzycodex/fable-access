@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 from core import config
 from core.db import cursor, row_to_dict
+from core.secrets import setting
 
 # Reserved so a vanity slug can never shadow a real route or another tenant.
 RESERVED_SLUGS = {
@@ -60,7 +61,7 @@ def get_branding(institution_id: str) -> dict:
         "updated_at": row.get("updated_at"),
         "slug_locked_until": locked_until,
         "slug_locked": _slug_locked(locked_until),
-        "slug_lock_days": config.BRANDING_SLUG_LOCK_DAYS,
+        "slug_lock_days": setting("BRANDING_SLUG_LOCK_DAYS"),
     }
 
 
@@ -154,7 +155,7 @@ def update_branding(institution_id: str, patch: dict) -> dict:
                 )
             updates["slug"] = new_slug
             updates["slug_locked_until"] = (
-                _now() + timedelta(days=config.BRANDING_SLUG_LOCK_DAYS)
+                _now() + timedelta(days=setting("BRANDING_SLUG_LOCK_DAYS"))
             ).isoformat()
 
     if "primary_color" in patch:

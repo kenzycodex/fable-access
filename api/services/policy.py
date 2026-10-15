@@ -11,8 +11,8 @@ gently than internet banking, the same as the defaults do.
 """
 import time
 
-from core.config import GHOST_COOLING_HIGH, GHOST_COOLING_LOW, GHOST_COOLING_MED
 from core.db import cursor, row_to_dict
+from core.secrets import setting
 
 THRESHOLD_MIN, THRESHOLD_MAX = 0.2, 0.95
 HOLD_MIN, HOLD_MAX = 5, 1440
@@ -45,9 +45,9 @@ def defaults() -> dict:
     return {
         "flag_threshold": _DEFAULT_FLAG,
         "block_threshold": _DEFAULT_BLOCK,
-        "hold_high_minutes": GHOST_COOLING_HIGH,
-        "hold_medium_minutes": GHOST_COOLING_MED,
-        "hold_low_minutes": GHOST_COOLING_LOW,
+        "hold_high_minutes": setting("GHOST_COOLING_HIGH"),
+        "hold_medium_minutes": setting("GHOST_COOLING_MED"),
+        "hold_low_minutes": setting("GHOST_COOLING_LOW"),
     }
 
 
