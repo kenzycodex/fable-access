@@ -6,31 +6,42 @@ institution was provisioned (locally that is `http://127.0.0.1:8010`).
 
 ## 1. Get an institution
 
-Provisioning mints live credentials, so it is an operator action, not a public
-endpoint. It needs the operator key configured on the server as
-`FABLE_OPERATOR_KEY`, and is disabled outright when that key is not set.
+Fable staff create your institution from the operator platform. It starts
+**empty and in sandbox mode**: no customers, no history, no API key. Your first
+owner receives a one-time link (valid 7 days) to choose a password. No password
+or key is ever emailed.
+
+Then, in your console:
+
+1. **Settings > Go live** lists everything left to do. The Overview shows the same progress.
+2. **Settings > API & webhooks**: create an API key (shown once) and add a webhook.
+3. **Settings > Data**: import your customers and their past transfers (below).
+4. Try it end to end in the **sandbox app** with test customers you add.
+
+## 1b. Bring your customers and history
+
+Customers are identified by **your own reference** (account or CIF number).
+Import them as CSV in **Settings > Data** (templates provided), or by API:
 
 ```bash
-curl -X POST $FABLE_API_URL/admin/provision \
+curl -X POST $FABLE_API_URL/v1/imports/customers \
   -H "Content-Type: application/json" \
-  -H "X-Fable-Operator-Key: $FABLE_OPERATOR_KEY" \
-  -d '{"institution_name":"Zenith Test Bank","admin_email":"risk@zenithtest.ng"}'
+  -H "X-API-Key: fbl_live_..." \
+  -d '{"rows":[{"reference":"CIF-000123","name":"Ada Obi","segment":"Salaried","kind":"real"}]}'
 ```
 
-Returns, and emails to the admin address, four things:
-
-```json
-{
-  "institution_id": "zenith_test_bank",
-  "api_key": "fbl_live_a87c82a4...",
-  "temp_password": "rJXsfSHv*oNk",
-  "demo_url": "https://fablehq.vercel.app/demo/zenith_test_bank"
-}
+```bash
+curl -X POST $FABLE_API_URL/v1/imports/transactions \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: fbl_live_..." \
+  -d '{"rows":[{"customer_reference":"CIF-000123","reference":"TRF-88231","amount":42000,
+        "occurred_at":"2026-09-02T19:14:00+01:00","recipient_account":"0123456789",
+        "recipient_bank":"Access Bank","channel":"mobile_app"}]}'
 ```
 
-The tenant is seeded with two customers (a trader and a student) and 90 days of history, so the console
-opens onto real data rather than an empty state. A name that collides with an
-existing institution returns `409` instead of touching the existing tenant.
+Up to 1,000 rows per call. Both are idempotent on your references, so a retry
+never doubles anything. Imported history is not scored and triggers no webhooks;
+it gives each customer a baseline from day one.
 
 ## 2. Score a transfer
 
@@ -39,7 +50,7 @@ curl -X POST $FABLE_API_URL/v1/shield/analyze \
   -H "Content-Type: application/json" \
   -H "X-API-Key: fbl_live_..." \
   -d '{
-    "user_id": "zenith_test_bank_chioma",
+    "user_id": "CIF-000123",
     "transaction": {
       "amount": 250000,
       "recipient_account": "0111222333",
@@ -58,7 +69,7 @@ curl -X POST $FABLE_API_URL/v1/shield/analyze \
     "amount_anomaly: 20x above your baseline (+0.28)",
     "new_recipient: first transfer to this account (+0.2)"
   ],
-  "explanation": "This is far larger than Chioma's usual transfers...",
+  "explanation": "This is far larger than this customer's usual transfers...",
   "agent": "fable-shield-v1",
   "decision_ms": 46.1,
   "latency_ms": 49.8,
@@ -80,11 +91,11 @@ transfer is not a fraud signal and must not teach the baseline.
 
 | Action | Meaning | What the app should do |
 |---|---|---|
-| `PASS` | Matches normal behaviour | Complete silently. The debit has already been booked |
+| `PASS` | Matches normal behaviour | Complete silently. In sandbox the sandbox ledger has booked the debit; live, your core moves the money |
 | `FLAG` | Unusual, worth a check | Ask `/v1/stepup/requirement` which factor to run, then confirm |
 | `BLOCK` | Strong fraud signal | Refuse, and offer Ghost containment if the customer insists |
 
-Only a `PASS` moves money at scoring time. A `FLAG` or `BLOCK` never debits.
+In sandbox, only a `PASS` debits the sandbox ledger. Live, Fable never moves money: your system acts on the verdict.
 
 ## 4. Contain an override
 
@@ -95,7 +106,7 @@ curl -X POST $FABLE_API_URL/v1/ghost/create \
   -H "Content-Type: application/json" \
   -H "X-API-Key: fbl_live_..." \
   -d '{
-    "user_id": "zenith_test_bank_chioma",
+    "user_id": "CIF-000123",
     "risk_score": 0.88,
     "signals": ["amount_anomaly", "device_anomaly"],
     "transaction": { "amount": 250000, "recipient_account": "0111222333" }

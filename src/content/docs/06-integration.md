@@ -107,8 +107,8 @@ Every delivery is a JSON `POST`:
   "id": "evt_4f1c9a0b2e7d3c6a8b1f",
   "type": "transaction.blocked",
   "created_at": "2026-10-08T14:03:11Z",
-  "institution_id": "zenith_test_bank",
-  "data": { "id": "txn_a1b2c3d4e5f6", "amount": 250000, "risk_score": 0.91, "action_taken": "BLOCK" }
+  "institution_id": "clearwater_mfb",
+  "data": { "id": "txn_a1b2c3d4e5f6", "customer_ref": "CIF-000123", "amount": 250000, "risk_score": 0.91, "action_taken": "BLOCK" }
 }
 ```
 
