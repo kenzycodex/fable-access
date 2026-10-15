@@ -119,7 +119,7 @@ if config.ENVIRONMENT == "production" and config.WEBAUTHN_RP_ID == "localhost":
 if config.ENVIRONMENT == "production" and not config.SECRETS_KEY:
     logger.warning(
         "FABLE_SECRETS_KEY is not set, so integration keys can only come from .env and the "
-        "operator console's Integrations page is read-only. To enable it: "
+        "operator console's Secrets page is read-only. To enable it: "
         "python -c \"import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())\""
     )
 

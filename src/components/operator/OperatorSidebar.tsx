@@ -10,6 +10,9 @@ import {
   BookOpen,
   CaretUp,
   ClockCounterClockwise,
+  Desktop,
+  GearSix,
+  House,
   Key,
   Moon,
   ShieldCheck,
@@ -40,7 +43,7 @@ export const OPERATOR_NAV: { group: string; items: Item[] }[] = [
       { href: "/operator", label: "Overview", icon: SquaresFour, match: (p) => p === "/operator" },
       { href: "/operator/institutions", label: "Institutions", icon: Bank, match: (p) => p.startsWith("/operator/institutions"), badge: "attention" },
       { href: "/operator/assistant", label: "Ask Fable", icon: Sparkle, match: (p) => p.startsWith("/operator/assistant") },
-      { href: "/operator/integrations", label: "Integrations", icon: Key, match: (p) => p.startsWith("/operator/integrations") },
+      { href: "/operator/secrets", label: "Secrets", icon: Key, match: (p) => p.startsWith("/operator/secrets") },
     ],
   },
   {
@@ -155,7 +158,8 @@ export function OperatorSidebar({ open, onClose }: { open: boolean; onClose: () 
 function AccountMenu() {
   const session = useOperatorSession();
   const { data: me } = useOperatorMe();
-  const { resolvedTheme, setTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
+  const api = useApiStatus();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -175,35 +179,53 @@ function AccountMenu() {
 
   if (!session) return null;
   const name = me?.name || session.email;
+  const item = "flex h-10 w-full items-center justify-between gap-3 px-4 text-left text-[13px] font-medium text-d-text transition-colors hover:bg-d-surface-2";
 
   return (
     <div ref={ref} className="relative">
       {open && (
         <div role="menu" className="nav-menu absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-2xl border border-d-border bg-d-surface shadow-[0_18px_40px_-12px_rgba(0,0,0,0.35)]">
-          <div className="border-b border-d-border px-4 py-3">
-            <p className="truncate text-[13px] font-semibold text-d-text">{name}</p>
-            {me?.name && <p className="truncate text-[12px] text-d-muted">{session.email}</p>}
-            <p className="mt-1.5 flex flex-wrap gap-1.5">
-              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                {ROLE_LABEL[session.role]}
-              </span>
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                <ShieldCheck size={11} weight="fill" /> MFA on
-              </span>
-            </p>
-            {me?.last_login_at && <p className="mt-1.5 text-[11px] text-d-faint">Signed in this session</p>}
+          <div className="flex items-start justify-between gap-2 border-b border-d-border px-4 py-3">
+            <span className="min-w-0">
+              <span className="block truncate text-[13px] font-semibold text-d-text">{name}</span>
+              <span className="block truncate text-[12px] text-d-muted">{session.email}</span>
+            </span>
+            <Link href="/operator/account" onClick={() => setOpen(false)} aria-label="Account settings" title="Account settings"
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg text-d-muted hover:bg-d-surface-2 hover:text-d-text">
+              <GearSix size={17} />
+            </Link>
           </div>
-          <button type="button" role="menuitem" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-            className="flex h-11 w-full items-center gap-3 px-4 text-left text-[14px] font-medium text-d-text transition-colors hover:bg-d-surface-2">
-            <Sun size={18} className="hidden text-d-muted dark:block" />
-            <Moon size={18} className="text-d-muted dark:hidden" />
-            <span className="dark:hidden">Dark mode</span>
-            <span className="hidden dark:inline">Light mode</span>
-          </button>
-          <button type="button" role="menuitem" onClick={operatorSignOut}
-            className="flex h-11 w-full items-center gap-3 border-t border-d-border px-4 text-left text-[14px] font-medium text-red-600 transition-colors hover:bg-red-500/[0.06] dark:text-red-400">
-            <SignOut size={18} /> Sign out
-          </button>
+          <div className="py-1">
+            <div className={`${item} cursor-default hover:bg-transparent`}>
+              <span>Theme</span>
+              <span className="flex items-center gap-0.5 rounded-lg border border-d-border p-0.5">
+                {([["system", Desktop, "System"], ["light", Sun, "Light"], ["dark", Moon, "Dark"]] as const).map(([value, Icon, label]) => (
+                  <button key={value} type="button" onClick={() => setTheme(value)} aria-label={`${label} theme`} title={label}
+                    className={`flex size-7 items-center justify-center rounded-md transition-colors ${
+                      (theme ?? "system") === value ? "bg-d-surface-2 text-d-text" : "text-d-faint hover:text-d-text"
+                    }`}>
+                    <Icon size={14} />
+                  </button>
+                ))}
+              </span>
+            </div>
+            <Link href="/operator/account" role="menuitem" onClick={() => setOpen(false)} className={item}>
+              Account and security <ShieldCheck size={16} className="text-d-muted" />
+            </Link>
+            <Link href="/" role="menuitem" className={item}>Home page <House size={16} className="text-d-muted" /></Link>
+            <a href="/docs" target="_blank" rel="noopener noreferrer" role="menuitem" className={item}>
+              Docs <BookOpen size={16} className="text-d-muted" />
+            </a>
+            <button type="button" role="menuitem" onClick={operatorSignOut} className={item}>
+              Log out <SignOut size={16} className="text-d-muted" />
+            </button>
+          </div>
+          <div className="flex items-center justify-between gap-2 border-t border-d-border px-4 py-2.5 text-[12px]">
+            <span className={api === "api" ? "text-brand" : api === "checking" ? "text-d-muted" : "text-red-500"}>
+              {api === "api" ? "All systems normal." : api === "checking" ? "Checking status..." : "The API is not answering."}
+            </span>
+            <span className={`size-2 rounded-full ${api === "api" ? "bg-brand" : api === "checking" ? "bg-d-faint" : "bg-red-500"}`} />
+          </div>
         </div>
       )}
       <button type="button" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} title={name}

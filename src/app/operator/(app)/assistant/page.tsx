@@ -114,7 +114,7 @@ function Body({ data, owner, onSaved }: { data: AssistantAdmin; owner: boolean; 
           />
         </Card>
         <Card className="lg:col-span-2">
-          <CardHeader title="Who answers" subtitle="Tried in this order. Keys are managed under Integrations." />
+          <CardHeader title="Who answers" subtitle="Tried in this order. Keys are managed under Secrets." />
           <ul className="flex flex-col gap-2">
             <Provider name="OpenAI" model={data.providers.openai.model} on={data.providers.openai.configured} />
             <Provider name="Anthropic" model={data.providers.anthropic.model} on={data.providers.anthropic.configured} />

@@ -66,7 +66,7 @@ export default function OperatorTeamPage() {
         <StatCard label="Authenticator set up" value={data ? `${withMfa}/${team.length}` : "-"} sub="Required to sign in"
           icon={<ShieldCheck size={17} weight="fill" />} tone="success" />
         <StatCard label="Your passkeys" value={myKeys ? String(myKeys.passkeys.length) : "-"}
-          sub={myKeys?.passkeys.length ? "Preferred for key changes" : "Add one under Integrations"}
+          sub={myKeys?.passkeys.length ? "Preferred for secret changes" : "Add one in Your account"}
           icon={<Fingerprint size={17} weight="fill" />} tone="brand" />
       </StatGrid>
 

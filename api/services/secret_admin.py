@@ -127,7 +127,7 @@ def alert_owners(subject: str, body: str, exclude: str | None = None) -> None:
         msg["Subject"] = f"[Fable security] {subject}"
         msg["From"] = config.SMTP_FROM
         msg["To"] = email
-        msg.set_content(f"{body}\n\nReview it in the operator console: {config.FRONTEND_URL.rstrip('/')}/operator/integrations\n"
+        msg.set_content(f"{body}\n\nReview it in the operator console: {config.FRONTEND_URL.rstrip('/')}/operator/secrets\n"
                         "If you did not expect this, cancel it there and rotate the key.")
         try:
             with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT, timeout=10) as server:
