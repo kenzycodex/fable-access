@@ -151,3 +151,15 @@ export function eventDetail(payload: Record<string, unknown>): string {
   const pick = p.reason ?? p.owner ?? p.operator_email ?? p.name ?? p.mode ?? "";
   return typeof pick === "string" ? pick : "";
 }
+
+/** Whether a UTC timestamp from the API is in the past. */
+export function isPast(iso: string | null | undefined): boolean {
+  const ms = utcMs(iso);
+  return ms !== null && ms < Date.now();
+}
+
+/** Whether a UTC timestamp from the API falls within the last `days` days. */
+export function withinDays(iso: string | null | undefined, days: number): boolean {
+  const ms = utcMs(iso);
+  return ms !== null && ms > Date.now() - days * 86_400_000;
+}
