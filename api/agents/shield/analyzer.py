@@ -24,17 +24,16 @@ from agents.shield.nip_codes import get_nip_risk_signal
 from agents.shield.patterns import match_scam_pattern
 from agents.shield.weights import (
     CHANNEL_GATE,
-    VELOCITY_FLAG_COUNT,
-    VELOCITY_HIGH_COUNT,
-    VELOCITY_WINDOW_MINUTES,
     amount_key,
     amount_tier,
     channel_key,
     decide,
+    detection,
     finish,
     tenure_applied,
     term,
     term_value,
+    velocity_rules,
 )
 from core import engine_config
 from core.utils import utcnow
@@ -56,7 +55,7 @@ def sanitize_transaction(transaction: dict) -> dict:
     return {k: v for k, v in transaction.items() if k not in PCI_FIELDS}
 
 
-def _recent_transfer_count(user_id: str, institution_id: str | None) -> int:
+def _recent_transfer_count(user_id: str, institution_id: str | None, window_minutes: int) -> int:
     """How many transfers this customer has made in the velocity window.
 
     Both sides of the comparison are parsed by SQLite rather than compared as
@@ -74,7 +73,7 @@ def _recent_transfer_count(user_id: str, institution_id: str | None) -> int:
         from core.db import cursor
 
         where = "user_id = ? AND datetime(created_at) >= datetime('now', ?)"
-        params: list = [user_id, f"-{VELOCITY_WINDOW_MINUTES} minutes"]
+        params: list = [user_id, f"-{int(window_minutes)} minutes"]
         if institution_id:
             where += " AND institution_id = ?"
             params.append(institution_id)
@@ -150,6 +149,8 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     # consistent set of weights and thresholds.
     engine = engine_config.active()
     p = engine["params"]
+    # The detection settings in force (Environment page), read once per decision.
+    rules = detection()
     w = p["weights"]
 
     signals: list[str] = []
@@ -387,14 +388,15 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     # Step 14: Velocity — a burst of transfers in a short window is the classic
     # account-drain / mule shape. Counted from transfers already recorded, so
     # it uses data Fable has rather than a field it wishes it had.
-    recent = _recent_transfer_count(user_id, institution_id)
-    if recent >= VELOCITY_HIGH_COUNT:
+    window, burst, heavy = velocity_rules(rules)
+    recent = _recent_transfer_count(user_id, institution_id, window)
+    if recent >= heavy:
         boost = add(term({"velocity_high": 1}))
-        signals.append(f"velocity: {recent} transfers in {VELOCITY_WINDOW_MINUTES}m (+{boost})")
+        signals.append(f"velocity: {recent} transfers in {window}m (+{boost})")
         score += boost
-    elif recent >= VELOCITY_FLAG_COUNT:
+    elif recent >= burst:
         boost = add(term({"velocity": 1}))
-        signals.append(f"velocity: {recent} transfers in {VELOCITY_WINDOW_MINUTES}m (+{boost})")
+        signals.append(f"velocity: {recent} transfers in {window}m (+{boost})")
         score += boost
 
     # Tenure discount. Past the cold-start threshold the friction model was
@@ -440,7 +442,9 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         "explanation_source": explanation_source,
         "score_parts": parts,
         "engine_version": engine["version"],
-        "engine_params_hash": engine["hash"],
+        # Covers the weights and thresholds AND the detection settings, so a
+        # decision always records everything that shaped it.
+        "engine_params_hash": engine_config.decision_hash(engine["hash"], rules),
     }
 
 

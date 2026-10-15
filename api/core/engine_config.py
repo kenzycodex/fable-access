@@ -219,6 +219,13 @@ def params_hash(params: dict) -> str:
     return hashlib.sha256(json.dumps(params, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def decision_hash(params_digest: str, detection: dict) -> str:
+    """What a decision records: the engine parameters' hash together with the
+    detection settings (Environment page) it was scored under."""
+    body = json.dumps({"engine": params_digest, "detection": detection}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(body.encode()).hexdigest()
+
+
 def flat(params: dict) -> dict[str, float]:
     p = normalise(params)
     out = {f"weights.{k}": v for k, v in p["weights"].items()}

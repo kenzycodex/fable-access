@@ -165,10 +165,10 @@ def test_variance_aware_scoring_tolerates_an_erratic_customer(bank):
 def test_tenure_discount_applies_and_is_capped(bank):
     """Past cold start the friction model was flat: 3 clean transfers and 500
     scored identically."""
-    from agents.copilot.baseline import TENURE_DISCOUNT_MAX, get_user_baseline
+    from agents.copilot.baseline import get_user_baseline, tenure_rules
 
     b = get_user_baseline(user_id_for("testbank", "chioma"))
-    assert 0 < b["tenure_discount"] <= TENURE_DISCOUNT_MAX
+    assert 0 < b["tenure_discount"] <= tenure_rules()[0] <= 0.10
 
 
 # --- FR-1 / SEC-1: containment cannot be self-satisfied ------------------

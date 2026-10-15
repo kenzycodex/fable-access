@@ -20,8 +20,6 @@ eval harness (`api/eval/`) is where measured calibration would happen once an
 institution supplies labelled outcomes; until then, claiming a trained model
 would be a fabrication, so we don't.
 """
-import os
-
 from core import engine_config
 
 
@@ -34,12 +32,39 @@ def weights(p: dict | None = None) -> dict:
     return (p or params())["weights"]
 
 
-# How many transfers within VELOCITY_WINDOW_MINUTES count as a burst. These
-# change *whether* a signal fires, so they stay in the environment: a past
-# decision cannot be replayed exactly under a different window.
-VELOCITY_WINDOW_MINUTES = int(os.getenv("FABLE_VELOCITY_WINDOW_MIN", "10"))
-VELOCITY_FLAG_COUNT = int(os.getenv("FABLE_VELOCITY_FLAG", "3"))
-VELOCITY_HIGH_COUNT = int(os.getenv("FABLE_VELOCITY_HIGH", "5"))
+# --- Detection settings ------------------------------------------------------
+# These decide *whether* a signal fires, not how much it weighs, so a past
+# decision cannot be replayed under different values and the Engine page cannot
+# backtest them. They are approved settings on the Environment page instead
+# (core/secrets.MANAGED), read live: the environment, else the approved value,
+# else the default in core/config.py.
+
+DETECTION_SETTINGS = (
+    "FABLE_VELOCITY_WINDOW_MIN", "FABLE_VELOCITY_FLAG", "FABLE_VELOCITY_HIGH",
+    "FABLE_TENURE_DISCOUNT_MAX", "FABLE_TENURE_FULL_AT", "FABLE_RECIPIENT_MEMORY_DAYS",
+)
+
+
+def detection() -> dict:
+    """The detection settings in force, by name."""
+    from core import config
+    from core.secrets import MANAGED, setting
+
+    out = {}
+    for name in DETECTION_SETTINGS:
+        try:
+            out[name] = setting(name)
+        except Exception:  # noqa: BLE001 - a settings failure must never stop scoring
+            out[name] = getattr(config, MANAGED[name].config_attr)
+    return out
+
+
+def velocity_rules(d: dict | None = None) -> tuple[int, int, int]:
+    """(window minutes, burst count, heavy-burst count). A heavy burst is
+    always more transfers than a burst, whatever was set."""
+    d = d or detection()
+    window, flag = int(d["FABLE_VELOCITY_WINDOW_MIN"]), int(d["FABLE_VELOCITY_FLAG"])
+    return window, flag, max(int(d["FABLE_VELOCITY_HIGH"]), flag + 1)
 
 # Amount anomaly is progressive: the multiple of the user's baseline decides
 # the tier, so a 45x spike outweighs a milder 6x one instead of capping out.

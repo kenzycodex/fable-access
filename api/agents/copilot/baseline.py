@@ -19,7 +19,7 @@ MIN_TRANSACTIONS_FOR_BASELINE = 3
 # 90-day window, school fees (termly), insurance and annual subscriptions were
 # treated as first contact every single time — among the most predictable
 # payments a customer makes, and each one paid the new-recipient penalty.
-RECIPIENT_MEMORY_DAYS = int(os.getenv("FABLE_RECIPIENT_MEMORY_DAYS", "540"))
+# FABLE_RECIPIENT_MEMORY_DAYS, an approved setting (agents/shield/weights.detection).
 
 # Tenure discount. A customer with a long, clean, confirmed history has earned
 # some benefit of the doubt, and previously earned none: past the three-
@@ -29,8 +29,22 @@ RECIPIENT_MEMORY_DAYS = int(os.getenv("FABLE_RECIPIENT_MEMORY_DAYS", "540"))
 # Deliberately small and capped. This reduces friction for established
 # customers; it must never be large enough to wave through a genuinely
 # anomalous transfer, so it is a nudge rather than an override.
-TENURE_DISCOUNT_MAX = float(os.getenv("FABLE_TENURE_DISCOUNT_MAX", "0.08"))
-TENURE_FULL_AT = int(os.getenv("FABLE_TENURE_FULL_AT", "120"))
+# FABLE_TENURE_DISCOUNT_MAX (capped at 0.10) and FABLE_TENURE_FULL_AT are
+# approved settings, read live through agents/shield/weights.detection.
+
+
+def recipient_memory_days() -> int:
+    from agents.shield.weights import detection
+
+    return int(detection()["FABLE_RECIPIENT_MEMORY_DAYS"])
+
+
+def tenure_rules() -> tuple[float, int]:
+    """(most credit for clean history, clean transfers that earn all of it)."""
+    from agents.shield.weights import detection
+
+    d = detection()
+    return min(float(d["FABLE_TENURE_DISCOUNT_MAX"]), 0.10), int(d["FABLE_TENURE_FULL_AT"])
 
 # A brand-new account is precisely when mule and takeover activity happens, so
 # "no history" must not mean "no scrutiny". Below the personal threshold Shield
@@ -62,7 +76,7 @@ def get_user_baseline(user_id: str) -> dict | None:
     # Someone paid quarterly or annually is not a stranger, but a 90-day window
     # said they were, so every termly school fee and yearly renewal re-paid the
     # new-recipient penalty.
-    recipient_cutoff = (utcnow() - timedelta(days=RECIPIENT_MEMORY_DAYS)).isoformat()
+    recipient_cutoff = (utcnow() - timedelta(days=recipient_memory_days())).isoformat()
     with cursor() as cur:
         cur.execute(
             """SELECT DISTINCT recipient_account FROM customer_history
@@ -88,7 +102,8 @@ def get_user_baseline(user_id: str) -> dict | None:
     # How well established this customer is, 0..1. Drives the tenure discount.
     # `trust_score` and `times_seen` were already being maintained on every
     # device sighting and read by nothing at all.
-    tenure = min(len(rows) / TENURE_FULL_AT, 1.0) if TENURE_FULL_AT else 0.0
+    discount_max, full_at = tenure_rules()
+    tenure = min(len(rows) / full_at, 1.0) if full_at else 0.0
 
     # New behavioral dimensions (columns may be NULL for old/seed rows)
     cities = {r["city"] for r in rows if r.get("city")}
@@ -131,7 +146,7 @@ def get_user_baseline(user_id: str) -> dict | None:
         "preferred_channel": preferred_channel,
         "transaction_count": len(rows),
         "tenure": round(tenure, 3),
-        "tenure_discount": round(tenure * TENURE_DISCOUNT_MAX, 4),
+        "tenure_discount": round(tenure * discount_max, 4),
         "device_trust": _device_trust(user_id),
         "last_updated": utcnow().isoformat(),
     }
