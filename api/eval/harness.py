@@ -37,7 +37,7 @@ import csv
 import sys
 
 from agents.shield.channel_risk import get_channel_risk
-from agents.shield.weights import WEIGHTS, amount_anomaly_boost, thresholds_for
+from agents.shield.weights import amount_anomaly_boost, thresholds_for, weights
 
 
 def score_row(row: dict) -> float:
@@ -58,6 +58,7 @@ def score_row(row: dict) -> float:
 
     is_large = flag("is_large")
     score = 0.0
+    WEIGHTS = weights()  # the engine version in force, environment included
 
     mult = num("amount_mult")
     if mult > 3:

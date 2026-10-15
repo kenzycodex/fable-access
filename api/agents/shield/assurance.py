@@ -19,7 +19,7 @@ new device, a new city — implies the session itself may not belong to the
 customer, so those cases jump to a factor the session cannot satisfy, rather
 than asking for one more thing the attacker already has.
 """
-from core.config import BLOCK_THRESHOLD, FLAG_THRESHOLD
+from agents.shield.weights import default_thresholds
 
 # Ordered weakest to strongest; comparisons rely on the ordering.
 LEVELS = ["none", "pin", "passkey", "passkey_and_otp", "identity_check"]
@@ -60,15 +60,18 @@ def required_level(risk_score: float, signals: list[str] | None = None, action: 
     """
     signals = signals or []
     identity_hits = _identity_signal_count(signals)
+    # The default cutoffs of the engine version in force, not import-time
+    # constants, so a promoted version moves the step-up tiers with it.
+    th = default_thresholds()
 
-    if risk_score >= BLOCK_THRESHOLD or action == "BLOCK":
+    if risk_score >= th["block"] or action == "BLOCK":
         # A block driven by identity signals is the mule/takeover shape: demand
         # a check the session cannot produce at all.
         if identity_hits >= IDENTITY_SIGNAL_ESCALATION:
             return "identity_check"
         return "passkey_and_otp"
 
-    if risk_score >= FLAG_THRESHOLD or action == "FLAG":
+    if risk_score >= th["flag"] or action == "FLAG":
         if always_ask:
             # They asked to always be challenged, so never fall to bare "pin"
             # on an identity-free flag.

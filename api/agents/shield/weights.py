@@ -3,8 +3,15 @@
 These were scattered through the analyzer as inline magic numbers, which made
 the engine impossible to tune without editing scoring logic and easy to
 misdescribe. Centralising them is what lets the weights be honestly called
-*configurable*: an institution can adjust a number here (or via env) without
-touching how signals fire.
+*configurable*: the values live in versioned, approved engine parameters
+(core/engine_config.py, changed from the operator console's Engine page, with
+the server environment still winning) and are read on every decision, so a
+promotion takes effect without a restart or touching how signals fire.
+
+Every decision also records *how* its score was built (score parts): which
+weight each signal used and by what coefficient, plus the fixed contributions.
+The live engine and the backtest add those parts with the same function here,
+so re-scoring a stored decision under other weights is exact by construction.
 
 What these are NOT: weights learned from a labelled fraud dataset. They are
 grounded in published NIBSS/CBN channel fraud statistics and documented
@@ -15,118 +22,75 @@ would be a fabrication, so we don't.
 """
 import os
 
-
-def _f(name: str, default: float) -> float:
-    """A weight, overridable by env (FABLE_W_<NAME>) for per-deployment tuning."""
-    try:
-        return float(os.getenv(f"FABLE_W_{name.upper()}", default))
-    except ValueError:
-        return default
+from core import engine_config
 
 
-# --- Per-signal weights ----------------------------------------------------
-# Amount anomaly is progressive: the multiple of the user's baseline decides
-# the tier, so a 45x spike outweighs a milder 6x one instead of capping out.
-AMOUNT_ANOMALY = {
-    50: _f("amount_50x", 0.40),
-    25: _f("amount_25x", 0.34),
-    10: _f("amount_10x", 0.28),
-    5: _f("amount_5x", 0.20),
-    0: _f("amount_3x", 0.15),  # > 3x baseline but under 5x
-}
+def params() -> dict:
+    """The parameters in force: the active version, the environment over it."""
+    return engine_config.current_params()
 
-WEIGHTS = {
-    "new_recipient": _f("new_recipient", 0.20),
-    "time_anomaly": _f("time_anomaly", 0.12),
-    "device_anomaly_large": _f("device_anomaly_large", 0.18),
-    "device_anomaly": _f("device_anomaly", 0.08),
-    "location_country": _f("location_country", 0.22),
-    "location_city_large": _f("location_city_large", 0.12),
-    "location_city": _f("location_city", 0.06),
-    "session_freshness": _f("session_freshness", 0.12),
-    "behavioral_paste": _f("behavioral_paste", 0.06),
-    "behavioral_fast": _f("behavioral_fast", 0.09),
-    "failed_verification_high": _f("failed_verification_high", 0.25),
-    "failed_verification_large": _f("failed_verification_large", 0.15),
-    "failed_verification": _f("failed_verification", 0.08),
-    "timezone_mismatch": _f("timezone_mismatch", 0.08),
-    # Velocity: several transfers from one customer inside a short window is a
-    # classic drain/mule pattern. Uses data we already record (transaction
-    # timestamps), so it is a real signal, not a placeholder.
-    "velocity_high": _f("velocity_high", 0.20),
-    "velocity": _f("velocity", 0.10),
-}
 
-# How many transfers within VELOCITY_WINDOW_MINUTES count as a burst.
+def weights(p: dict | None = None) -> dict:
+    return (p or params())["weights"]
+
+
+# How many transfers within VELOCITY_WINDOW_MINUTES count as a burst. These
+# change *whether* a signal fires, so they stay in the environment: a past
+# decision cannot be replayed exactly under a different window.
 VELOCITY_WINDOW_MINUTES = int(os.getenv("FABLE_VELOCITY_WINDOW_MIN", "10"))
 VELOCITY_FLAG_COUNT = int(os.getenv("FABLE_VELOCITY_FLAG", "3"))
 VELOCITY_HIGH_COUNT = int(os.getenv("FABLE_VELOCITY_HIGH", "5"))
 
+# Amount anomaly is progressive: the multiple of the user's baseline decides
+# the tier, so a 45x spike outweighs a milder 6x one instead of capping out.
+AMOUNT_TIERS = (50, 25, 10, 5)
 
-def amount_anomaly_boost(multiplier: float) -> tuple[float, int]:
-    """Return (boost, tier) for how far a transfer sits above the baseline."""
-    for tier in (50, 25, 10, 5):
+
+def amount_key(tier: int) -> str:
+    return f"amount_{tier}x" if tier else "amount_3x"
+
+
+def amount_tier(multiplier: float) -> int:
+    for tier in AMOUNT_TIERS:
         if multiplier >= tier:
-            return AMOUNT_ANOMALY[tier], tier
-    return AMOUNT_ANOMALY[0], 0
+            return tier
+    return 0
+
+
+def amount_anomaly_boost(multiplier: float, p: dict | None = None) -> tuple[float, int]:
+    """Return (boost, tier) for how far a transfer sits above the baseline."""
+    tier = amount_tier(multiplier)
+    return weights(p)[amount_key(tier)], tier
 
 
 # --- Per-channel decision thresholds ---------------------------------------
 # The cutoff for FLAG/BLOCK is not universal: the same score means more on a
-# riskier rail. USSD and internet — the channels NIBSS ties to the most loss —
-# trip sooner; an in-person branch transfer is given more room. A card-not-
-# present, an NIP payout and a USSD push should never share one boundary.
+# riskier rail. Internet and card channels — the ones NIBSS ties to the most
+# loss — trip sooner; an in-person branch transfer is given more room.
 #
-# Every cutoff is env-overridable: FABLE_THRESHOLD_<CHANNEL>_<BLOCK|FLAG>
-# (e.g. FABLE_THRESHOLD_USSD_BLOCK=0.72), and the fallback default is
-# FABLE_BLOCK_THRESHOLD / FABLE_FLAG_THRESHOLD, shared with config.py.
-_DEFAULT_BLOCK = float(os.getenv("FABLE_BLOCK_THRESHOLD", "0.80"))
-_DEFAULT_FLAG = float(os.getenv("FABLE_FLAG_THRESHOLD", "0.50"))
-_DEFAULT_THRESHOLD = {"block": _DEFAULT_BLOCK, "flag": _DEFAULT_FLAG}
+# USSD gets *more* room than the default, not less. It carries little reported
+# fraud, and it is the rail Nigeria's feature-phone population banks on, so a
+# customer there is the least able to complete a step-up: no smartphone means
+# no passkey, and often no registered email for a code.
+#
+# The values are engine parameters (core/engine_config.py). The environment
+# still wins: FABLE_THRESHOLD_<CHANNEL>_<BLOCK|FLAG>, and FABLE_BLOCK_THRESHOLD
+# / FABLE_FLAG_THRESHOLD for the default.
 
-_CHANNEL_DEFAULTS = {
-    # Rebalanced with the channel weights, for the same reason: USSD held the
-    # tightest cutoff on the strength of a claim the NIBSS data does not
-    # support, while mobile — consistently among the most exploited channels and
-    # growing fastest — held one of the loosest.
-    #
-    # USSD now gets *more* room than the default, not less. It carries little
-    # reported fraud, and it is the rail Nigeria's feature-phone population
-    # banks on, so a customer there is the least able to complete a step-up:
-    # no smartphone means no passkey, and often no registered email for a code.
-    # Concentrating friction on that cohort was an equity problem as much as an
-    # accuracy one.
-    "internet": (0.75, 0.45),   # highest fraud rate
-    "pos": (0.78, 0.48),
-    "atm": (0.78, 0.48),
-    "mobile_app": (0.78, 0.48),  # heavily exploited, fastest growing
-    "qr": (0.80, 0.50),
-    "ussd": (0.82, 0.52),        # low reported fraud, hardest cohort to step up
-    "branch": (0.85, 0.55),      # in person
-}
+def default_thresholds(p: dict | None = None) -> dict:
+    return dict((p or params())["thresholds"]["default"])
 
 
-def _channel_threshold(channel: str, block_default: float, flag_default: float) -> dict:
-    return {
-        "block": float(os.getenv(f"FABLE_THRESHOLD_{channel.upper()}_BLOCK", block_default)),
-        "flag": float(os.getenv(f"FABLE_THRESHOLD_{channel.upper()}_FLAG", flag_default)),
-    }
-
-
-CHANNEL_THRESHOLDS = {
-    channel: _channel_threshold(channel, blk, flg)
-    for channel, (blk, flg) in _CHANNEL_DEFAULTS.items()
-}
-
-
-def thresholds_for(channel: str | None, institution_id: str | None = None) -> dict:
+def thresholds_for(channel: str | None, institution_id: str | None = None, p: dict | None = None) -> dict:
     """The (block, flag) cutoffs for a channel, falling back to the default.
 
     When the institution has set its own base cutoffs, the channel's offset
     from Fable's default is kept and applied to the institution's base, so the
     per-channel tuning survives a bank moving its overall risk appetite.
     """
-    th = CHANNEL_THRESHOLDS.get(channel or "", _DEFAULT_THRESHOLD)
+    p = p or params()
+    default = p["thresholds"]["default"]
+    th = dict(p["thresholds"].get(channel or "", default))
     if not institution_id:
         return th
     from services.policy import base_thresholds
@@ -136,6 +100,67 @@ def thresholds_for(channel: str | None, institution_id: str | None = None) -> di
         return th
     block, flag = base
     return {
-        "block": round(min(max(block + (th["block"] - _DEFAULT_BLOCK), 0.1), 0.99), 3),
-        "flag": round(min(max(flag + (th["flag"] - _DEFAULT_FLAG), 0.05), 0.98), 3),
+        "block": round(min(max(block + (th["block"] - default["block"]), 0.1), 0.99), 3),
+        "flag": round(min(max(flag + (th["flag"] - default["flag"]), 0.05), 0.98), 3),
     }
+
+
+def decide(score: float, channel: str | None, institution_id: str | None = None,
+           p: dict | None = None) -> tuple[str, str]:
+    """(action, risk level) for a final score."""
+    th = thresholds_for(channel, institution_id, p)
+    action = "BLOCK" if score >= th["block"] else "FLAG" if score >= th["flag"] else "PASS"
+    level = "HIGH" if score >= th["block"] else "MEDIUM" if score >= th["flag"] else "LOW"
+    return action, level
+
+
+# --- Score parts -------------------------------------------------------------
+# A term is [coefficients, constant, divisor, rounded]:
+#
+#     value = (constant + sum(coefficient * weight[key])) / divisor
+#
+# rounded to 3 places when `rounded` is set. Fixed contributions (cold start,
+# channel risk, NIP code, scam pattern, ML anomaly) are terms with no keys.
+# The final score is the terms added in order, then the tenure discount, the
+# clamp to [0, 1] and the NIP-34 override, exactly as the analyzer always did.
+
+def term(coefs: dict | None = None, const: float = 0.0, divisor: float = 1, rounded: bool = False) -> list:
+    return [dict(coefs or {}), const, divisor, 1 if rounded else 0]
+
+
+def term_value(t: list, w: dict) -> float:
+    coefs, const, divisor, rounded = t
+    x = const
+    for key, coef in coefs.items():
+        x += coef * w[key]
+    x = x / divisor if divisor != 1 else x
+    return round(x, 3) if rounded else x
+
+
+def raw_score(parts: dict, w: dict) -> float:
+    score = 0.0
+    for t in parts.get("terms") or []:
+        score += term_value(t, w)
+    return score
+
+
+def finish(score: float, parts: dict) -> float:
+    """Tenure, clamp and the NIP-34 override, applied to a raw score."""
+    discount = parts.get("tenure") or 0.0
+    if discount > 0 and score > 0:
+        score -= min(discount, score)
+    score = min(round(max(score, 0.0), 3), 1.0)
+    if parts.get("nip34"):
+        score = max(score, 0.95)
+    return score
+
+
+def tenure_applied(score: float, parts: dict) -> float:
+    discount = parts.get("tenure") or 0.0
+    return min(discount, score) if discount > 0 and score > 0 else 0.0
+
+
+def replay(parts: dict, channel: str | None, institution_id: str | None, p: dict) -> tuple[float, str]:
+    """(score, action) for a stored decision's parts under parameters `p`."""
+    score = finish(raw_score(parts, p["weights"]), parts)
+    return score, decide(score, channel, institution_id, p)[0]

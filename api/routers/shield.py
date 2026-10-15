@@ -1,3 +1,4 @@
+import logging
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -53,6 +54,21 @@ def _upgrade_explanation(transaction_id: str, signals: list[str], amount: float,
         pass
 
 
+def _record_shadow(transaction_id: str, result: dict, channel: str | None, institution_id: str | None) -> None:
+    """Re-weight the decision's own signals under the shadow version, if any.
+
+    Runs after the live row is written. It re-adds stored score parts, so it
+    costs microseconds and calls nothing external. Any error is logged and
+    ignored: shadow mode exists to observe, and it must never cost a decision.
+    """
+    try:
+        from services import engine_admin
+
+        engine_admin.record_shadow(transaction_id, result, channel, institution_id)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("fable.engine").warning("Shadow scoring skipped: %s", type(exc).__name__)
+
+
 @router.post("/analyze", response_model=ShieldAnalyzeResponse, dependencies=[Depends(scoring_guard)])
 def analyze(payload: ShieldAnalyzeRequest, request: Request):
     start = time.perf_counter()
@@ -85,7 +101,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
 
         with cursor() as cur:
             cur.execute(
-                """SELECT id, risk_score, risk_level, action_taken, shield_signals
+                """SELECT id, risk_score, risk_level, action_taken, shield_signals, engine_version
                    FROM transactions WHERE institution_id = ? AND client_reference = ?""",
                 (institution_id, payload.client_reference),
             )
@@ -102,6 +118,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
                 decision_ms=replay_ms,
                 explanation_source="template",
                 transaction_id=existing["id"],
+                engine_version=existing["engine_version"],
             )
 
     # Funds are checked before scoring, for two reasons. Scoring a transfer
@@ -160,7 +177,14 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         decision_ms=decision_ms,
         explanation=result["explanation"],
         explanation_source=explanation_source,
+        score_parts=result.get("score_parts"),
+        engine_version=result.get("engine_version"),
+        engine_params_hash=result.get("engine_params_hash"),
     )
+
+    # The live decision is committed. Only now, and never able to change it,
+    # the shadow version (if one is running) scores the same signals.
+    _record_shadow(transaction_id, result, transaction.get("channel"), institution_id)
 
     # Tell the customer, in-app, that this was stopped or questioned. Recorded
     # only for real decisions: seeded history bypasses this endpoint entirely,
@@ -224,6 +248,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         decision_ms=decision_ms,
         explanation_source="pending" if pending else explanation_source,
         transaction_id=transaction_id,
+        engine_version=result.get("engine_version"),
     )
 
 
@@ -241,7 +266,7 @@ def explanation(transaction_id: str):
 
     with cursor() as cur:
         cur.execute(
-            """SELECT explanation, explanation_source, explanation_ms
+            """SELECT explanation, explanation_source, explanation_ms, engine_version
                FROM transactions WHERE id = ?""",
             (transaction_id,),
         )
@@ -257,6 +282,7 @@ def explanation(transaction_id: str):
         explanation_source=source,
         ready=source in ("llm", "cache"),
         explanation_ms=row["explanation_ms"],
+        engine_version=row["engine_version"],
     )
 
 

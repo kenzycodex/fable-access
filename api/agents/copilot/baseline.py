@@ -264,6 +264,9 @@ def log_transaction(
     decision_ms: float | None = None,
     explanation: str | None = None,
     explanation_source: str | None = None,
+    score_parts: dict | None = None,
+    engine_version: int | None = None,
+    engine_params_hash: str | None = None,
 ):
     from core.db import cursor as _cursor
     from core.db import dumps
@@ -286,8 +289,9 @@ def log_transaction(
                 session_duration_seconds, auth_method, typing_speed_ms, paste_detected,
                 time_to_submit_seconds, client_timestamp, client_timezone, institution_id,
                 recipient_name, client_reference, latency_ms, decision_ms,
-                explanation, explanation_source, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                explanation, explanation_source, status, score_parts, engine_version, engine_params_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?, ?, ?)""",
             (
                 transaction_id,
                 user_id,
@@ -331,6 +335,9 @@ def log_transaction(
                 # already moved; a FLAG awaits a decision; a BLOCK is stopped.
                 # Overrides (verify a flag, release a hold) update this later.
                 {"PASS": "completed", "FLAG": "flagged", "BLOCK": "blocked"}.get(action_taken, "completed"),
+                dumps(score_parts) if score_parts is not None else None,
+                engine_version,
+                engine_params_hash,
             ),
         )
 

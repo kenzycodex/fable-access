@@ -40,11 +40,12 @@ def _row(institution_id: str) -> dict:
 
 
 def defaults() -> dict:
-    from agents.shield.weights import _DEFAULT_BLOCK, _DEFAULT_FLAG
+    from agents.shield.weights import default_thresholds
 
+    th = default_thresholds()
     return {
-        "flag_threshold": _DEFAULT_FLAG,
-        "block_threshold": _DEFAULT_BLOCK,
+        "flag_threshold": th["flag"],
+        "block_threshold": th["block"],
         "hold_high_minutes": setting("GHOST_COOLING_HIGH"),
         "hold_medium_minutes": setting("GHOST_COOLING_MED"),
         "hold_low_minutes": setting("GHOST_COOLING_LOW"),

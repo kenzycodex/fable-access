@@ -123,6 +123,9 @@ class ShieldAnalyzeResponse(BaseModel):
     # request path and can be collected from /v1/shield/explanation/{id}.
     explanation_source: Literal["cache", "template", "llm", "pending"] = "template"
     transaction_id: str
+    # Which engine version scored this, so a decision can always be traced to
+    # the approved weights and thresholds behind it.
+    engine_version: Optional[int] = None
 
 
 class ShieldExplanationResponse(BaseModel):
@@ -133,6 +136,8 @@ class ShieldExplanationResponse(BaseModel):
     explanation_source: Literal["cache", "template", "llm", "pending"]
     ready: bool
     explanation_ms: Optional[float] = None
+    # The engine version that scored the decision (Engine page in the console).
+    engine_version: Optional[int] = None
 
 
 class GhostCreateRequest(BaseModel):
