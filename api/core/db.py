@@ -548,6 +548,53 @@ CREATE TABLE IF NOT EXISTS operator_stepup (
     locked_until TEXT
 );
 
+-- Shield's tunable weights and thresholds, one row per version (see
+-- core/engine_config.py). params is canonical JSON; approved_hash freezes it
+-- once proposed, and shadow/promote refuse a row whose params no longer match.
+CREATE TABLE IF NOT EXISTS engine_versions (
+    version INTEGER PRIMARY KEY,
+    status TEXT NOT NULL,                 -- draft | proposed | cooling | approved | shadow | active | retired | rejected | expired
+    params TEXT NOT NULL,
+    params_hash TEXT NOT NULL,
+    approved_hash TEXT,
+    base_version INTEGER,
+    rollback_of INTEGER,
+    backtest TEXT,
+    backtest_at TEXT,
+    backtest_hash TEXT,
+    note TEXT,
+    drift_note TEXT,
+    impact_ack INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    proposed_by TEXT,
+    proposed_at TEXT,
+    single_approver INTEGER NOT NULL DEFAULT 0,
+    apply_after TEXT,
+    expires_at TEXT,
+    approved_by TEXT,
+    approved_at TEXT,
+    decided_by TEXT,
+    decided_at TEXT,
+    shadow_started_at TEXT,
+    shadow_until TEXT,
+    shadow_by TEXT,
+    activated_at TEXT,
+    activated_by TEXT,
+    retired_at TEXT
+);
+
+-- Every period a version was live: when, who and how (seed, promote,
+-- rollback). The drift cap compares against the version live 30 days ago.
+CREATE TABLE IF NOT EXISTS engine_activations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    version INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    by TEXT,
+    kind TEXT
+);
+
 -- Ask Fable for one institution, where an operator has overridden the
 -- platform setting. NULL means "use the platform setting".
 CREATE TABLE IF NOT EXISTS institution_assistant (
@@ -635,6 +682,18 @@ MIGRATIONS = {
         "assignee": "TEXT",
         "reviewed_by": "TEXT",
         "reviewed_at": "TEXT",
+        # How the score was built, as weight coefficients plus fixed parts
+        # (agents/shield/weights.py), so a backtest re-scores it exactly under
+        # other weights. NULL on rows from before this was recorded.
+        "score_parts": "TEXT",
+        # Which engine version scored the transfer, and the SHA-256 of the
+        # parameters actually in force (environment included).
+        "engine_version": "INTEGER",
+        "engine_params_hash": "TEXT",
+        # The shadow version's verdict on the same signals, never acted on.
+        "shadow_version": "INTEGER",
+        "shadow_action": "TEXT",
+        "shadow_score": "REAL",
     },
     "ghost_containers": {
         "institution_id": "TEXT",
@@ -885,6 +944,7 @@ CREATE INDEX IF NOT EXISTS ix_txn_user_created   ON transactions(user_id, create
 CREATE INDEX IF NOT EXISTS ix_txn_inst_created   ON transactions(institution_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_txn_user_conf      ON transactions(user_id, confirmed_legitimate, created_at);
 CREATE INDEX IF NOT EXISTS ix_txn_action         ON transactions(action_taken);
+CREATE INDEX IF NOT EXISTS ix_txn_created        ON transactions(created_at);
 CREATE INDEX IF NOT EXISTS ix_ghost_user_status  ON ghost_containers(user_id, status);
 CREATE INDEX IF NOT EXISTS ix_ghost_inst_status  ON ghost_containers(institution_id, status);
 CREATE INDEX IF NOT EXISTS ix_ledger_user        ON ledger_entries(user_id);
