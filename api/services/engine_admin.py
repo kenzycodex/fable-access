@@ -84,6 +84,9 @@ def status(version: int) -> str:
 
 def public(row: dict, with_backtest: bool = False) -> dict:
     out = {k: row.get(k) for k in PUBLIC}
+    # Shown complete: a version stored before a parameter existed (the channel
+    # weights) gets the code default for it. Hashes use the stored form.
+    out["params"] = engine_config.normalise(row["params"])
     out["impact_ack"] = bool(row.get("impact_ack"))
     out["single_approver"] = bool(row.get("single_approver"))
     bt = row.get("backtest")
