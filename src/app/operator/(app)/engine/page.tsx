@@ -115,7 +115,7 @@ export default function EnginePage() {
   if (!data) {
     return (
       <>
-        <PageHeader title="Engine" description="Shield's signal weights and decision thresholds." />
+        <PageHeader title="Engine" description="Shield's scoring weights and decision lines." />
         <StatGrid>{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[132px] rounded-[20px]" />)}</StatGrid>
         <Skeleton className="h-[480px] w-full rounded-[20px]" />
       </>
@@ -141,7 +141,7 @@ export default function EnginePage() {
     <>
       <PageHeader
         title="Engine"
-        description="Shield's signal weights and decision thresholds. Every change is backtested on real decisions, approved by a second owner, run in shadow, then promoted."
+        description="Shield's scoring weights and decision lines."
         actions={data.me.can_draft && !editing && (
           <Button icon={<Plus size={16} weight="bold" />} onClick={startDraft}>New draft</Button>
         )}
