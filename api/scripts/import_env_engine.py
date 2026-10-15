@@ -7,9 +7,9 @@ seeding), --apply records a new live version with the .env values, so
 nothing changes when the lines are deleted. Version 1 itself is never
 rewritten: decisions already carry its hash.
 
-Only weights and thresholds move. FABLE_CHANNEL_*, FABLE_VELOCITY_*,
-FABLE_TENURE_* and FABLE_RECIPIENT_MEMORY_DAYS stay in .env (see
-docs/ENGINE-GOVERNANCE.md).
+Weights (FABLE_W_*), channel risk weights (FABLE_CHANNEL_*) and thresholds
+move. FABLE_VELOCITY_*, FABLE_TENURE_* and FABLE_RECIPIENT_MEMORY_DAYS stay in
+.env (see docs/ENGINE-GOVERNANCE.md).
 
     # 1. See what would move:
     docker compose exec -T api python scripts/import_env_engine.py
@@ -87,7 +87,7 @@ def main() -> int:
     if differ:
         print(f"Differ from the live version ({len(differ)}). Run with --apply to store them first:")
         for p, v in sorted(differ.items()):
-            print(f"  {engine_config.env_name(p)} = {v} (live: {current[p]})")
+            print(f"  {engine_config.env_name(p)} = {v} (stored in v{live}: {current[p]}; .env wins until then)")
     elif same:
         print("Delete those lines (scripts/import_env_engine.py --stored lists them), then: "
               "docker compose up -d --force-recreate")
