@@ -1,0 +1,133 @@
+# Engine governance
+
+How Shield's signal weights and decision thresholds are changed, and the evidence each change leaves behind for an audit.
+
+These values decide who gets blocked at every bank. One wrong weight silently lets fraud through, or stops honest customers, everywhere at once. So a change is handled like a model change, not a settings change: proposed, measured against real past decisions, approved by a second person, rolled out safely, and reversible.
+
+The decision itself stays deterministic and explainable ([PRODUCT-PRINCIPLES.md](PRODUCT-PRINCIPLES.md), principle 1). The governance only controls which numbers the rules use.
+
+## What is managed here
+
+| Managed on the **Engine** page | Stays in `api/.env` for now |
+|---|---|
+| Signal weights: `FABLE_W_*` (amount tiers, new recipient, time, device, location, timezone, session, behaviour, failed verification, velocity) | `FABLE_VELOCITY_WINDOW_MIN`, `FABLE_VELOCITY_FLAG`, `FABLE_VELOCITY_HIGH` |
+| Default thresholds: `FABLE_BLOCK_THRESHOLD`, `FABLE_FLAG_THRESHOLD` | `FABLE_TENURE_DISCOUNT_MAX`, `FABLE_TENURE_FULL_AT` |
+| Per-channel thresholds: `FABLE_THRESHOLD_<CHANNEL>_BLOCK` and `_FLAG` | `FABLE_RECIPIENT_MEMORY_DAYS` |
+| | Channel risk weights: `FABLE_CHANNEL_*` |
+
+The right-hand column changes *whether* a signal fires, not how much it weighs. A past decision cannot be replayed exactly under a different velocity window or tenure curve, so those values cannot be backtested honestly yet. The ML anomaly boost and the NIP response-code boosts are not tunable at all.
+
+The API rate limit and the explanation time limit are ordinary platform settings on the **Environment** page (see [SECRETS.md](SECRETS.md)).
+
+Each bank's own risk policy (its base thresholds and hold windows, set in its console) still sits on top of the platform values, exactly as before.
+
+### Where the values come from
+
+1. The server environment wins. A `FABLE_W_*` or threshold variable still set in `api/.env` is used as is, and the Engine page shows it as set there, read-only.
+2. Otherwise, the live version approved on the Engine page.
+3. Otherwise, the built-in defaults.
+
+On first boot, version 1 is seeded from the values in force at that moment (the environment over the code defaults), so shipping the Engine page changed no decision. Backtests, shadow and live scoring all use the effective values: the environment first, then the version. Every backtest report lists which keys came from the environment.
+
+## The procedure
+
+1. **Draft.** A platform admin or owner edits weights and thresholds. The bounds are enforced when the draft is saved:
+   - weights between 0 and 0.5;
+   - floors on signals that must never be tuned away: failed verification at least 0.05, 0.10 and 0.15 for its three tiers, device anomaly at least 0.04 (0.08 on a large transfer), new recipient at least 0.10;
+   - thresholds between 0.20 and 0.95, with the flag at least 0.10 below the block;
+   - no value moves by more than 0.15 from the live version in one step.
+2. **Backtest.** Required before proposing. The draft is replayed against the last 30, 60 or 90 days of real decisions across every bank (see *The backtest*, below).
+3. **Propose.** A platform owner proposes, with a passkey or authenticator step-up. The backtest must be of these exact parameters and less than 24 hours old.
+   - **Drift cap.** No weight may sit more than 0.30 from its value in the version that was live 30 days ago (or version 1, if none was) unless a written reason is given. Without one, the proposal is refused.
+   - **Frozen.** From this point the parameters cannot change. The proposal records their SHA-256. Any edit means a new draft, a new backtest and a new approval.
+4. **Approve.** A *different* platform owner approves within 24 hours, with a step-up. With only one owner, the proposal instead waits a 12-hour cooling-off period, every owner is emailed, and it can be cancelled until then. These are the same rules as the Environment page (`services/approvals.py`).
+   - **Impact acknowledgement.** If the backtest raised any impact warning, the approver must tick "I've reviewed the impact" (the proposer does, when there is only one owner). The approval records it.
+   - Approval records the parameters' SHA-256 again.
+5. **Shadow.** By default, an approved version first runs in shadow for a chosen number of days (3 by default, up to 30). Live decisions are unchanged. Each new transfer is also re-scored under the shadow version and the disagreements are shown on the page. Shadow scoring runs after the live decision is committed, re-adds the decision's stored score parts, and any error in it is logged and ignored: it can never change or delay a live decision.
+6. **Promote.** An owner promotes with a step-up. Every process picks the new version up within 30 seconds, with no restart. Promotion without shadow is possible but is shown as a warning.
+7. **Roll back.**
+   - *Emergency:* back to the version that was live just before the current one. One owner and a step-up; it applies at once and every owner is alerted.
+   - *Any other earlier version:* a new version with the same parameters, through normal maker-checker. It goes live as soon as it is approved.
+8. **Audit.** Every step is written to the hash-chained secret audit (`secret_audit`, name `engine`) and the main audit log, mirrored to the log stream, and emailed to the owners.
+
+Shadow and promotion refuse any version whose stored parameters no longer match the approved hash.
+
+## The backtest
+
+Shield's score is additive. Since the Engine page shipped, every decision stores *how* its score was built (`transactions.score_parts`): which weight each signal used and by what coefficient, plus the fixed contributions (cold start, channel risk, scam pattern, ML anomaly, NIP code), the tenure discount and the NIP-34 override. The live engine and the backtest add those parts with the same function (`agents/shield/weights.py`), so re-scoring a stored decision under other weights is exact by construction.
+
+Each report compares two replays of the same rows: under the live parameters ("now") and under the draft. That isolates the draft's own effect: an unchanged draft reports zero changed decisions. How faithfully "now" reproduces what was actually decided is reported separately.
+
+Older decisions, from before score parts were recorded, are rebuilt from their signal text against version 1's weights and counted as *approximate*. A row whose signals cannot be read is *skipped*, never guessed.
+
+The report gives:
+
+- the before and after PASS, FLAG and BLOCK matrix;
+- outcomes, with the labels kept apart:
+  - fraud confirmed by an analyst (`review_outcome`);
+  - transfers an analyst confirmed legitimate;
+  - Ghost holds the customer cancelled, a weaker signal, since customers cancel for other reasons too;
+- precision, recall and false-positive rate on analyst labels, using the same definitions as `eval/harness.py`;
+- breakdowns by channel and by bank;
+- exact, approximate and skipped row counts.
+
+The rules that keep it honest:
+
+- **No outcome is not caught fraud.** A blocked transfer that nobody labelled never completed, so nobody knows whether it was fraud. Such rows are reported as "no outcome" and never counted as caught.
+- **Sample sizes are shown.** Every metric carries the number of labelled rows behind it, with a warning below 30.
+- **Each bank's current risk policy applies** in the replay (`thresholds_for(channel, institution)`). There is no policy history, so the report says so.
+
+### Impact warnings
+
+A proposal needs the impact acknowledged when any of these happens:
+
+- the overall block rate moves by more than 25%;
+- any single bank or channel's block rate moves by more than 25%, or by more than 2 percentage points, on at least 5 decisions;
+- confirmed-fraud misses rise.
+
+## Evidence for an audit
+
+| Question | Where the answer is |
+|---|---|
+| Which weights and thresholds scored this transfer? | `transactions.engine_version` and `engine_params_hash`, shown on the case and in the transactions CSV. The version's parameters are on the Engine page. |
+| Why was this version introduced? | The version's note, its backtest report and, for a large drift, its written reason. |
+| Who proposed, approved, shadowed, promoted or rolled it back, and when? | The Engine page history, `engine_versions` and `engine_activations`, and the `engine.*` events in `secret_audit` (`scripts/verify_secret_audit.py` checks the chain). |
+| Did anyone review the impact? | `impact_ack` on the version, and the approval event. |
+| Has anything been altered since approval? | The parameters' SHA-256 against `approved_hash`. Shadow and promotion refuse a mismatch. |
+
+## After deploy
+
+1. Confirm new decisions are written with a version (read-only):
+
+   ```bash
+   docker compose exec -T api python -c "from core.db import cursor
+   with cursor() as c:
+       c.execute('SELECT id, created_at, engine_version, substr(engine_params_hash,1,12) h FROM transactions ORDER BY created_at DESC LIMIT 5')
+       [print(dict(r)) for r in c.fetchall()]"
+   ```
+
+2. On the Engine page, check that version 1 matches today's values, then make a draft with no changes, backtest it, and check it reports 0 changed decisions. Discard the draft.
+3. Move the weights and thresholds out of `.env`:
+
+   ```bash
+   cd /var/www/fable/api
+   docker compose exec -T api python scripts/import_env_engine.py           # what is stored, what differs
+   docker compose exec -T api python scripts/import_env_engine.py --apply   # only if anything differs
+   cp .env /root/env-backup-before-engine && chmod 600 /root/env-backup-before-engine
+   NAMES=$(docker compose exec -T api python scripts/import_env_engine.py --stored | tr -d '\r')
+   echo "$NAMES"
+   sed -i -E "/^($NAMES)=/d" .env
+   docker compose up -d --force-recreate
+   docker compose exec -T api python scripts/verify_secret_audit.py
+   rm /root/env-backup-before-engine
+   ```
+
+   Then move `FABLE_RATE_LIMIT_MAX`, `FABLE_RATE_LIMIT_WINDOW` and `FABLE_EXPLAINER_TIMEOUT` with `scripts/import_env_secrets.py`, as for the other platform settings.
+
+## Standards this follows
+
+The mapping is to frameworks, not quoted clauses.
+
+* **CBN Risk-Based Cybersecurity Framework 2024 and CBN guidance on governance and change control.** Separation of duties, change approval, audit trail.
+* **ISO/IEC 27001:2022.** A.8.32 (change management), A.5.3 (segregation of duties), A.8.15 (logging).
+* **Model risk management practice** (for example, the SR 11-7 principles): evidence before a change, independent review, monitoring in parallel before use, and the ability to revert.

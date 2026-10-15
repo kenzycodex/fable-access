@@ -11,7 +11,9 @@ goes wrong. Written for Fable's platform owners and whoever runs the server.
 | Security routing: `SMTP_*`, `FRONTEND_URL`, `FABLE_CORS_ORIGINS`, `WEBAUTHN_*` | `api/.env` only | Someone with server access |
 | Start-up settings: `FABLE_DB_PATH`, `ENVIRONMENT`, `SENTRY_DSN` | `api/.env` only | Someone with server access |
 | Integration keys: OpenAI and Anthropic keys and models, LocationIQ, Geoapify, Google Maps | The operator console (**Environment**), or `api/.env` | Platform owners, with approval |
-| Platform settings (readable): sandbox top-up limits, PIN length, attempts and lock time, weak-PIN refusal, default Ghost holds, branding limits | The operator console (**Environment**, type *Config*), or `api/.env` | Platform owners, with approval |
+| Platform settings (readable): sandbox top-up limits, PIN length, attempts and lock time, weak-PIN refusal, default Ghost holds, branding limits, the API rate limit (`FABLE_RATE_LIMIT_MAX`, `FABLE_RATE_LIMIT_WINDOW`) and the explanation time limit (`FABLE_EXPLAINER_TIMEOUT`) | The operator console (**Environment**, type *Config*), or `api/.env` | Platform owners, with approval |
+| Shield's signal weights and thresholds: `FABLE_W_*`, `FABLE_BLOCK_THRESHOLD`, `FABLE_FLAG_THRESHOLD`, `FABLE_THRESHOLD_<CHANNEL>_*` | The operator console (**Engine**), versioned and backtested, or `api/.env` | Platform owners, with a backtest, approval, shadow and promotion ([ENGINE-GOVERNANCE.md](ENGINE-GOVERNANCE.md)) |
+| Values that change whether a signal fires: `FABLE_VELOCITY_*`, `FABLE_TENURE_*`, `FABLE_RECIPIENT_MEMORY_DAYS`, and the channel risk weights `FABLE_CHANNEL_*` | `api/.env` only, for now | Someone with server access |
 | Frontend: `PAYSTACK_SECRET_KEY`, `NEXT_PUBLIC_*` | Vercel project settings | Vercel team members (2FA on) |
 
 The first three rows never move into the console. They either start the app or
