@@ -172,7 +172,7 @@ TXN_COLUMNS = """id, user_id, amount, recipient_id, recipient_name, recipient_ac
                  explanation,
                  CASE WHEN action_taken IN ('FLAG','BLOCK')
                       THEN COALESCE(review_state, 'open') END AS review_state,
-                 review_outcome, assignee, reviewed_by, reviewed_at"""
+                 review_outcome, assignee, reviewed_by, reviewed_at, engine_version, engine_params_hash"""
 
 
 def txn_filters(
@@ -302,6 +302,7 @@ def export_transactions(
         "id", "created_at_utc", "customer_id", "customer_name", "amount_ngn", "recipient_name",
         "recipient_account", "recipient_bank", "channel", "narration", "risk_score", "decision",
         "status", "review_state", "review_outcome", "reviewed_by", "signals", "explanation",
+        "engine_version", "engine_params_hash",
     ]
     out = (
         [
@@ -310,6 +311,7 @@ def export_transactions(
             r.get("recipient_bank"), r.get("channel"), r.get("narration"), r.get("risk_score"),
             r.get("action_taken"), r.get("status"), r.get("review_state"), r.get("review_outcome"),
             r.get("reviewed_by"), " | ".join(str(s) for s in r.get("signals") or []), r.get("explanation"),
+            r.get("engine_version"), r.get("engine_params_hash"),
         ]
         for r in rows
     )

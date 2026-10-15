@@ -300,7 +300,8 @@ def resolve(txid: str, body: ResolveBody, request: Request):
                 (txid, who["inst"], who["email"], body.note.strip()),
             )
     audit.record(audit.CASE_RESOLVED, case.get("user_id"), institution_id=who["inst"],
-                 transaction_id=txid, outcome=body.outcome, amount=case.get("amount"), by=who["email"])
+                 transaction_id=txid, outcome=body.outcome, amount=case.get("amount"), by=who["email"],
+                 engine_version=case.get("engine_version"))
     webhooks.emit(who["inst"], "case.resolved", {
         **webhooks.transaction_summary(case),
         "review_outcome": body.outcome,
