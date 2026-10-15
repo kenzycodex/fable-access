@@ -51,7 +51,8 @@ ACTIONS = ("PASS", "FLAG", "BLOCK")
 SPIKE_RELATIVE = 0.25
 SPIKE_ABSOLUTE = 0.02
 SPIKE_FLOOR = 5
-POLICY_NOTE = "Each bank's current risk policy was used. There is no policy history to replay against."
+POLICY_NOTE = ("Each bank's current risk policy was used. There is no policy history to replay against. "
+               "Velocity, tenure and recipient memory are replayed as they were when each transfer was scored.")
 
 
 # ── Older rows: parts rebuilt from signal text ───────────────────────────────

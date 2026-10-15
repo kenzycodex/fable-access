@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   ArrowCounterClockwise,
@@ -255,6 +256,7 @@ function LiveValues({ data }: { data: EngineOverview }) {
       </div>
       <div className="flex flex-col gap-4 lg:sticky lg:top-24">
         <Thresholds data={data} params={p} env={env} />
+        <DetectionCard data={data} />
         <Card>
           <CardHeader title="How a score becomes a decision" />
           <ol className="flex flex-col gap-2.5 text-[13px] text-d-muted">
@@ -274,6 +276,32 @@ function LiveValues({ data }: { data: EngineOverview }) {
         </Card>
       </div>
     </div>
+  );
+}
+
+/** Velocity, tenure and recipient memory: they decide whether a signal fires,
+ * so they cannot be backtested and are approved on the Environment page. */
+function DetectionCard({ data }: { data: EngineOverview }) {
+  return (
+    <Card>
+      <CardHeader title="Detection rules" subtitle="When a signal fires at all. Approved on the Environment page, without a backtest"
+        action={<Link href="/operator/secrets" className="text-[12px] font-semibold text-brand hover:underline">Change</Link>} />
+      <dl className="flex flex-col divide-y divide-d-border text-[13px]">
+        {data.detection.map((d) => (
+          <div key={d.name} className="flex items-center justify-between gap-3 py-2">
+            <dt className="min-w-0">
+              <span className="block truncate text-d-text">{d.label}</span>
+              <span className="block truncate font-mono text-[10px] text-d-faint">
+                {d.name}{d.source === "environment" && <span className="text-amber-600 dark:text-amber-400"> · set in .env</span>}
+              </span>
+            </dt>
+            <dd className="shrink-0 font-semibold tabular-nums text-d-text">
+              {d.display} <span className="text-[11px] font-normal text-d-faint">{d.unit}</span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </Card>
   );
 }
 

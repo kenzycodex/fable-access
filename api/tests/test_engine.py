@@ -223,7 +223,9 @@ def test_engine_version_and_hash_are_written_on_every_decision(client):
                     (d["transaction_id"],))
         row = cur.fetchone()
     assert row["engine_version"] == 1
-    assert row["engine_params_hash"] == engine_config.active()["hash"]
+    from agents.shield.weights import detection
+
+    assert row["engine_params_hash"] == engine_config.decision_hash(engine_config.active()["hash"], detection())
     assert json.loads(row["score_parts"])["terms"]
     explained = client.get(f"/v1/shield/explanation/{d['transaction_id']}", headers=_bank_session())
     assert explained.status_code == 200 and explained.json()["engine_version"] == 1
@@ -655,3 +657,60 @@ def test_the_page_always_gets_a_complete_parameter_set(client):
         with cursor() as cur:
             cur.execute("UPDATE engine_versions SET params = ? WHERE version = 1", (saved,))
         engine_config.bump_generation()
+
+
+# ── Detection settings (Environment page) ───────────────────────────────────
+
+@pytest.mark.parametrize("name,value,ok", [
+    ("FABLE_VELOCITY_WINDOW_MIN", "10", True), ("FABLE_VELOCITY_WINDOW_MIN", "0", False),
+    ("FABLE_VELOCITY_FLAG", "3", True), ("FABLE_VELOCITY_HIGH", "60", False),
+    ("FABLE_TENURE_DISCOUNT_MAX", "0.08", True), ("FABLE_TENURE_DISCOUNT_MAX", "0.12", False),
+    ("FABLE_TENURE_FULL_AT", "90", True), ("FABLE_TENURE_FULL_AT", "5", False),
+    ("FABLE_RECIPIENT_MEMORY_DAYS", "540", True), ("FABLE_RECIPIENT_MEMORY_DAYS", "2000", False),
+])
+def test_detection_settings_have_safe_bounds(name, value, ok):
+    from core import secrets as vault
+
+    if ok:
+        assert vault.parse_setting(vault.MANAGED[name], value) == float(value)
+    else:
+        with pytest.raises(ValueError):
+            vault.parse_setting(vault.MANAGED[name], value)
+
+
+def test_detection_settings_are_read_live_and_a_heavy_burst_stays_above_a_burst(monkeypatch):
+    from agents.copilot.baseline import recipient_memory_days, tenure_rules
+    from agents.shield.weights import velocity_rules
+
+    monkeypatch.setenv("FABLE_VELOCITY_WINDOW_MIN", "15")
+    monkeypatch.setenv("FABLE_VELOCITY_FLAG", "6")
+    monkeypatch.setenv("FABLE_VELOCITY_HIGH", "4")
+    monkeypatch.setenv("FABLE_TENURE_DISCOUNT_MAX", "0.05")
+    monkeypatch.setenv("FABLE_TENURE_FULL_AT", "200")
+    monkeypatch.setenv("FABLE_RECIPIENT_MEMORY_DAYS", "365")
+    assert velocity_rules() == (15, 6, 7)
+    assert tenure_rules() == (0.05, 200)
+    assert recipient_memory_days() == 365
+
+
+def test_a_decision_records_the_detection_settings_it_was_scored_under(client, monkeypatch):
+    from core.db import cursor
+
+    def stamp():
+        d = _decide(client, amount=5000, account="0444444444")
+        with cursor() as cur:
+            cur.execute("SELECT engine_params_hash FROM transactions WHERE id = ?", (d["transaction_id"],))
+            return cur.fetchone()["engine_params_hash"]
+
+    before = stamp()
+    monkeypatch.setenv("FABLE_RECIPIENT_MEMORY_DAYS", "300")
+    assert stamp() != before
+
+
+def test_the_engine_page_shows_detection_settings_and_small_numbers_read_right(client):
+    from core import secrets as vault
+
+    page = client.get("/operator/engine", headers=_op(ADMIN)).json()
+    names = [d["name"] for d in page["detection"]]
+    assert "FABLE_VELOCITY_FLAG" in names and "FABLE_TENURE_DISCOUNT_MAX" in names
+    assert vault.display_number(0.08) == "0.08" and vault.display_number(500000.0) == "500,000"

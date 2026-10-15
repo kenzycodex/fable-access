@@ -184,7 +184,26 @@ def overview() -> dict:
         "bounds": bounds(),
         "catalogue": catalogue(),
         "owners": len(approvals.owners()),
+        "detection": detection_settings(),
     }
+
+
+def detection_settings() -> list[dict]:
+    """The detection settings (Environment page), shown read-only on the Engine
+    page: they shape decisions but cannot be backtested."""
+    from core import secrets as vault
+
+    values = W.detection()
+    out = []
+    for name in W.DETECTION_SETTINGS:
+        spec = vault.MANAGED[name]
+        try:
+            source = vault.source(name)
+        except Exception:  # noqa: BLE001
+            source = "unset"
+        out.append({"name": name, "label": spec.label, "value": values[name], "display": vault.display_number(values[name]),
+                    "unit": spec.unit, "source": source if source != "unset" else "default"})
+    return out
 
 
 def version_detail(version: int) -> dict:

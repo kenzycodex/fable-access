@@ -623,6 +623,8 @@ export interface EngineOverview {
     channels: string[];
   };
   owners: number;
+  /** Detection settings: approved on the Environment page, shown here read-only. */
+  detection: { name: string; label: string; value: number; display: string; unit: string; source: "environment" | "console" | "default" }[];
   me: { role: OperatorRole; email: string; can_draft: boolean; can_decide: boolean };
 }
 
