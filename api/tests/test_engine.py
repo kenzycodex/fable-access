@@ -575,3 +575,83 @@ def test_operational_settings_have_bounds(name, value, ok):
     else:
         with pytest.raises(ValueError):
             vault.parse_setting(vault.MANAGED[name], value)
+
+
+# ── Channel risk weights ─────────────────────────────────────────────────────
+
+def test_channel_weights_are_engine_parameters_and_the_environment_still_wins(client, monkeypatch):
+    from agents.shield.channel_risk import get_channel_risk
+    from core import engine_config
+
+    assert engine_config.weight_env("channel_internet") == "FABLE_CHANNEL_INTERNET"
+    monkeypatch.setenv("FABLE_CHANNEL_INTERNET", "0.3")
+    assert get_channel_risk("internet") == 0.3
+    assert get_channel_risk("carrier_pigeon") == engine_config.active()["params"]["weights"]["channel_unknown"]
+    page = client.get("/operator/engine", headers=_op(ADMIN)).json()
+    assert any(g["group"] == "Channel risk" for g in page["catalogue"]["groups"])
+    assert {"path": "weights.channel_internet", "env": "FABLE_CHANNEL_INTERNET", "value": 0.3} in page["env_keys"]
+
+
+def test_a_quiet_channel_raised_above_the_gate_shows_in_the_backtest(client):
+    from services import backtest
+
+    base = _active_params()
+    assert base["weights"]["channel_branch"] <= 0.05
+    # A branch decision scored now, an older one rebuilt from its signals,
+    # and one recorded before channel weights were tunable (no "v").
+    _insert({"v": 2, "terms": [[{}, 0.45, 1, 0], [{"channel_branch": 1}, 0.0, 1, 0, 0.05]], "tenure": 0.0,
+             "nip34": False}, action="PASS", channel="branch", institution="branchbank")
+    _insert(None, ["new_recipient: first transfer to this account (+0.4)"],
+            action="PASS", channel="branch", institution="branchbank")
+    _insert(_fixed(0.45), ["new_recipient: first transfer to this account (+0.45)"], action="PASS", channel="branch",
+            institution="branchbank")
+    same = backtest.replay(base, 30, institution="branchbank")
+    assert same["overall"]["changed"] == 0 and same["rows"]["fidelity"] == 3
+    raised = _active_params()
+    raised["weights"]["channel_branch"] = 0.17
+    report = backtest.replay(raised, 30, institution="branchbank")
+    assert report["matrix"]["PASS"]["FLAG"] == 3
+
+
+def test_older_parts_put_their_channel_points_on_the_channel_weight(client):
+    from services import backtest
+
+    signals = ["new_recipient: first transfer to this account (+0.2)", "channel_risk: internet (+0.22)"]
+    weights = {**_active_params()["weights"], "channel_internet": 0.22}
+    old = {"terms": [[{"new_recipient": 1}, 0.0, 1, 1], [{}, 0.22, 1, 0]], "tenure": 0.0, "nip34": False}
+    new = backtest.upgrade_parts(old, signals, "internet", weights)
+    assert new["v"] == 2 and new["terms"][1][0] == {"channel_internet": 1}
+    assert backtest.upgrade_parts(new, signals, "internet", weights) is new
+
+
+def test_a_version_stored_before_channel_weights_keeps_its_approved_hash():
+    from core import engine_config
+
+    without = engine_config.code_defaults()
+    for key in [k for k in without["weights"] if k.startswith("channel_")]:
+        del without["weights"][key]
+    stored = json.loads(json.dumps(without, sort_keys=True, separators=(",", ":")))
+    digest = engine_config.params_hash(stored)
+    assert engine_config.params_hash(json.loads(json.dumps(stored))) == digest
+    assert engine_config.normalise(stored)["weights"]["channel_internet"] == 0.22
+
+
+def test_the_page_always_gets_a_complete_parameter_set(client):
+    from core import engine_config
+    from core.db import cursor
+
+    with cursor() as cur:
+        cur.execute("SELECT params FROM engine_versions WHERE version = 1")
+        saved = cur.fetchone()["params"]
+        partial = json.loads(saved)
+        for key in [k for k in partial["weights"] if k.startswith("channel_")]:
+            del partial["weights"][key]
+        cur.execute("UPDATE engine_versions SET params = ? WHERE version = 1", (json.dumps(partial),))
+    try:
+        engine_config.bump_generation()
+        shown = client.get("/operator/engine", headers=_op(ADMIN)).json()["active"]["params"]["weights"]
+        assert set(shown) == set(engine_config.WEIGHT_DEFAULTS)
+    finally:
+        with cursor() as cur:
+            cur.execute("UPDATE engine_versions SET params = ? WHERE version = 1", (saved,))
+        engine_config.bump_generation()
