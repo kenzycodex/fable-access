@@ -10,7 +10,8 @@ goes wrong. Written for Fable's platform owners and whoever runs the server.
 | Crypto roots: `FABLE_SESSION_SECRET`, `FABLE_SECRETS_KEY`, `FABLE_PIN_PEPPER` | `api/.env` on the server only | Someone with server access |
 | Security routing: `SMTP_*`, `FRONTEND_URL`, `FABLE_CORS_ORIGINS`, `WEBAUTHN_*` | `api/.env` only | Someone with server access |
 | Start-up settings: `FABLE_DB_PATH`, `ENVIRONMENT`, `SENTRY_DSN` | `api/.env` only | Someone with server access |
-| Integration keys: OpenAI and Anthropic keys and models, LocationIQ, Geoapify, Google Maps | The operator console (**Secrets**), or `api/.env` | Platform owners, with approval |
+| Integration keys: OpenAI and Anthropic keys and models, LocationIQ, Geoapify, Google Maps | The operator console (**Environment**), or `api/.env` | Platform owners, with approval |
+| Platform settings (readable): sandbox top-up limits, PIN length, attempts and lock time, weak-PIN refusal, default Ghost holds, branding limits | The operator console (**Environment**, type *Config*), or `api/.env` | Platform owners, with approval |
 | Frontend: `PAYSTACK_SECRET_KEY`, `NEXT_PUBLIC_*` | Vercel project settings | Vercel team members (2FA on) |
 
 The first three rows never move into the console. They either start the app or
@@ -47,13 +48,13 @@ and the console shows it as managed in the server environment.
 ## Everyday tasks
 
 **Rotate a key**
-1. Open **Secrets** in the operator console, then **Rotate** from the key's menu (⋯).
+1. Open **Environment** in the operator console, then **Rotate** from the variable's menu (⋯).
 2. Paste the new key, pick *Routine* or *Compromised*, give a reason, and confirm with your passkey or code.
 3. Another owner approves it under *Waiting for a decision*. It takes effect within 30 seconds, with no restart.
 
 **Restore the previous key.** Open **History** from the key's menu and choose **Restore** on a routine version less than 7 days old. It is tested again, then needs approval like any change.
 
-**Move keys from `.env` into the console.** Do this once. The values go straight from `.env` into encrypted storage and are never printed:
+**Move keys and settings from `.env` into the console.** Do this once. The values go straight from `.env` into encrypted storage and are never printed:
 
 ```bash
 cd /var/www/fable/api

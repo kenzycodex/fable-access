@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Crown, EnvelopeSimple, Fingerprint, ShieldCheck, UserPlus, UsersThree } from "@phosphor-icons/react";
+import { Crown, ShieldCheck, UserPlus, UsersThree } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { ConfirmDialog, Dialog } from "@/components/dashboard/Dialog";
-import { Avatar, Badge, Button, Card, CardHeader, Field, Notice, PageHeader, Skeleton, StatCard, StatGrid, TextInput, table } from "@/components/dashboard/primitives";
+import { Avatar, Badge, Button, Card, Field, Notice, PageHeader, Skeleton, TextInput, table } from "@/components/dashboard/primitives";
 import { ago, fullDate } from "@/components/operator/ui";
 import {
   can,
@@ -12,7 +12,6 @@ import {
   inviteOperator,
   removeOperator,
   ROLE_LABEL,
-  useOperatorPasskeys,
   useOperatorSession,
   useOperatorTeam,
   type Operator,
@@ -34,11 +33,8 @@ export default function OperatorTeamPage() {
   const owner = can(session?.role, "platform_owner");
   const [inviting, setInviting] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
-  const { data: myKeys } = useOperatorPasskeys();
   const team = data?.operators ?? [];
   const owners = team.filter((o) => o.role === "platform_owner" && o.status !== "invited").length;
-  const invited = team.filter((o) => o.status === "invited").length;
-  const withMfa = team.filter((o) => o.mfa).length;
 
   async function setRole(email: string, role: OperatorRole) {
     try {
@@ -54,31 +50,16 @@ export default function OperatorTeamPage() {
     <>
       <PageHeader
         title="Operators"
-        description="Fable staff with access to this platform. Everyone signs in with an authenticator app."
+        description="Fable staff with access to this platform."
         actions={owner && <Button icon={<UserPlus size={16} />} onClick={() => setInviting(true)}>Invite operator</Button>}
       />
-      <StatGrid>
-        <StatCard label="Operators" value={data ? String(team.length) : "-"} sub={`${invited} invite${invited === 1 ? "" : "s"} pending`}
-          icon={<UsersThree size={17} weight="fill" />} featured />
-        <StatCard label="Platform owners" value={data ? String(owners) : "-"}
-          sub={owners < 2 ? "Add a second for maker-checker" : "Key changes need two of them"} icon={<Crown size={17} weight="fill" />}
-          tone={owners < 2 ? "warning" : "success"} />
-        <StatCard label="Authenticator set up" value={data ? `${withMfa}/${team.length}` : "-"} sub="Required to sign in"
-          icon={<ShieldCheck size={17} weight="fill" />} tone="success" />
-        <StatCard label="Your passkeys" value={myKeys ? String(myKeys.passkeys.length) : "-"}
-          sub={myKeys?.passkeys.length ? "Preferred for secret changes" : "Add one in Your account"}
-          icon={<Fingerprint size={17} weight="fill" />} tone="brand" />
-      </StatGrid>
 
       {data && owners < 2 && (
-        <Notice tone="warning">
-          There is only one platform owner. Integration-key changes then wait out a 12-hour cooling-off period instead of a second owner&apos;s approval. Invite a second owner to restore maker-checker.
-        </Notice>
+        <Notice tone="warning">Only one platform owner: environment changes wait 12 hours instead of a second owner&apos;s approval.</Notice>
       )}
 
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
-      <Card padded={false} className="xl:col-span-2">
-        <div className="p-5 pb-3"><CardHeader title="Fable staff" subtitle="Everyone who can sign in to this platform." /></div>
+      <div>
+      <Card padded={false}>
         {isLoading ? (
           <div className="p-5"><Skeleton className="h-24" /></div>
         ) : (
@@ -154,30 +135,6 @@ export default function OperatorTeamPage() {
           </>
         )}
       </Card>
-      <div className="flex flex-col gap-4">
-        <Card>
-          <CardHeader title="Roles" subtitle="Least privilege: give each person the lowest role that does their job." />
-          <ul className="flex flex-col gap-3">
-            {ROLE_HELP.map((r) => (
-              <li key={r.role} className="flex gap-3">
-                <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">{r.icon}</span>
-                <span>
-                  <span className="block text-[13px] font-semibold text-d-text">{ROLE_LABEL[r.role]}</span>
-                  <span className="block text-[12px] leading-relaxed text-d-muted">{r.body}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-        <Card>
-          <CardHeader title="How operators sign in" />
-          <ul className="flex flex-col gap-2 text-[12px] leading-relaxed text-d-muted">
-            <li className="flex gap-2"><ShieldCheck size={14} weight="fill" className="mt-0.5 shrink-0 text-emerald-500" />A password and an authenticator code, every time. Codes cannot be reused.</li>
-            <li className="flex gap-2"><Fingerprint size={14} weight="fill" className="mt-0.5 shrink-0 text-emerald-500" />A passkey or a fresh code again for any integration-key change.</li>
-            <li className="flex gap-2"><EnvelopeSimple size={14} weight="fill" className="mt-0.5 shrink-0 text-emerald-500" />Invites are one-time links that expire in 3 days. No password is ever emailed.</li>
-          </ul>
-        </Card>
-      </div>
       </div>
       <InviteDialog open={inviting} onClose={() => setInviting(false)} onDone={() => mutate()} />
       <ConfirmDialog
@@ -257,6 +214,7 @@ function InviteDialog({ open, onClose, onDone }: { open: boolean; onClose: () =>
               className="h-11 w-full rounded-xl border border-d-border bg-d-surface-2 px-3 text-[14px] text-d-text">
               {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
             </select>
+            <span className="mt-1 block text-[12px] text-d-muted">{ROLE_HELP.find((h) => h.role === role)?.body}</span>
           </Field>
         </div>
       )}

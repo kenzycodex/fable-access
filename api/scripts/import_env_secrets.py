@@ -1,7 +1,8 @@
 """Move integration keys from api/.env into the operator console's store.
 
-Only the keys the console manages (core/secrets.MANAGED: AI provider keys and
-models, address-lookup keys) are moved. Everything else stays in .env for
+Only the variables the console manages (core/secrets.MANAGED: AI provider
+keys and models, address-lookup keys, and the readable platform settings) are
+moved. Everything else stays in .env for
 good: the session secret, the master key, the PIN pepper, SMTP, CORS, URLs.
 
 The values go straight from the environment into encrypted storage on the
@@ -44,6 +45,13 @@ def main() -> int:
         if spec.kind == "model" and value not in vault.allowed_models(name):
             skipped.append(f"{name} ({value} is not on the model allowlist; add it to FABLE_MODEL_ALLOWLIST first)")
             continue
+        if spec.kind == "config":
+            try:
+                parsed = vault.parse_setting(spec, value)
+            except ValueError as exc:
+                skipped.append(f"{name} ({exc})")
+                continue
+            value = ("true" if parsed else "false") if spec.value_type == "bool" else str(parsed)
         if apply:
             with cursor() as cur:
                 cur.execute("SELECT COALESCE(MAX(version), 0) + 1 AS v FROM platform_secrets WHERE name = ?", (name,))

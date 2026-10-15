@@ -22,6 +22,7 @@ export function StepUpDialog({
   ready = true,
   danger = false,
   confirmLabel = "Confirm",
+  size = "sm",
   onConfirm,
 }: {
   open: boolean;
@@ -32,6 +33,7 @@ export function StepUpDialog({
   ready?: boolean;
   danger?: boolean;
   confirmLabel?: string;
+  size?: "sm" | "md" | "lg";
   onConfirm: (stepUp: StepUp) => Promise<void>;
 }) {
   const [options, setOptions] = useState<StepUpOptions | null>(null);
@@ -89,7 +91,7 @@ export function StepUpDialog({
   const canConfirm = ready && !busy && !locked && (mode === "passkey" ? Boolean(options?.passkey) : code.length === 6);
 
   return (
-    <Dialog open={open} onClose={close} title={title} description={description} size="sm"
+    <Dialog open={open} onClose={close} title={title} description={description} size={size}
       footer={<>
         <Button variant="secondary" onClick={close}>Cancel</Button>
         <Button variant={danger ? "danger" : "primary"} loading={busy} disabled={!canConfirm} onClick={confirm}

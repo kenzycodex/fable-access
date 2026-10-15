@@ -403,8 +403,15 @@ export interface SecretItem {
   name: string;
   label: string;
   group: string;
-  kind: "secret" | "model";
+  kind: "secret" | "model" | "config";
   source: "environment" | "console" | "unset";
+  unit: string | null;
+  help: string | null;
+  choices: number[] | null;
+  value_type: "str" | "int" | "float" | "bool";
+  minimum: number | null;
+  maximum: number | null;
+  note: string | null;
   display: string | null;
   default: string | null;
   active: SecretVersion | null;
@@ -456,8 +463,13 @@ export interface StepUpOptions {
 
 export const useSecrets = () => useSWR(["operator:secrets"], () => call<SecretsOverview>("/operator/secrets"));
 export const stepUpOptions = () => call<StepUpOptions>("/operator/secrets/stepup", { method: "POST" });
-export const proposeSecret = (name: string, body: { value: string; reason: string; rotation: "routine" | "compromised"; step_up: StepUp }) =>
+export const proposeSecret = (name: string, body: { value: string; reason: string; rotation: "routine" | "compromised"; note?: string; step_up: StepUp }) =>
   call<SecretChange>(`/operator/secrets/${encodeURIComponent(name)}/propose`, post(body));
+export const proposeSecrets = (body: {
+  items: { name: string; value: string; rotation?: "routine" | "compromised"; note?: string }[];
+  reason: string;
+  step_up: StepUp;
+}) => call<{ changes: SecretChange[] }>("/operator/secrets/batch", post(body));
 export const rollbackSecret = (name: string, body: { version: number; reason: string; step_up: StepUp }) =>
   call<SecretChange>(`/operator/secrets/${encodeURIComponent(name)}/rollback`, post(body));
 export const removeSecret = (name: string, body: { reason: string; step_up: StepUp }) =>

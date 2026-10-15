@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
-import { Bank, CaretRight, Lightning, MagnifyingGlass, Plus, RocketLaunch, Warning } from "@phosphor-icons/react";
+import { Bank, CaretRight, MagnifyingGlass, Plus } from "@phosphor-icons/react";
 import { LinkRow } from "@/components/dashboard/LinkRow";
-import { ButtonLink, Card, EmptyState, PageHeader, Segmented, Skeleton, StatCard, StatGrid, inputClass, table } from "@/components/dashboard/primitives";
+import { ButtonLink, Card, EmptyState, PageHeader, Segmented, Skeleton, inputClass, table } from "@/components/dashboard/primitives";
 import { ago, compact, fullDate, InstitutionMark, SetupBar, StageBadge, stageOf, type Stage } from "@/components/operator/ui";
-import { can, useInstitutions, useOperatorSession, usePlatformOverview, type InstitutionRow } from "@/lib/fable/operator";
+import { can, useInstitutions, useOperatorSession, type InstitutionRow } from "@/lib/fable/operator";
 
 type Filter = "all" | Stage;
 const FILTERS: Filter[] = ["all", "setting_up", "ready", "live", "suspended"];
@@ -33,7 +33,6 @@ function Institutions() {
   const router = useRouter();
   const params = useSearchParams();
   const { data, error, isLoading } = useInstitutions();
-  const { data: overview } = usePlatformOverview();
   const [q, setQ] = useState("");
   const raw = params.get("stage") as Filter | null;
   const filter: Filter = raw && FILTERS.includes(raw) ? raw : "all";
@@ -61,7 +60,7 @@ function Institutions() {
     <>
       <PageHeader
         title="Institutions"
-        description="Every bank and fintech on Fable. Each starts empty, in sandbox, and its owner sets it up."
+        description="Every bank and fintech on Fable."
         actions={
           can(session?.role, "platform_admin") && (
             <ButtonLink href="/operator/institutions/new" icon={<Plus size={16} weight="bold" />} className="sm:hidden">
@@ -70,18 +69,6 @@ function Institutions() {
           )
         }
       />
-
-      <StatGrid>
-        <StatCard label="Institutions" value={data ? String(counts.all) : "-"} sub={`${counts.suspended} suspended`}
-          icon={<Bank size={17} weight="fill" />} featured />
-        <StatCard label="Live" value={data ? String(counts.live) : "-"} sub="Serving real customers"
-          icon={<Lightning size={17} weight="fill" />} tone="success" />
-        <StatCard label="Setting up" value={data ? String(counts.setting_up + counts.ready) : "-"}
-          sub={`${counts.ready} ready to go live`} icon={<RocketLaunch size={17} weight="fill" />} tone="brand" />
-        <StatCard label="Needs attention" value={overview ? String(overview.attention.length) : "-"}
-          sub="Stalled setup, no owner, or ready" icon={<Warning size={17} weight="fill" />}
-          tone={overview?.attention.length ? "warning" : "success"} />
-      </StatGrid>
 
       <Card padded={false}>
         <div className="flex flex-col gap-3 border-b border-d-border p-4 lg:flex-row lg:items-center">

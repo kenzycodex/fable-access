@@ -16,7 +16,6 @@ import {
   StatCard,
   StatGrid,
   Toggle,
-  table,
 } from "@/components/dashboard/primitives";
 import { compact } from "@/components/operator/ui";
 import {
@@ -71,7 +70,7 @@ export default function OperatorAssistantPage() {
     <>
       <PageHeader
         title="Ask Fable"
-        description="The analyst assistant in every bank's console. Set what it may spend, and see what it has."
+        description="The analyst assistant in every bank's console: usage and limits."
         actions={<Segmented<"7" | "30" | "90"> value={days} onChange={setDays}
           options={[{ value: "7", label: "7 days" }, { value: "30", label: "30 days" }, { value: "90", label: "90 days" }]} />}
       />
@@ -96,9 +95,16 @@ function Body({ data, owner, onSaved }: { data: AssistantAdmin; owner: boolean; 
         <StatCard label="Answered from cache" value={`${cacheRate}%`} sub={`${compact(u.totals.cached_answers)} answers at no cost`} icon={<Database size={17} weight="fill" />} tone="success" />
       </StatGrid>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
-          <CardHeader title="Answers per day" subtitle="How each answer was produced" />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <CardHeader title="Answers per day" subtitle="How each answer was produced" />
+            <div className="flex flex-wrap gap-1.5">
+              <Provider name="OpenAI" model={data.providers.openai.model} on={data.providers.openai.configured} />
+              <Provider name="Anthropic" model={data.providers.anthropic.model} on={data.providers.anthropic.configured} />
+            </div>
+          </div>
+          {!anyProvider && <Notice tone="warning" className="mb-3">No AI provider key is set, so every answer comes from the figures.</Notice>}
           <BarChart
             data={fillDays(u.by_day, u.days).map((d) => ({
               label: d.label,
@@ -109,76 +115,48 @@ function Body({ data, owner, onSaved }: { data: AssistantAdmin; owner: boolean; 
               { key: "cached", label: "Cache", color: "#10b981" },
               { key: "figures", label: "Figures only", color: "#a1a1aa" },
             ]}
-            height={250}
+            height={230}
             empty="No questions in this period"
           />
         </Card>
-        <Card className="lg:col-span-2">
-          <CardHeader title="Who answers" subtitle="Tried in this order. Keys are managed under Secrets." />
-          <ul className="flex flex-col gap-2">
-            <Provider name="OpenAI" model={data.providers.openai.model} on={data.providers.openai.configured} />
-            <Provider name="Anthropic" model={data.providers.anthropic.model} on={data.providers.anthropic.configured} />
-            <Provider name="Figures only" model="Built in, no model, no cost" on />
-          </ul>
-          {!anyProvider && <Notice tone="warning" className="mt-3">No AI provider is configured, so every answer comes from the figures.</Notice>}
+
+        <Card padded={false} className="flex flex-col">
+          <div className="px-5 pb-3 pt-5"><CardHeader title="By institution" subtitle={`Last ${u.days} days`} /></div>
+          {u.by_institution.length === 0 ? (
+            <p className="flex flex-1 items-center justify-center border-t border-d-border px-5 py-8 text-[13px] text-d-muted">No questions yet.</p>
+          ) : (
+            <ul className="flex-1 divide-y divide-d-border overflow-y-auto border-t border-d-border lg:max-h-[300px]">
+              {u.by_institution.map((r) => (
+                <li key={r.institution_id}>
+                  <Link href={`/operator/institutions/${encodeURIComponent(r.institution_id)}`}
+                    className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-d-surface-2">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-semibold text-d-text">{r.name ?? r.institution_id}</span>
+                      <span className="block text-[12px] text-d-muted">{compact(r.model_answers)} AI · {compact(r.input_tokens + r.output_tokens)} tokens</span>
+                    </span>
+                    <span className="shrink-0 text-right text-[13px] font-semibold tabular-nums text-d-text">{compact(r.questions)}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
       </div>
 
       <SettingsForm data={data} owner={owner} onSaved={onSaved} />
 
-      <Card padded={false}>
-        <div className="p-5 pb-3"><CardHeader title="By institution" subtitle={`Last ${u.days} days, busiest first`} /></div>
-        {u.by_institution.length === 0 ? (
-          <p className="px-5 pb-5 text-[13px] text-d-muted">No questions yet.</p>
-        ) : (
-          <div className={table.wrap}>
-            <table className={`${table.base} min-w-[720px]`}>
-              <thead>
-                <tr className={table.head}>
-                  <th className={table.th}>Institution</th>
-                  <th className={table.th}>Today</th>
-                  <th className={table.th}>Questions</th>
-                  <th className={table.th}>AI answers</th>
-                  <th className={table.th}>Tokens</th>
-                  <th className={table.th}>People</th>
-                </tr>
-              </thead>
-              <tbody>
-                {u.by_institution.map((r) => (
-                  <tr key={r.institution_id} className={table.row}>
-                    <td className={table.td}>
-                      <Link href={`/operator/institutions/${encodeURIComponent(r.institution_id)}`} className="font-semibold text-d-text hover:text-brand">
-                        {r.name ?? r.institution_id}
-                      </Link>
-                    </td>
-                    <td className={`${table.td} tabular-nums`}>
-                      {r.questions_today} <span className="text-d-faint">({r.model_answers_today} AI)</span>
-                    </td>
-                    <td className={`${table.td} tabular-nums`}>{compact(r.questions)}</td>
-                    <td className={`${table.td} tabular-nums`}>{compact(r.model_answers)}</td>
-                    <td className={`${table.td} tabular-nums`}>{compact(r.input_tokens + r.output_tokens)}</td>
-                    <td className={`${table.td} tabular-nums`}>{r.people}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
     </>
   );
 }
 
 function Provider({ name, model, on }: { name: string; model: string; on: boolean }) {
   return (
-    <li className="flex items-center gap-3 rounded-xl border border-d-border px-3.5 py-3">
-      {on ? <CheckCircle size={18} weight="fill" className="shrink-0 text-emerald-500" /> : <XCircle size={18} weight="fill" className="shrink-0 text-d-faint" />}
-      <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-semibold text-d-text">{name}</span>
-        <span className="block truncate font-mono text-[11px] text-d-muted">{model}</span>
-      </span>
-      <span className={`text-[12px] font-semibold ${on ? "text-emerald-600 dark:text-emerald-400" : "text-d-faint"}`}>{on ? "Ready" : "No key"}</span>
-    </li>
+    <span title={on ? `${name}: ${model}` : `${name}: no key set`}
+      className="inline-flex items-center gap-1.5 rounded-full border border-d-border px-2.5 py-1 text-[12px] text-d-muted">
+      {on ? <CheckCircle size={13} weight="fill" className="text-emerald-500" /> : <XCircle size={13} weight="fill" className="text-d-faint" />}
+      <span className="font-medium text-d-text">{name}</span>
+      {on && <span className="font-mono text-[11px]">{model}</span>}
+    </span>
   );
 }
 
@@ -213,46 +191,37 @@ function SettingsForm({ data, owner, onSaved }: { data: AssistantAdmin; owner: b
   return (
     <Card>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <CardHeader title="Limits" subtitle={owner ? "Changes apply to the next question and are recorded in the audit log." : "Only a platform owner can change these."} />
-        <div className="flex items-center gap-3 rounded-xl border border-d-border px-3.5 py-2.5">
+        <CardHeader title="Limits" subtitle={owner ? "Apply to the next question. Recorded in the audit log." : "Only a platform owner can change these."} />
+        <div className="flex items-center gap-3">
           <span className="text-[13px] font-semibold text-d-text">AI answers</span>
           <Toggle label="AI answers" on={draft.ai_enabled} onChange={() => owner && setDraft((d) => ({ ...d, ai_enabled: !d.ai_enabled }))} />
         </div>
       </div>
       {!draft.ai_enabled && <Notice tone="warning" className="mb-4">AI answers are off for every institution. Ask Fable answers from each bank&apos;s figures, at no cost.</Notice>}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {GROUPS.map((g) => (
-          <div key={g.title} className="rounded-xl border border-d-border p-4">
-            <p className="text-[14px] font-semibold text-d-text">{g.title}</p>
-            <p className="mt-0.5 text-[12px] leading-relaxed text-d-muted">{g.body}</p>
-            <div className="mt-3 flex flex-col gap-3">
-              {g.keys.map(({ key, label, unit }) => {
-                const f = data.fields[key];
-                const bad = invalid.includes(key);
-                return (
-                  <label key={key} className="flex flex-col gap-1">
-                    <span className="flex items-center justify-between gap-2 text-[12px] font-medium text-d-muted">
-                      {label}
-                      <span className="text-[11px] text-d-faint">default {String(f.default)}</span>
-                    </span>
-                    <span className={`flex h-10 items-center rounded-xl border bg-d-surface-2 pr-3 ${bad ? "border-red-500" : "border-d-border focus-within:border-brand/50"}`}>
-                      <input type="number" inputMode="numeric" disabled={!owner} min={f.min as number} max={f.max as number}
-                        value={Number.isNaN(draft[key]) ? "" : draft[key]}
-                        onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value === "" ? Number.NaN : Number(e.target.value) }))}
-                        className="h-full min-w-0 flex-1 bg-transparent px-3 text-[14px] tabular-nums text-d-text outline-none disabled:cursor-not-allowed" />
-                      <span className="shrink-0 text-[12px] text-d-faint">{unit}</span>
-                    </span>
-                    <span className={`text-[11px] ${bad ? "text-red-500" : "text-d-faint"}`}>
-                      {bad ? `Between ${f.min} and ${f.max}.` : f.help}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
+      <ul className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
+        {GROUPS.flatMap((g) => g.keys).map(({ key, label, unit }) => {
+          const f = data.fields[key];
+          const bad = invalid.includes(key);
+          return (
+            <li key={key} className="flex items-center justify-between gap-4 border-b border-d-border py-2.5">
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium text-d-text" title={f.help}>{label}</span>
+                <span className={`block text-[11px] ${bad ? "text-red-500" : "text-d-faint"}`}>
+                  {bad ? `Between ${f.min} and ${f.max}` : `Default ${String(f.default)}`}
+                </span>
+              </span>
+              <span className={`flex h-9 w-36 shrink-0 items-center rounded-lg border bg-d-surface-2 pr-2.5 ${bad ? "border-red-500" : "border-d-border focus-within:border-brand/50"}`}>
+                <input type="number" inputMode="numeric" disabled={!owner} min={f.min as number} max={f.max as number} aria-label={label}
+                  value={Number.isNaN(draft[key]) ? "" : draft[key]}
+                  onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value === "" ? Number.NaN : Number(e.target.value) }))}
+                  className="h-full min-w-0 flex-1 bg-transparent px-2.5 text-[13px] tabular-nums text-d-text outline-none disabled:cursor-not-allowed" />
+                <span className="shrink-0 text-[11px] text-d-faint">{unit}</span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
 
       {owner && (
         <div className="mt-4 flex flex-wrap items-center justify-end gap-2">

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowCounterClockwise,
@@ -8,13 +7,13 @@ import {
   ClockCounterClockwise,
   Cube,
   DotsThree,
+  FileArrowUp,
   HardDrives,
-  Info,
   Key,
   LockKey,
   MagnifyingGlass,
   Plus,
-  ShieldWarning,
+  SlidersHorizontal,
   Trash,
   Warning,
   XCircle,
@@ -27,7 +26,7 @@ import { ago, fullDate, isPast, withinDays } from "@/components/operator/ui";
 import {
   approveSecretChange,
   can,
-  proposeSecret,
+  proposeSecrets,
   rejectSecretChange,
   removeSecret,
   rollbackSecret,
@@ -36,58 +35,72 @@ import {
   useSecrets,
   type SecretChange,
   type SecretItem,
-  type SecretsOverview,
 } from "@/lib/fable/operator";
 
+type TypeFilter = "all" | "secret" | "config";
+type Source = "all" | SecretItem["source"];
+
 type Action =
-  | { kind: "set"; item: SecretItem }
+  | { kind: "edit"; rows: Row[]; rotation: boolean }
   | { kind: "rollback"; item: SecretItem; version: number }
   | { kind: "remove"; item: SecretItem }
   | { kind: "approve"; change: SecretChange }
   | { kind: "history"; item: SecretItem };
 
-type Source = "all" | SecretItem["source"];
+interface Row {
+  name: string;
+  value: string;
+  note: string;
+}
 
-/** Secrets: the provider keys the API uses, write-only, changed with approval. */
-export default function SecretsPage() {
+const typeOf = (i: SecretItem): "secret" | "config" => (i.kind === "secret" ? "secret" : "config");
+
+/** Environment variables: the secrets and settings the API reads, changed with approval. */
+export default function EnvironmentPage() {
   const session = useOperatorSession();
   const { data, error, mutate } = useSecrets();
   const owner = can(session?.role, "platform_owner");
   const admin = can(session?.role, "platform_admin");
   const [action, setAction] = useState<Action | null>(null);
   const [q, setQ] = useState("");
+  const [type, setType] = useState<TypeFilter>("all");
   const [source, setSource] = useState<Source>("all");
-  const [adding, setAdding] = useState(false);
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return items.filter((i) => (source === "all" || i.source === source)
+    return items.filter((i) => (type === "all" || typeOf(i) === type) && (source === "all" || i.source === source)
       && (!needle || i.name.toLowerCase().includes(needle) || i.label.toLowerCase().includes(needle)));
-  }, [items, q, source]);
+  }, [items, q, type, source]);
   const writable = Boolean(data?.write_enabled && data?.master_key);
-  const unset = items.filter((i) => i.source === "unset" && i.kind === "secret");
+  const editable = items.filter((i) => i.source !== "environment");
 
   if (error) return <Card><p className="text-[14px] text-red-500">{error.message}</p></Card>;
 
   return (
     <>
       <PageHeader
-        title="Secrets"
-        description="Encrypted provider keys the API uses. Write-only, and every change is approved by a second owner."
+        title="Environment variables"
+        description="Secrets and settings the API reads. Secrets are write-only; every change is approved and recorded."
         actions={owner && (
-          <Button icon={<Plus size={16} weight="bold" />} disabled={!writable || unset.length === 0} onClick={() => setAdding(true)}>
-            Add secret
+          <Button icon={<Plus size={16} weight="bold" />} disabled={!writable || editable.length === 0}
+            onClick={() => setAction({ kind: "edit", rows: [{ name: "", value: "", note: "" }], rotation: false })}>
+            Add variable
           </Button>
         )}
       />
 
-      {data && <StatusStrip data={data} />}
+      {data && !data.master_key && (
+        <Notice tone="warning">FABLE_SECRETS_KEY is not set on the server, so variables can only come from its environment.</Notice>
+      )}
+      {data?.me.locked_until && (
+        <Notice tone="danger">Your changes are locked after repeated failed verifications, until {fullDate(data.me.locked_until)}.</Notice>
+      )}
 
       {!!data?.pending.length && (
         <Card padded={false}>
           <p className="border-b border-d-border px-5 py-3 text-[13px] font-semibold text-d-text">
-            Waiting for a decision <span className="ml-1 text-d-faint">{data.pending.length}</span>
+            Waiting for approval <span className="ml-1 text-d-faint">{data.pending.length}</span>
           </p>
           <ul className="divide-y divide-d-border">
             {data.pending.map((c) => (
@@ -108,14 +121,18 @@ export default function SecretsPage() {
       )}
 
       <Card padded={false}>
-        <div className="flex flex-col gap-2 border-b border-d-border p-3 sm:flex-row">
+        <div className="flex flex-col gap-2 border-b border-d-border p-3 md:flex-row">
           <div className="relative flex-1">
             <MagnifyingGlass size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-d-faint" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search secrets..." aria-label="Search secrets"
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search variables..." aria-label="Search variables"
               className={`${inputClass} !h-10 pl-10 text-[13px]`} />
           </div>
-          <select value={source} onChange={(e) => setSource(e.target.value as Source)} aria-label="Source"
-            className={`${inputClass} !h-10 text-[13px] sm:w-56`}>
+          <select value={type} onChange={(e) => setType(e.target.value as TypeFilter)} aria-label="Type" className={`${inputClass} !h-10 text-[13px] md:w-40`}>
+            <option value="all">All types</option>
+            <option value="secret">Secrets</option>
+            <option value="config">Config</option>
+          </select>
+          <select value={source} onChange={(e) => setSource(e.target.value as Source)} aria-label="Source" className={`${inputClass} !h-10 text-[13px] md:w-48`}>
             <option value="all">All sources</option>
             <option value="console">Managed here</option>
             <option value="environment">Server environment</option>
@@ -125,129 +142,84 @@ export default function SecretsPage() {
         {!data ? (
           <div className="flex flex-col gap-2 p-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14" />)}</div>
         ) : rows.length === 0 ? (
-          <p className="px-5 py-8 text-center text-[13px] text-d-muted">No secret matches.</p>
+          <p className="px-5 py-8 text-center text-[13px] text-d-muted">No variable matches.</p>
         ) : (
           <ul className="divide-y divide-d-border">
             {rows.map((item) => (
-              <SecretRow key={item.name} item={item} owner={owner} admin={admin} writable={writable}
-                onAction={(a) => setAction(a)} />
+              <VariableRow key={item.name} item={item} owner={owner} admin={admin} writable={writable} onAction={setAction} />
             ))}
           </ul>
         )}
       </Card>
 
-      <p className="flex items-start gap-2 text-[12px] leading-relaxed text-d-muted">
-        <Info size={14} className="mt-0.5 shrink-0" />
-        The session secret, the master key, the PIN pepper, email (SMTP), URLs, CORS and WebAuthn settings always stay in the
-        server&apos;s environment: they start the app or protect sign-in and security emails. A value set there takes precedence over one stored here.
-      </p>
-
-      <AddPicker open={adding} items={unset} onClose={() => setAdding(false)} onPick={(item) => { setAdding(false); setAction({ kind: "set", item }); }} />
-      <ActionDialog action={action} onClose={() => setAction(null)} onDone={() => mutate()} onAction={setAction} owner={owner} writable={writable} />
+      <ActionDialog action={action} items={items} single={(data?.owners ?? 0) < 2}
+        onClose={() => setAction(null)} onDone={() => mutate()} onAction={setAction} owner={owner} writable={writable} />
     </>
   );
 }
 
-function StatusStrip({ data }: { data: SecretsOverview }) {
-  const chips = [
-    {
-      ok: data.master_key,
-      label: data.master_key ? `Encrypted · master key ${data.key_id}` : "No master key: read-only",
-      icon: <LockKey size={13} weight="fill" />,
-    },
-    {
-      ok: data.owners >= 2,
-      label: data.owners >= 2 ? `Two-owner approval · ${data.owners} owners` : "One owner: 12-hour cooling-off",
-      icon: <ShieldWarning size={13} weight="fill" />,
-    },
-    { ok: data.write_enabled, label: data.write_enabled ? "Changes allowed" : "Changes switched off", icon: <Key size={13} weight="fill" /> },
-    { ok: true, label: "Hash-chained audit", icon: <ClockCounterClockwise size={13} weight="bold" /> },
-  ];
-  return (
-    <>
-      <div className="flex flex-wrap gap-2">
-        {chips.map((c) => (
-          <span key={c.label} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-medium ${
-            c.ok ? "border-d-border text-d-muted" : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-          }`}>
-            <span className={c.ok ? "text-emerald-500" : ""}>{c.icon}</span>
-            {c.label}
-          </span>
-        ))}
-        {data.owners < 2 && (
-          <Link href="/operator/team" className="inline-flex items-center rounded-full px-2 py-1 text-[12px] font-semibold text-brand hover:underline">
-            Invite a second owner
-          </Link>
-        )}
-      </div>
-      {data.me.locked_until && (
-        <Notice tone="danger">Your secret actions are locked after repeated failed verifications, until {fullDate(data.me.locked_until)}.</Notice>
-      )}
-    </>
-  );
+function shown(item: SecretItem): React.ReactNode {
+  if (item.kind === "secret") {
+    return item.display ? <><span className="tracking-widest">••••••••</span> {item.display}</> : <span className="text-d-faint">—</span>;
+  }
+  const v = item.display ?? item.default;
+  if (!v) return <span className="text-d-faint">—</span>;
+  if (item.unit === "₦") return <>₦{v}</>;
+  return <>{v}{item.unit && item.value_type !== "bool" ? <span className="text-d-faint"> {item.unit}</span> : null}</>;
 }
 
 function SourceText({ item }: { item: SecretItem }) {
   if (item.source === "environment") return <span className="inline-flex items-center gap-1.5"><HardDrives size={13} />Server environment</span>;
   if (item.source === "console") return <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400"><LockKey size={13} weight="fill" />Managed here</span>;
-  if (item.default) return <span className="inline-flex items-center gap-1.5"><Cube size={13} />Fable default</span>;
+  if (item.kind !== "secret") return <span className="inline-flex items-center gap-1.5"><Cube size={13} />Default</span>;
   return <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400"><Warning size={13} />Not set</span>;
 }
 
-function SecretRow({ item, owner, admin, writable, onAction }: {
+function VariableRow({ item, owner, admin, writable, onAction }: {
   item: SecretItem; owner: boolean; admin: boolean; writable: boolean; onAction: (a: Action) => void;
 }) {
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [testing, setTesting] = useState(false);
   const env = item.source === "environment";
-  const value = item.kind === "model" ? item.display ?? item.default : item.display;
-  const restorable = item.versions.some((v) => v.status === "retired" && withinDays(v.retired_at, 7));
 
   async function test() {
-    setTesting(true);
     setResult(null);
     try {
       setResult(await testSecret(item.name));
     } catch (e) {
       setResult({ ok: false, message: e instanceof Error ? e.message : "Could not test." });
-    } finally {
-      setTesting(false);
     }
   }
 
-  const menu: { label: string; icon: React.ReactNode; onClick: () => void; danger?: boolean; hide?: boolean }[] = [
-    { label: testing ? "Testing..." : "Test connection", icon: <CheckCircle size={15} />, onClick: test,
-      hide: !admin || item.kind !== "secret" || item.source === "unset" },
-    { label: item.kind === "model" ? "Change model" : item.source === "unset" ? "Add value" : "Rotate",
-      icon: <ArrowCounterClockwise size={15} />, onClick: () => onAction({ kind: "set", item }), hide: !owner || env || !writable },
-    { label: "History", icon: <ClockCounterClockwise size={15} />, onClick: () => onAction({ kind: "history", item }),
-      hide: item.versions.length === 0 },
+  const menu = [
+    { label: item.kind === "secret" ? (item.source === "unset" ? "Add value" : "Rotate") : "Edit", icon: <ArrowCounterClockwise size={15} />,
+      onClick: () => onAction({ kind: "edit", rows: [{ name: item.name, value: "", note: item.note ?? "" }], rotation: item.kind === "secret" && item.source !== "unset" }),
+      show: owner && !env && writable },
+    { label: "Test connection", icon: <CheckCircle size={15} />, onClick: test, show: admin && item.kind === "secret" && item.source !== "unset" },
+    { label: "History", icon: <ClockCounterClockwise size={15} />, onClick: () => onAction({ kind: "history", item }), show: item.versions.length > 0 },
     { label: "Remove", icon: <Trash size={15} />, onClick: () => onAction({ kind: "remove", item }), danger: true,
-      hide: !owner || item.source !== "console" || !writable },
-  ];
+      show: owner && item.source === "console" && writable },
+  ].filter((m) => m.show);
+
+  const Icon = item.kind === "secret" ? Key : item.kind === "model" ? Cube : SlidersHorizontal;
 
   return (
     <li className="px-4 py-3 sm:px-5">
       <div className="flex items-center gap-3">
-        <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg border border-d-border ${item.kind === "model" ? "text-d-muted" : "text-brand"}`}>
-          {item.kind === "model" ? <Cube size={16} /> : <Key size={16} />}
+        <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg border border-d-border ${item.kind === "secret" ? "text-brand" : "text-d-muted"}`}>
+          <Icon size={16} />
         </span>
-        <div className="grid min-w-0 flex-1 grid-cols-1 items-center gap-x-6 gap-y-1 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <div className="grid min-w-0 flex-1 grid-cols-1 items-center gap-x-6 gap-y-0.5 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.9fr)_8rem]">
           <div className="min-w-0">
             <p className="truncate font-mono text-[13px] font-semibold text-d-text">{item.name}</p>
-            <p className="truncate text-[12px] text-d-muted">{item.label}</p>
+            <p className="truncate text-[12px] text-d-muted" title={item.help ?? undefined}>{item.note || item.label}</p>
           </div>
-          <p className="truncate font-mono text-[12px] text-d-muted">
-            {value ? (item.kind === "model" ? value : <><span className="tracking-widest">••••••••</span> {value}</>) : <span className="text-d-faint">—</span>}
-          </p>
+          <p className="truncate font-mono text-[12px] text-d-muted">{shown(item)}</p>
           <p className="text-[12px] text-d-muted"><SourceText item={item} /></p>
-          <p className="hidden whitespace-nowrap text-[12px] text-d-faint md:block" title={fullDate(item.active?.created_at)}>
-            {item.active ? `Updated ${ago(item.active.created_at)}` : env ? "In .env" : ""}
-            {isPast(item.rotation_due) && <Badge tone="danger">Rotate</Badge>}
-            {restorable && <span className="sr-only">Restorable</span>}
+          <p className="hidden whitespace-nowrap text-right text-[12px] text-d-faint md:block" title={fullDate(item.active?.created_at)}>
+            {isPast(item.rotation_due) ? <Badge tone="danger">Rotate due</Badge> : item.active ? `Updated ${ago(item.active.created_at)}` : ""}
           </p>
         </div>
-        <RowMenu items={menu.filter((m) => !m.hide)} />
+        <RowMenu items={menu} />
       </div>
       {result && (
         <p className={`mt-2 flex items-center gap-1.5 pl-12 text-[12px] ${result.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
@@ -308,7 +280,7 @@ function PendingRow({ c, me, owner, onApprove, onReject }: {
         <p className="text-[13px] text-d-text">
           <span className="font-semibold">{c.proposed_by}</span> wants to {verb} <span className="font-mono">{c.name}</span>
           {c.last4 && <span className="font-mono text-d-muted"> {c.last4}</span>}
-          {c.rotation_reason === "compromised" && <Badge tone="danger">Compromised</Badge>}
+          {c.rotation_reason === "compromised" && <> <Badge tone="danger">Compromised</Badge></>}
         </p>
         <p className="mt-0.5 text-[12px] text-d-muted">
           {c.reason} · {c.status === "cooling" ? `Applies ${fullDate(when)} unless cancelled` : `Expires ${fullDate(when)}`}
@@ -324,49 +296,177 @@ function PendingRow({ c, me, owner, onApprove, onReject }: {
   );
 }
 
-function AddPicker({ open, items, onClose, onPick }: {
-  open: boolean; items: SecretItem[]; onClose: () => void; onPick: (item: SecretItem) => void;
-}) {
+/** Parse pasted .env text into rows for the variables managed here. */
+function parseEnv(text: string, names: Set<string>): { rows: Row[]; skipped: string[] } {
+  const rows: Row[] = [];
+  const skipped: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+    if (!m) continue;
+    const value = m[2].replace(/^(['"])(.*)\1$/, "$2");
+    if (names.has(m[1])) rows.push({ name: m[1], value, note: "" });
+    else skipped.push(m[1]);
+  }
+  return { rows, skipped };
+}
+
+function ValueInput({ item, value, onChange }: { item: SecretItem | undefined; value: string; onChange: (v: string) => void }) {
+  if (!item) return <input disabled className={inputClass} placeholder="Choose a key first" />;
+  if (item.kind === "model") {
+    return (
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass}>
+        <option value="" disabled>Choose a model</option>
+        {(item.allowed_models ?? []).map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+    );
+  }
+  if (item.value_type === "bool") {
+    return (
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass}>
+        <option value="" disabled>Choose</option>
+        <option value="true">On</option>
+        <option value="false">Off</option>
+      </select>
+    );
+  }
+  if (item.choices?.length) {
+    return (
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass}>
+        <option value="" disabled>Choose</option>
+        {item.choices.map((c) => <option key={c} value={String(c)}>{c} {item.unit}</option>)}
+      </select>
+    );
+  }
+  if (item.kind === "config") {
+    return (
+      <input type="number" value={value} onChange={(e) => onChange(e.target.value)} className={`${inputClass} font-mono`}
+        min={item.minimum ?? undefined} max={item.maximum ?? undefined}
+        placeholder={`${item.display ?? item.default ?? ""}${item.unit ? ` ${item.unit}` : ""}`} />
+    );
+  }
   return (
-    <Dialog open={open} onClose={onClose} size="sm" title="Add a secret" description="Choose which provider key to add. Only these keys are managed here.">
-      <ul className="flex flex-col gap-2">
-        {items.map((i) => (
-          <li key={i.name}>
-            <button type="button" onClick={() => onPick(i)}
-              className="flex w-full items-center gap-3 rounded-xl border border-d-border px-3.5 py-3 text-left transition-colors hover:border-brand/40 hover:bg-d-surface-2">
-              <Key size={16} className="text-brand" />
-              <span className="min-w-0">
-                <span className="block font-mono text-[13px] font-semibold text-d-text">{i.name}</span>
-                <span className="block text-[12px] text-d-muted">{i.label} · {i.group}</span>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </Dialog>
+    <input type="password" value={value} onChange={(e) => onChange(e.target.value)} autoComplete="off" spellCheck={false}
+      className={`${inputClass} font-mono`} placeholder="Paste the value" />
   );
 }
 
-function ActionDialog({ action, onClose, onDone, onAction, owner, writable }: {
-  action: Action | null; onClose: () => void; onDone: () => void; onAction: (a: Action) => void; owner: boolean; writable: boolean;
+function EditorDialog({ initial, rotation, items, single, onClose, onDone }: {
+  initial: Row[]; rotation: boolean; items: SecretItem[]; single: boolean; onClose: () => void; onDone: () => void;
 }) {
-  const [value, setValue] = useState("");
+  const [rows, setRows] = useState<Row[]>(initial);
   const [reason, setReason] = useState("");
-  const [rotation, setRotation] = useState<"routine" | "compromised">("routine");
+  const [compromised, setCompromised] = useState(false);
+  const [pasting, setPasting] = useState(false);
+  const [pasted, setPasted] = useState("");
+  const editable = items.filter((i) => i.source !== "environment");
+  const byName = new Map(items.map((i) => [i.name, i]));
+  const ready = rows.length > 0 && rows.every((r) => r.name && r.value.trim()) && reason.trim().length >= 5;
 
-  function close() {
-    setValue("");
-    setReason("");
-    setRotation("routine");
-    onClose();
+  const set = (n: number, patch: Partial<Row>) => setRows((rs) => rs.map((r, i) => (i === n ? { ...r, ...patch } : r)));
+
+  function importEnv() {
+    const { rows: found, skipped } = parseEnv(pasted, new Set(editable.map((i) => i.name)));
+    if (!found.length) {
+      toast.error("None of those variables are managed here.");
+      return;
+    }
+    setRows((rs) => [...rs.filter((r) => r.name || r.value), ...found.filter((f) => !rs.some((r) => r.name === f.name))]);
+    setPasting(false);
+    setPasted("");
+    toast.success(`${found.length} variable${found.length === 1 ? "" : "s"} added${skipped.length ? `, ${skipped.length} skipped (managed in .env only)` : ""}`);
   }
 
+  return (
+    <StepUpDialog open onClose={onClose} size="md" confirmLabel="Propose" ready={ready}
+      title={rotation ? `Rotate ${rows[0]?.name}` : initial[0]?.name ? `Edit ${initial[0].name}` : "Add environment variables"}
+      description={single ? "With one owner, changes apply after a 12-hour cooling-off period." : "Another owner approves before anything changes."}
+      onConfirm={async (stepUp) => {
+        const r = await proposeSecrets({
+          items: rows.map((row) => ({ name: row.name, value: row.value.trim(), note: row.note.trim() || undefined,
+            rotation: compromised ? "compromised" : "routine" })),
+          reason: reason.trim(),
+          step_up: stepUp,
+        });
+        toast.success(`${r.changes.length} change${r.changes.length === 1 ? "" : "s"} proposed`);
+        onDone();
+      }}>
+      <div className="flex max-h-[46vh] flex-col gap-4 overflow-y-auto pr-1">
+        {rows.map((row, n) => {
+          const item = byName.get(row.name);
+          return (
+            <div key={n} className="flex flex-col gap-2 rounded-xl border border-d-border p-3">
+              <div className="flex items-center gap-2">
+                <select value={row.name} disabled={!!initial[0]?.name} onChange={(e) => set(n, { name: e.target.value, value: "" })}
+                  aria-label="Key" className={`${inputClass} font-mono`}>
+                  <option value="" disabled>Choose a key</option>
+                  {(["secret", "config"] as const).map((t) => (
+                    <optgroup key={t} label={t === "secret" ? "Secrets" : "Config"}>
+                      {editable.filter((i) => typeOf(i) === t && (i.name === row.name || !rows.some((r) => r.name === i.name)))
+                        .map((i) => <option key={i.name} value={i.name}>{i.name}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+                {rows.length > 1 && (
+                  <button type="button" onClick={() => setRows((rs) => rs.filter((_, i) => i !== n))} aria-label="Remove row"
+                    className="flex size-10 shrink-0 items-center justify-center rounded-lg text-d-muted hover:bg-red-500/10 hover:text-red-500">
+                    <Trash size={16} />
+                  </button>
+                )}
+              </div>
+              <ValueInput item={item} value={row.value} onChange={(v) => set(n, { value: v })} />
+              {item?.help && <p className="text-[11px] text-d-faint">{item.help}</p>}
+              <TextInput value={row.note} onChange={(e) => set(n, { note: e.target.value })} placeholder="Note (optional): where to rotate, or who owns it" />
+            </div>
+          );
+        })}
+      </div>
+      {!initial[0]?.name && (
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={() => setRows((rs) => [...rs, { name: "", value: "", note: "" }])}>
+            Add another
+          </Button>
+          <Button size="sm" variant="ghost" icon={<FileArrowUp size={14} />} onClick={() => setPasting((p) => !p)}>Paste .env</Button>
+        </div>
+      )}
+      {pasting && (
+        <div className="flex flex-col gap-2">
+          <textarea value={pasted} onChange={(e) => setPasted(e.target.value)} rows={4} spellCheck={false}
+            placeholder={"OPENAI_API_KEY=...\nTOPUP_DAILY_COUNT=5"} className={`${inputClass} !h-auto py-2 font-mono text-[12px]`} />
+          <Button size="sm" onClick={importEnv} disabled={!pasted.trim()}>Add from paste</Button>
+        </div>
+      )}
+      {rotation && (
+        <label className="flex items-start gap-2 text-[13px] text-d-text">
+          <input type="checkbox" checked={compromised} onChange={(e) => setCompromised(e.target.checked)} className="mt-0.5 size-4 accent-[var(--brand-primary)]" />
+          <span>The current value was compromised <span className="block text-[12px] text-d-muted">It is wiped at once and can never be restored.</span></span>
+        </label>
+      )}
+      <Field label="Reason (recorded and sent to every owner)">
+        <TextInput value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Quarterly rotation" />
+      </Field>
+    </StepUpDialog>
+  );
+}
+
+function ActionDialog({ action, items, single, onClose, onDone, onAction, owner, writable }: {
+  action: Action | null; items: SecretItem[]; single: boolean; onClose: () => void; onDone: () => void;
+  onAction: (a: Action) => void; owner: boolean; writable: boolean;
+}) {
+  const [reason, setReason] = useState("");
+  function close() {
+    setReason("");
+    onClose();
+  }
   if (!action) return null;
+
+  if (action.kind === "edit") {
+    return <EditorDialog initial={action.rows} rotation={action.rotation} items={items} single={single} onClose={close} onDone={onDone} />;
+  }
 
   if (action.kind === "history") {
     const item = action.item;
     return (
-      <Dialog open onClose={close} size="sm" title={`${item.name} history`} description="Earlier versions. Routine ones can be restored for 7 days; compromised ones never.">
+      <Dialog open onClose={close} size="sm" title={`${item.name} history`} description="Routine versions can be restored for 7 days. Compromised ones never.">
         <ul className="flex flex-col divide-y divide-d-border rounded-xl border border-d-border">
           {item.active && (
             <li className="flex items-center gap-3 px-3.5 py-2.5 text-[12px]">
@@ -399,14 +499,14 @@ function ActionDialog({ action, onClose, onDone, onAction, owner, writable }: {
   if (action.kind === "approve") {
     const c = action.change;
     return (
-      <StepUpDialog open onClose={close} title={`Approve the ${c.name} change?`} confirmLabel="Approve"
-        description={`${c.proposed_by}: ${c.reason}. The key is tested again before it applies.`}
+      <StepUpDialog open onClose={close} title={`Approve ${c.name}?`} confirmLabel="Approve"
+        description={`${c.proposed_by}: ${c.reason}.`}
         onConfirm={async (stepUp) => {
           await approveSecretChange(c.id, stepUp);
           toast.success(`${c.name} updated`);
           onDone();
         }}>
-        {c.rotation_reason === "compromised" && <Notice tone="danger">Approving revokes the current key at once. It can never be restored.</Notice>}
+        {c.rotation_reason === "compromised" && <Notice tone="danger">Approving revokes the current value at once. It can never be restored.</Notice>}
       </StepUpDialog>
     );
   }
@@ -414,14 +514,14 @@ function ActionDialog({ action, onClose, onDone, onAction, owner, writable }: {
   const item = action.item;
   const reasonField = (
     <Field label="Reason (recorded and sent to every owner)">
-      <TextInput value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Quarterly rotation" />
+      <TextInput value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. No longer used" />
     </Field>
   );
 
   if (action.kind === "remove") {
     return (
       <StepUpDialog open onClose={close} title={`Remove ${item.name}?`} confirmLabel="Propose removal" danger ready={reason.trim().length >= 5}
-        description="Every stored version is wiped once approved. The feature falls back to the server environment, or switches off."
+        description="Every stored version is wiped once approved. The server environment or the default then applies."
         onConfirm={async (stepUp) => {
           await removeSecret(item.name, { reason: reason.trim(), step_up: stepUp });
           toast.success("Removal proposed");
@@ -432,58 +532,14 @@ function ActionDialog({ action, onClose, onDone, onAction, owner, writable }: {
     );
   }
 
-  if (action.kind === "rollback") {
-    return (
-      <StepUpDialog open onClose={close} title={`Restore v${action.version} of ${item.name}?`} confirmLabel="Propose restore"
-        ready={reason.trim().length >= 5} description="The old key is tested against the provider first, then needs approval like any change."
-        onConfirm={async (stepUp) => {
-          await rollbackSecret(item.name, { version: action.version, reason: reason.trim(), step_up: stepUp });
-          toast.success("Restore proposed");
-          onDone();
-        }}>
-        {reasonField}
-      </StepUpDialog>
-    );
-  }
-
-  const isModel = item.kind === "model";
   return (
-    <StepUpDialog open onClose={close} title={`${isModel ? "Change" : item.source === "unset" ? "Add" : "Rotate"} ${item.name}`}
-      confirmLabel="Propose" ready={value.trim().length > 0 && reason.trim().length >= 5}
-      description={isModel ? "Only models on the allowlist can be chosen." : "Tested against the provider before it is accepted. Never shown again."}
+    <StepUpDialog open onClose={close} title={`Restore v${action.version} of ${item.name}?`} confirmLabel="Propose restore"
+      ready={reason.trim().length >= 5} description="It is tested again first, then needs approval like any change."
       onConfirm={async (stepUp) => {
-        const r = await proposeSecret(item.name, { value: value.trim(), reason: reason.trim(), rotation, step_up: stepUp });
-        toast.success(r.status === "cooling" ? "Proposed. It applies after the cooling-off period." : "Proposed. Another owner must approve it.");
+        await rollbackSecret(item.name, { version: action.version, reason: reason.trim(), step_up: stepUp });
+        toast.success("Restore proposed");
         onDone();
       }}>
-      {isModel ? (
-        <Field label="Model">
-          <select value={value} onChange={(e) => setValue(e.target.value)} className={inputClass}>
-            <option value="" disabled>Choose a model</option>
-            {(item.allowed_models ?? []).map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </Field>
-      ) : (
-        <Field label="Value">
-          <input type="password" value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" spellCheck={false}
-            className={`${inputClass} font-mono`} placeholder="Paste the key" />
-        </Field>
-      )}
-      {!isModel && item.source !== "unset" && (
-        <div className="grid grid-cols-2 gap-2">
-          {(["routine", "compromised"] as const).map((r) => (
-            <button key={r} type="button" onClick={() => setRotation(r)}
-              className={`rounded-xl border px-3 py-2 text-left transition-colors ${
-                rotation === r ? (r === "compromised" ? "border-red-500 bg-red-500/[0.07]" : "border-brand bg-brand/[0.07]") : "border-d-border hover:border-brand/40"
-              }`}>
-              <span className="block text-[13px] font-semibold text-d-text">{r === "routine" ? "Routine" : "Compromised"}</span>
-              <span className="block text-[11px] leading-snug text-d-muted">
-                {r === "routine" ? "Old key kept 7 days" : "Old key wiped, never restorable"}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
       {reasonField}
     </StepUpDialog>
   );

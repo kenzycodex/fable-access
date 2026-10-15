@@ -92,13 +92,12 @@ function AuditLog() {
   }
 
   const groups = useMemo(() => groupByDay(events), [events]);
-  const current = SCOPES.find((s) => s.value === scope)!;
 
   return (
     <>
       <PageHeader
         title="Audit log"
-        description="Who did what, when, and to which institution. Kept permanently. Every export is itself recorded."
+        description="Who did what, when, and where. Kept permanently."
         actions={
           <Button variant="secondary" icon={<DownloadSimple size={16} />}
             onClick={() => downloadAuditCsv({ ...query, q: q || undefined }).catch((e) => toast.error(e.message))}>
@@ -120,7 +119,6 @@ function AuditLog() {
 
       <Card padded={false}>
         <div className="flex flex-col gap-3 border-b border-d-border p-4">
-          <p className="text-[13px] text-d-muted">{current.body}</p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_0.8fr]">
             <div className="relative">
               <MagnifyingGlass size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-d-faint" />
