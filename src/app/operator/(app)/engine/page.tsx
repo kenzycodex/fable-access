@@ -85,6 +85,24 @@ const scope = (s: string) => (s === "default" ? "Default" : s === "mobile_app" ?
 const fmt = (n: number) => (Math.round(n * 1000) / 1000).toString();
 const moved = (a: number, b: number) => Math.abs(a - b) > 1e-9;
 
+type Group = EngineOverview["catalogue"]["groups"][number];
+
+/** The signal groups in two columns of near-equal height. Each card is placed,
+ * largest first, in the shorter column; each column then keeps the catalogue's
+ * order, and its last card stretches so both columns end on the same line. */
+function balance(groups: Group[]): Group[][] {
+  const size = (g: Group) => g.weights.length + 1.5; // a header is about one and a half rows
+  const cols: Group[][] = [[], []];
+  const height = [0, 0];
+  for (const g of [...groups].sort((a, b) => size(b) - size(a))) {
+    const i = height[0] <= height[1] ? 0 : 1;
+    cols[i].push(g);
+    height[i] += size(g);
+  }
+  // The column holding the catalogue's first group (Amount) comes first.
+  return cols.map((c) => groups.filter((g) => c.includes(g))).sort((a, b) => groups.indexOf(a[0]) - groups.indexOf(b[0]));
+}
+
 /** Shield's weights and thresholds: what is live, what is changing, and what changed. */
 export default function EnginePage() {
   const { data, error, mutate } = useEngine();
@@ -218,17 +236,21 @@ function LiveValues({ data }: { data: EngineOverview }) {
   const env = useMemo(() => new Set(data.env_keys.map((k) => k.path)), [data.env_keys]);
   return (
     <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
-      <div className="columns-1 gap-4 sm:columns-2 lg:col-span-2">
-        {data.catalogue.groups.map((g) => (
-          <Card key={g.group} className="mb-4 break-inside-avoid">
-            <CardHeader title={g.group} subtitle={`${g.weights.length} signal${g.weights.length === 1 ? "" : "s"}, points added when it fires`} />
-            <ul className="flex flex-col gap-3.5">
-              {g.weights.map((w) => (
-                <WeightRow key={w.key} label={w.label} name={w.env} value={p.weights[w.key]} max={data.bounds.weight_max}
-                  env={env.has(`weights.${w.key}`)} floor={data.bounds.floors[w.key]} />
-              ))}
-            </ul>
-          </Card>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:col-span-2">
+        {balance(data.catalogue.groups).map((col, c) => (
+          <div key={c} className="flex flex-col gap-4">
+            {col.map((g, i) => (
+              <Card key={g.group} className={i === col.length - 1 ? "flex-1" : ""}>
+                <CardHeader title={g.group} subtitle={`${g.weights.length} signal${g.weights.length === 1 ? "" : "s"}, points added when it fires`} />
+                <ul className="flex flex-col gap-3.5">
+                  {g.weights.map((w) => (
+                    <WeightRow key={w.key} label={w.label} name={w.env} value={p.weights[w.key]} max={data.bounds.weight_max}
+                      env={env.has(`weights.${w.key}`)} floor={data.bounds.floors[w.key]} />
+                  ))}
+                </ul>
+              </Card>
+            ))}
+          </div>
         ))}
       </div>
       <div className="flex flex-col gap-4 lg:sticky lg:top-24">
@@ -375,17 +397,21 @@ function DraftEditor({ data, editing, onChange, onClose, onSaved }: {
   return (
     <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
       <div className="flex flex-col gap-4 lg:col-span-2">
-        <div className="columns-1 gap-4 sm:columns-2">
-          {data.catalogue.groups.map((g) => (
-            <Card key={g.group} className="mb-4 break-inside-avoid">
-              <CardHeader title={g.group} />
-              <ul className="flex flex-col gap-3">
-                {g.weights.map((w) => (
-                  <EditRow key={w.key} label={w.label} name={w.env} value={p.weights[w.key]} before={base.weights[w.key]}
-                    min={b.floors[w.key] ?? 0} max={b.weight_max} env={env.has(`weights.${w.key}`)} onChange={(n) => setWeight(w.key, n)} />
-                ))}
-              </ul>
-            </Card>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {balance(data.catalogue.groups).map((col, c) => (
+            <div key={c} className="flex flex-col gap-4">
+              {col.map((g, i) => (
+                <Card key={g.group} className={i === col.length - 1 ? "flex-1" : ""}>
+                  <CardHeader title={g.group} />
+                  <ul className="flex flex-col gap-3">
+                    {g.weights.map((w) => (
+                      <EditRow key={w.key} label={w.label} name={w.env} value={p.weights[w.key]} before={base.weights[w.key]}
+                        min={b.floors[w.key] ?? 0} max={b.weight_max} env={env.has(`weights.${w.key}`)} onChange={(n) => setWeight(w.key, n)} />
+                    ))}
+                  </ul>
+                </Card>
+              ))}
+            </div>
           ))}
         </div>
         <Thresholds data={data} params={p} env={env} base={base} onChange={setThreshold} />
