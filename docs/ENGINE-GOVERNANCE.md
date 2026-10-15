@@ -8,7 +8,7 @@ The decision itself stays deterministic and explainable ([PRODUCT-PRINCIPLES.md]
 
 ## What is managed here
 
-| Managed on the **Engine** page | Stays in `api/.env` for now |
+| Managed on the **Engine** page | Approved on the **Environment** page instead |
 |---|---|
 | Signal weights: `FABLE_W_*` (amount tiers, new recipient, time, device, location, timezone, session, behaviour, failed verification, velocity) | `FABLE_VELOCITY_WINDOW_MIN`, `FABLE_VELOCITY_FLAG`, `FABLE_VELOCITY_HIGH` |
 | Default thresholds: `FABLE_BLOCK_THRESHOLD`, `FABLE_FLAG_THRESHOLD` | `FABLE_TENURE_DISCOUNT_MAX`, `FABLE_TENURE_FULL_AT` |
@@ -17,7 +17,7 @@ The decision itself stays deterministic and explainable ([PRODUCT-PRINCIPLES.md]
 
 A channel weight at or below 0.05 adds nothing, which is how an in-person branch transfer carries no channel signal. Every decision records its channel's weight either way, so a backtest shows what raising a quiet channel above that line would do.
 
-The right-hand column changes *whether* a signal fires, not how much it weighs. A past decision cannot be replayed exactly under a different velocity window or tenure curve, so those values cannot be backtested honestly yet. The ML anomaly boost and the NIP response-code boosts are not tunable at all.
+The right-hand column changes *whether* a signal fires, not how much it weighs. A past decision cannot be replayed exactly under a different velocity window or tenure curve, so those values cannot be backtested honestly. They are approved settings on the Environment page (second owner, step-up, audit, rollback), shown read-only on the Engine page under **Detection rules**, and every decision's `engine_params_hash` covers them too. A full re-scoring shadow, which would let them be previewed before approval, is a later step. The ML anomaly boost and the NIP response-code boosts are not tunable at all.
 
 The API rate limit and the explanation time limit are ordinary platform settings on the **Environment** page (see [SECRETS.md](SECRETS.md)).
 
