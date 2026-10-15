@@ -170,6 +170,12 @@ PROBES = {
 
 def test_value(name: str, value: str) -> tuple[bool, str]:
     spec = vault.MANAGED[name]
+    if spec.kind == "config":
+        try:
+            vault.parse_setting(spec, value)
+            return True, "Valid setting."
+        except ValueError as exc:
+            return False, str(exc)
     if spec.kind == "model":
         return (value in vault.allowed_models(name), "Allowed model." if value in vault.allowed_models(name)
                 else "That model is not on the allowlist.")
@@ -186,7 +192,7 @@ def _owners() -> list[str]:
 
 
 def _public_change(c: dict) -> dict:
-    return {k: c.get(k) for k in ("id", "name", "action", "status", "rotation_reason", "reason", "target_version",
+    return {k: c.get(k) for k in ("id", "name", "action", "status", "rotation_reason", "reason", "target_version", "note",
                                    "last4", "fingerprint", "proposed_by", "single_approver", "decided_by", "decided_at",
                                    "apply_after", "expires_at", "created_at")}
 
@@ -195,7 +201,7 @@ def overview() -> dict:
     sweep()
     with cursor() as cur:
         cur.execute("SELECT name, version, status, last4, fingerprint, rotation_reason, set_by, approved_by, created_at, "
-                    "retired_at FROM platform_secrets ORDER BY name, version DESC")
+                    "retired_at, note FROM platform_secrets ORDER BY name, version DESC")
         versions = [row_to_dict(r) for r in cur.fetchall()]
         cur.execute("SELECT * FROM secret_changes WHERE status IN ('pending', 'cooling') ORDER BY created_at DESC")
         pending = [_public_change(row_to_dict(r)) for r in cur.fetchall()]
@@ -211,10 +217,22 @@ def overview() -> dict:
             except ValueError:
                 due = None
         env_val = vault.env_value(name)
+        if spec.kind == "config":
+            current = vault.setting(name)
+            display = ("true" if current else "false") if spec.value_type == "bool" else f"{current:,.0f}" if isinstance(current, (int, float)) else str(current)
+            default = getattr(config, spec.config_attr) if spec.config_attr else None
+            default = ("true" if default else "false") if spec.value_type == "bool" else str(default)
+        else:
+            display = (env_val if spec.kind == "model" else vault.last4(env_val)) if env_val else (active or {}).get("last4")
+            default = spec.default or None
         items.append({
             "name": name, "label": spec.label, "group": spec.group, "kind": spec.kind, "source": src,
-            "display": (env_val if spec.kind == "model" else vault.last4(env_val)) if env_val else (active or {}).get("last4"),
-            "default": spec.default or None,
+            "display": display,
+            "default": default,
+            "unit": spec.unit or None, "help": spec.help or None,
+            "choices": list(spec.choices) or None, "value_type": spec.value_type,
+            "minimum": spec.minimum, "maximum": spec.maximum,
+            "note": (active or {}).get("note"),
             "active": active, "rotation_due": due, "rotate_days": spec.rotate_days,
             "versions": [v for v in mine if v["status"] != "active"][:5],
             "allowed_models": vault.allowed_models(name) if spec.kind == "model" else None,
@@ -241,6 +259,12 @@ def _writable(name: str) -> vault.Spec:
 
 def _clean_value(spec: vault.Spec, value: str) -> str:
     value = (value or "").strip()
+    if spec.kind == "config":
+        try:
+            parsed = vault.parse_setting(spec, value)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"{spec.label}: {exc}") from exc
+        return ("true" if parsed else "false") if spec.value_type == "bool" else str(parsed)
     if spec.kind == "model":
         if value not in vault.allowed_models(spec.name):
             raise HTTPException(status_code=422, detail="Choose a model from the allowlist.")
@@ -251,7 +275,8 @@ def _clean_value(spec: vault.Spec, value: str) -> str:
 
 
 def _new_change(name: str, action: str, op_email: str, reason: str, rotation: str | None,
-                value: str | None = None, target_version: int | None = None, kind: str = "secret") -> dict:
+                value: str | None = None, target_version: int | None = None, kind: str = "secret",
+                note: str | None = None) -> dict:
     owners = _owners()
     single = len(owners) < 2
     cid = f"chg_{pysecrets.token_hex(10)}"
@@ -261,13 +286,13 @@ def _new_change(name: str, action: str, op_email: str, reason: str, rotation: st
     with cursor() as cur:
         cur.execute(
             """INSERT INTO secret_changes (id, name, action, status, rotation_reason, reason, target_version, ciphertext,
-                 nonce, wrapped_key, kid, last4, fingerprint, proposed_by, single_approver, apply_after, expires_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 nonce, wrapped_key, kid, last4, fingerprint, proposed_by, single_approver, apply_after, expires_at, note)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (cid, name, action, status, rotation, reason, target_version, sealed.get("ciphertext"), sealed.get("nonce"),
              sealed.get("wrapped_key"), sealed.get("kid"),
              vault.last4(value, kind) if value else None, vault.fingerprint(value) if value else None,
              op_email, int(single), _iso(now + timedelta(hours=COOLING_HOURS)) if single else None,
-             _iso(now + timedelta(hours=APPROVAL_HOURS)) if not single else None),
+             _iso(now + timedelta(hours=APPROVAL_HOURS)) if not single else None, (note or "").strip()[:200] or None),
         )
         cur.execute("SELECT * FROM secret_changes WHERE id = ?", (cid,))
         change = row_to_dict(cur.fetchone())
@@ -285,7 +310,8 @@ def _new_change(name: str, action: str, op_email: str, reason: str, rotation: st
     return _public_change(change)
 
 
-def propose(op: dict, name: str, value: str, reason: str, rotation: str) -> dict:
+def _checked(op: dict, name: str, value: str, rotation: str) -> tuple:
+    """A proposed value, cleaned and tested, or a 422 saying why not."""
     spec = _writable(name)
     if rotation not in REASONS:
         raise HTTPException(status_code=422, detail="Say whether this is a routine rotation or a compromised key.")
@@ -293,8 +319,24 @@ def propose(op: dict, name: str, value: str, reason: str, rotation: str) -> dict
     ok, message = test_value(name, value)
     if not ok:
         log_event("secret.test_failed", actor=op["email"], name=name, detail={"message": message, "stage": "propose"})
-        raise HTTPException(status_code=422, detail=f"The new key was refused: {message}")
-    return _new_change(name, "set", op["email"], reason, rotation, value=value, kind=spec.kind)
+        raise HTTPException(status_code=422, detail=f"{name} was refused: {message}")
+    return spec, value
+
+
+def propose(op: dict, name: str, value: str, reason: str, rotation: str, note: str | None = None) -> dict:
+    spec, value = _checked(op, name, value, rotation)
+    return _new_change(name, "set", op["email"], reason, rotation, value=value, kind=spec.kind, note=note)
+
+
+def propose_many(op: dict, items: list[dict], reason: str) -> list[dict]:
+    """Several values in one go, under one step-up. Every value is checked
+    first; if any is refused, none is proposed."""
+    names = [i["name"] for i in items]
+    if len(set(names)) != len(names):
+        raise HTTPException(status_code=422, detail="Each variable can appear only once.")
+    checked = [(_checked(op, i["name"], i["value"], i.get("rotation") or "routine"), i) for i in items]
+    return [_new_change(i["name"], "set", op["email"], reason, i.get("rotation") or "routine", value=value,
+                        kind=spec.kind, note=i.get("note")) for (spec, value), i in checked]
 
 
 def propose_rollback(op: dict, name: str, version: int, reason: str) -> dict:
@@ -392,11 +434,11 @@ def _apply(c: dict, approver: str | None) -> dict:
             sealed = vault.seal(value, name, version)
             cur.execute(
                 """INSERT INTO platform_secrets (name, version, status, ciphertext, nonce, wrapped_key, kid, last4,
-                     fingerprint, rotation_reason, set_by, approved_by, change_id)
-                   VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     fingerprint, rotation_reason, set_by, approved_by, change_id, note)
+                   VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (name, version, sealed["ciphertext"], sealed["nonce"], sealed["wrapped_key"], sealed["kid"],
                  vault.last4(value, spec.kind), vault.fingerprint(value), c["rotation_reason"] or "routine",
-                 c["proposed_by"], approver or ("cooling-off" if c["single_approver"] else None), cid),
+                 c["proposed_by"], approver or ("cooling-off" if c["single_approver"] else None), cid, c.get("note")),
             )
     _wipe(cid, "applied", approver or "system")
     vault.bump_generation()

@@ -75,6 +75,9 @@ def clean(client, monkeypatch):
 
     monkeypatch.setattr(config, "SECRETS_KEY", MASTER)
     monkeypatch.setattr(config, "SECRETS_WRITE", True)
+    # A developer's .env may set some managed names; here nothing comes from the environment.
+    for name in vault.MANAGED:
+        monkeypatch.delenv(name, raising=False)
     for probe in list(secret_admin.PROBES):
         monkeypatch.setitem(secret_admin.PROBES, probe, lambda v: (v.startswith("sk-test-"), "Accepted by the provider."))
     with cursor() as cur:
@@ -351,3 +354,57 @@ def test_env_keys_can_be_imported_on_the_server_without_printing_them(client, mo
     vault.bump_generation()
     assert vault.get("GEOAPIFY_API_KEY") == "geo-" + "G" * 20
     assert vault.source("GEOAPIFY_API_KEY") == "console"
+
+
+# ── Platform settings (config) ───────────────────────────────────────────────
+
+def test_a_setting_is_bounded_approved_and_then_used(client, monkeypatch):
+    from core import config
+    from core import secrets as vault
+
+    assert _propose(client, name="FABLE_PIN_MAX_ATTEMPTS", value="50").status_code == 422, "out of range"
+    assert _propose(client, name="FABLE_PIN_LENGTH", value="5").status_code == 422, "4 or 6 only"
+    assert vault.setting("FABLE_PIN_MAX_ATTEMPTS") == config.PIN_MAX_ATTEMPTS, "the default stands until approved"
+
+    r = _propose(client, name="FABLE_PIN_MAX_ATTEMPTS", value="3")
+    assert r.status_code == 200 and r.json()["last4"] == "3", "settings are readable, not masked"
+    assert _approve(client, r.json()["id"]).status_code == 200
+    assert vault.setting("FABLE_PIN_MAX_ATTEMPTS") == 3
+
+    from core import security
+
+    security.set_pin("setting_user", "4821" if config.PIN_LENGTH == 4 else "482193")
+    for _ in range(2):
+        assert security.check_pin("setting_user", "0000") is False
+    with pytest.raises(security.SecurityError, match="Locked"):
+        security.check_pin("setting_user", "0000")
+
+    monkeypatch.setenv("FABLE_PIN_MAX_ATTEMPTS", "7")
+    assert vault.setting("FABLE_PIN_MAX_ATTEMPTS") == 7, "the server environment still wins"
+
+
+def test_several_variables_go_in_one_step_up_or_none_do(client):
+    from core.db import cursor
+
+    bad = client.post("/operator/secrets/batch", headers=_session(OWNER_A), json={
+        "reason": "Initial setup", "step_up": _code(OWNER_A),
+        "items": [{"name": "GHOST_COOLING_HIGH", "value": "20"}, {"name": "TOPUP_DAILY_COUNT", "value": "999"}]})
+    assert bad.status_code == 422
+    with cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM secret_changes")
+        assert cur.fetchone()[0] == 0, "one refused value means nothing is proposed"
+
+    ok = client.post("/operator/secrets/batch", headers=_session(OWNER_A), json={
+        "reason": "Initial setup", "step_up": _code(OWNER_A),
+        "items": [{"name": "GHOST_COOLING_HIGH", "value": "20", "note": "Agreed with risk team"},
+                  {"name": "GEOAPIFY_API_KEY", "value": "sk-test-" + "G" * 20}]})
+    assert ok.status_code == 200 and len(ok.json()["changes"]) == 2
+    first = ok.json()["changes"][0]
+    assert first["note"] == "Agreed with risk team"
+    assert _approve(client, first["id"]).status_code == 200
+    from services import policy
+
+    assert policy.defaults()["hold_high_minutes"] == 20
+    listing = client.get("/operator/secrets", headers=_session(OWNER_A)).json()
+    item = next(i for i in listing["items"] if i["name"] == "GHOST_COOLING_HIGH")
+    assert item["display"] == "20" and item["note"] == "Agreed with risk team" and item["kind"] == "config"

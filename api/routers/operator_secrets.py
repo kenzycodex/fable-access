@@ -51,6 +51,20 @@ class Propose(BaseModel):
     value: str = Field(min_length=1, max_length=512)
     reason: str = Field(min_length=5, max_length=300)
     rotation: str = "routine"
+    note: str | None = Field(None, max_length=200)
+    step_up: StepUp
+
+
+class BatchItem(BaseModel):
+    name: str = Field(max_length=64)
+    value: str = Field(min_length=1, max_length=512)
+    rotation: str = "routine"
+    note: str | None = Field(None, max_length=200)
+
+
+class Batch(BaseModel):
+    items: list[BatchItem] = Field(min_length=1, max_length=25)
+    reason: str = Field(min_length=5, max_length=300)
     step_up: StepUp
 
 
@@ -94,7 +108,15 @@ def step_up_options(request: Request):
 def propose(name: str, body: Propose, request: Request):
     op = _owner(request)
     operator_stepup.verify(op, body.step_up.model_dump())
-    return secret_admin.propose(op, name, body.value, body.reason.strip(), body.rotation)
+    return secret_admin.propose(op, name, body.value, body.reason.strip(), body.rotation, body.note)
+
+
+@router.post("/secrets/batch")
+def propose_batch(body: Batch, request: Request):
+    """Several variables at once (the Add dialog, or a pasted .env), under one step-up."""
+    op = _owner(request)
+    operator_stepup.verify(op, body.step_up.model_dump())
+    return {"changes": secret_admin.propose_many(op, [i.model_dump() for i in body.items], body.reason.strip())}
 
 
 @router.post("/secrets/{name}/rollback")

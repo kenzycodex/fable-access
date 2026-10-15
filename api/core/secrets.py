@@ -40,10 +40,18 @@ class Spec:
     name: str
     label: str
     group: str
-    kind: str              # "secret" or "model"
+    kind: str              # "secret", "model" or "config"
     probe: str | None      # which provider test checks it
     default: str = ""
     rotate_days: int = 90
+    # Config only: how the value is read and the range an operator may set.
+    value_type: str = "str"          # "int", "float" or "bool"
+    minimum: float | None = None
+    maximum: float | None = None
+    choices: tuple = ()
+    unit: str = ""
+    help: str = ""
+    config_attr: str | None = None   # the built-in default, read from core.config
 
 
 MANAGED: dict[str, Spec] = {s.name: s for s in (
@@ -54,6 +62,43 @@ MANAGED: dict[str, Spec] = {s.name: s for s in (
     Spec("LOCATIONIQ_API_KEY", "LocationIQ key", "Address lookup", "secret", "locationiq"),
     Spec("GEOAPIFY_API_KEY", "Geoapify key", "Address lookup", "secret", "geoapify"),
     Spec("GOOGLE_MAPS_API_KEY", "Google Maps Geocoding key", "Address lookup", "secret", "google"),
+    # Platform settings: not secret, readable, changed through the same approval.
+    Spec("TOPUP_MAX_AMOUNT", "Largest single sandbox top-up", "Sandbox money", "config", None, rotate_days=0,
+         value_type="float", minimum=1_000, maximum=100_000_000, unit="₦", config_attr="TOPUP_MAX_AMOUNT",
+         help="The most a test customer can add in one top-up."),
+    Spec("TOPUP_DAILY_MAX", "Sandbox top-ups per day, in naira", "Sandbox money", "config", None, rotate_days=0,
+         value_type="float", minimum=1_000, maximum=1_000_000_000, unit="₦", config_attr="TOPUP_DAILY_MAX",
+         help="The most a test customer can add in a day."),
+    Spec("TOPUP_DAILY_COUNT", "Sandbox top-ups per day", "Sandbox money", "config", None, rotate_days=0,
+         value_type="int", minimum=1, maximum=100, unit="top-ups", config_attr="TOPUP_DAILY_COUNT",
+         help="How many top-ups a test customer can make in a day."),
+    Spec("FABLE_PIN_LENGTH", "PIN length", "Customer PIN", "config", None, rotate_days=0,
+         value_type="int", choices=(4, 6), unit="digits", config_attr="PIN_LENGTH",
+         help="For PINs set from now on. Existing PINs keep their length."),
+    Spec("FABLE_PIN_MAX_ATTEMPTS", "Wrong PINs before a lock", "Customer PIN", "config", None, rotate_days=0,
+         value_type="int", minimum=3, maximum=10, unit="attempts", config_attr="PIN_MAX_ATTEMPTS",
+         help="Wrong entries before the PIN is locked."),
+    Spec("FABLE_PIN_LOCKOUT_MINUTES", "PIN lock time", "Customer PIN", "config", None, rotate_days=0,
+         value_type="int", minimum=5, maximum=1440, unit="minutes", config_attr="PIN_LOCKOUT_MINUTES",
+         help="How long a locked PIN stays locked."),
+    Spec("FABLE_PIN_BLOCK_WEAK", "Refuse weak PINs", "Customer PIN", "config", None, rotate_days=0,
+         value_type="bool", config_attr="PIN_BLOCK_WEAK",
+         help="Refuse repeated digits (0000) and plain sequences (1234)."),
+    Spec("GHOST_COOLING_HIGH", "Hold for high risk", "Ghost holds", "config", None, rotate_days=0,
+         value_type="int", minimum=1, maximum=1440, unit="minutes", config_attr="GHOST_COOLING_HIGH",
+         help="Default hold for risk 0.9 and above. Institutions can set their own."),
+    Spec("GHOST_COOLING_MED", "Hold for medium risk", "Ghost holds", "config", None, rotate_days=0,
+         value_type="int", minimum=1, maximum=1440, unit="minutes", config_attr="GHOST_COOLING_MED",
+         help="Default hold for risk 0.7 to 0.9."),
+    Spec("GHOST_COOLING_LOW", "Hold for low risk", "Ghost holds", "config", None, rotate_days=0,
+         value_type="int", minimum=1, maximum=1440, unit="minutes", config_attr="GHOST_COOLING_LOW",
+         help="Default hold below risk 0.7."),
+    Spec("BRANDING_SLUG_LOCK_DAYS", "Vanity link lock", "Branding", "config", None, rotate_days=0,
+         value_type="int", minimum=0, maximum=90, unit="days", config_attr="BRANDING_SLUG_LOCK_DAYS",
+         help="How long a changed vanity link stays locked."),
+    Spec("BRANDING_MAX_LOGO_BYTES", "Largest logo", "Branding", "config", None, rotate_days=0,
+         value_type="int", minimum=10_000, maximum=2_000_000, unit="bytes", config_attr="BRANDING_MAX_LOGO_BYTES",
+         help="Logos are inlined into pages, so keep this small."),
 )}
 
 # Model names an operator may choose. Extend with FABLE_MODEL_ALLOWLIST.
@@ -127,7 +172,7 @@ def fingerprint(value: str) -> str:
 
 
 def last4(value: str, kind: str = "secret") -> str:
-    return value if kind == "model" else ("…" + value[-4:] if len(value) >= 8 else "…")
+    return value if kind in ("model", "config") else ("…" + value[-4:] if len(value) >= 8 else "…")
 
 
 # ── Reading ──────────────────────────────────────────────────────────────────
@@ -205,9 +250,11 @@ def _stored(name: str) -> str | None:
 def get(name: str) -> str:
     """The value in force for a managed key, or "" when there is none."""
     spec = MANAGED.get(name)
+    secret = spec is None or spec.kind == "secret"
     env = env_value(name)
     if env:
-        remember(env)
+        if secret:
+            remember(env)
         return env
     _refresh_if_changed()
     with _lock:
@@ -222,9 +269,46 @@ def get(name: str) -> str:
     else:
         value = hit[0]
     if value:
-        remember(value)
+        if secret:
+            remember(value)
         return value
     return spec.default if spec else ""
+
+
+def parse_setting(spec: Spec, raw) -> object:
+    """A config value in its type. Raises ValueError when it is not valid."""
+    text = str(raw).strip()
+    if spec.value_type == "bool":
+        lowered = text.lower()
+        if lowered in ("1", "true", "yes", "on"):
+            return True
+        if lowered in ("0", "false", "no", "off"):
+            return False
+        raise ValueError("Use true or false.")
+    number = float(text.replace(",", ""))
+    value = int(number) if spec.value_type == "int" else number
+    if spec.value_type == "int" and number != int(number):
+        raise ValueError("Use a whole number.")
+    if spec.choices and value not in spec.choices:
+        raise ValueError(f"Choose {' or '.join(str(c) for c in spec.choices)}.")
+    if spec.minimum is not None and value < spec.minimum:
+        raise ValueError(f"The lowest allowed is {spec.minimum:,.0f}.")
+    if spec.maximum is not None and value > spec.maximum:
+        raise ValueError(f"The highest allowed is {spec.maximum:,.0f}.")
+    return value
+
+
+def setting(name: str):
+    """A platform setting in force: the server environment, else the value
+    approved in the console, else the built-in default."""
+    spec = MANAGED[name]
+    raw = get(name)
+    if raw:
+        try:
+            return parse_setting(spec, raw)
+        except ValueError:
+            pass  # an invalid value never takes effect; the default stands
+    return getattr(config, spec.config_attr) if spec.config_attr else None
 
 
 def source(name: str) -> str:

@@ -579,6 +579,9 @@ CREATE TABLE IF NOT EXISTS assistant_usage (
 # Columns added after the original schema shipped. Existing fable.db files are
 # upgraded in place at boot via PRAGMA table_info diffing.
 MIGRATIONS = {
+    # A free-text note on a secret or setting: where it is rotated, who owns it.
+    "platform_secrets": {"note": "TEXT"},
+    "secret_changes": {"note": "TEXT"},
     "transactions": {
         "client_ip": "TEXT",
         "latitude": "REAL",
