@@ -99,6 +99,15 @@ MANAGED: dict[str, Spec] = {s.name: s for s in (
     Spec("BRANDING_MAX_LOGO_BYTES", "Largest logo", "Branding", "config", None, rotate_days=0,
          value_type="int", minimum=10_000, maximum=2_000_000, unit="bytes", config_attr="BRANDING_MAX_LOGO_BYTES",
          help="Logos are inlined into pages, so keep this small."),
+    Spec("FABLE_RATE_LIMIT_MAX", "Requests per caller per window", "Operations", "config", None, rotate_days=0,
+         value_type="int", minimum=30, maximum=2000, unit="requests", config_attr="RATE_LIMIT_MAX",
+         help="Each caller's request limit before a 429."),
+    Spec("FABLE_RATE_LIMIT_WINDOW", "Rate limit window", "Operations", "config", None, rotate_days=0,
+         value_type="int", minimum=10, maximum=3600, unit="seconds", config_attr="RATE_LIMIT_WINDOW",
+         help="The window the request limit is counted over."),
+    Spec("FABLE_EXPLAINER_TIMEOUT", "Explanation time limit", "Operations", "config", None, rotate_days=0,
+         value_type="int", minimum=2, maximum=30, unit="seconds", config_attr="EXPLAINER_TIMEOUT_SECONDS",
+         help="The longest an AI write-up may take. It never delays a decision."),
 )}
 
 # Model names an operator may choose. Extend with FABLE_MODEL_ALLOWLIST.

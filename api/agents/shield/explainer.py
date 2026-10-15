@@ -23,7 +23,6 @@ import re
 import time
 
 from core import ai_clients
-from core.config import EXPLAINER_TIMEOUT_SECONDS
 
 SYSTEM_PROMPT = """You are Fable Shield, an AI fraud-prevention layer for Nigerian banks.
 Write a short explanation (max 80 words) of why a transaction was flagged or blocked.
@@ -39,9 +38,21 @@ Rules:
 # Provider clients come from core/ai_clients, built from the key in force.
 
 
+def _timeout() -> float:
+    """The time limit in force (FABLE_EXPLAINER_TIMEOUT, approved in the
+    console or set in the environment), read per call."""
+    from core import config
+    from core.secrets import setting
+
+    try:
+        return float(setting("FABLE_EXPLAINER_TIMEOUT"))
+    except Exception:  # noqa: BLE001
+        return config.EXPLAINER_TIMEOUT_SECONDS
+
+
 def llm_available() -> bool:
     """Whether a better explanation than the template could be generated."""
-    return bool(ai_clients.anthropic(EXPLAINER_TIMEOUT_SECONDS) or ai_clients.openai(EXPLAINER_TIMEOUT_SECONDS))
+    return bool(ai_clients.anthropic(_timeout()) or ai_clients.openai(_timeout()))
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +215,7 @@ def model_facts(signals: list[str]) -> list[str]:
 
 
 def _try_anthropic(user_prompt: str) -> str | None:
-    client = ai_clients.anthropic(EXPLAINER_TIMEOUT_SECONDS)
+    client = ai_clients.anthropic(_timeout())
     if not client:
         return None
     try:
@@ -223,7 +234,7 @@ def _try_anthropic(user_prompt: str) -> str | None:
 
 
 def _try_openai(user_prompt: str) -> str | None:
-    client = ai_clients.openai(EXPLAINER_TIMEOUT_SECONDS)
+    client = ai_clients.openai(_timeout())
     if not client:
         return None
     try:

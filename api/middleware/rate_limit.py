@@ -13,9 +13,21 @@ from collections import defaultdict, deque
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-from core.config import RATE_LIMIT_MAX, RATE_LIMIT_WINDOW
+from core import config
 
 _hits: dict[str, deque] = defaultdict(deque)
+
+
+def limits() -> tuple[int, int]:
+    """(requests, window seconds) in force: the environment, else the values
+    approved in the operator console, else the defaults. Read on each request
+    (the settings are cached), so an approved change applies without a restart."""
+    try:
+        from core.secrets import setting
+
+        return int(setting("FABLE_RATE_LIMIT_MAX")), int(setting("FABLE_RATE_LIMIT_WINDOW"))
+    except Exception:  # noqa: BLE001 - a settings failure must never open or close the API
+        return config.RATE_LIMIT_MAX, config.RATE_LIMIT_WINDOW
 
 EXEMPT_PATHS = ("/", "/health", "/docs", "/redoc", "/openapi.json", "/favicon.ico")
 
@@ -56,15 +68,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         cid = _client_id(request)
+        max_requests, window = limits()
         now = time.time()
-        window_start = now - RATE_LIMIT_WINDOW
+        window_start = now - window
         q = _hits[cid]
 
         while q and q[0] < window_start:
             q.popleft()
 
-        if len(q) >= RATE_LIMIT_MAX:
-            retry_after = int(q[0] + RATE_LIMIT_WINDOW - now) + 1
+        if len(q) >= max_requests:
+            retry_after = int(q[0] + window - now) + 1
             return JSONResponse(
                 status_code=429,
                 content={"detail": "Rate limit exceeded. Slow down."},
@@ -81,6 +94,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 _hits.pop(key, None)
 
         response = await call_next(request)
-        response.headers["X-RateLimit-Limit"] = str(RATE_LIMIT_MAX)
-        response.headers["X-RateLimit-Remaining"] = str(max(0, RATE_LIMIT_MAX - len(q)))
+        response.headers["X-RateLimit-Limit"] = str(max_requests)
+        response.headers["X-RateLimit-Remaining"] = str(max(0, max_requests - len(q)))
         return response
