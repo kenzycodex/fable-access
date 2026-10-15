@@ -108,6 +108,26 @@ MANAGED: dict[str, Spec] = {s.name: s for s in (
     Spec("FABLE_EXPLAINER_TIMEOUT", "Explanation time limit", "Operations", "config", None, rotate_days=0,
          value_type="int", minimum=2, maximum=30, unit="seconds", config_attr="EXPLAINER_TIMEOUT_SECONDS",
          help="The longest an AI write-up may take. It never delays a decision."),
+    # Scoring detection: these decide whether a signal fires, so no backtest can
+    # replay them. Approval, audit and rollback apply; the effect is not previewed.
+    Spec("FABLE_VELOCITY_WINDOW_MIN", "Burst window", "Scoring detection", "config", None, rotate_days=0,
+         value_type="int", minimum=1, maximum=120, unit="minutes", config_attr="VELOCITY_WINDOW_MINUTES",
+         help="Transfers inside this window count towards a burst. Not backtested."),
+    Spec("FABLE_VELOCITY_FLAG", "Transfers for a burst", "Scoring detection", "config", None, rotate_days=0,
+         value_type="int", minimum=2, maximum=20, unit="transfers", config_attr="VELOCITY_FLAG_COUNT",
+         help="This many in the window adds the burst signal. Not backtested."),
+    Spec("FABLE_VELOCITY_HIGH", "Transfers for a heavy burst", "Scoring detection", "config", None, rotate_days=0,
+         value_type="int", minimum=3, maximum=50, unit="transfers", config_attr="VELOCITY_HIGH_COUNT",
+         help="This many adds the heavy-burst signal. Always above the burst count. Not backtested."),
+    Spec("FABLE_TENURE_DISCOUNT_MAX", "Most credit for clean history", "Scoring detection", "config", None,
+         rotate_days=0, value_type="float", minimum=0, maximum=0.10, unit="points", config_attr="TENURE_DISCOUNT_MAX",
+         help="The most a long, clean record takes off a score. Never more than 0.10. Not backtested."),
+    Spec("FABLE_TENURE_FULL_AT", "Clean transfers for full credit", "Scoring detection", "config", None, rotate_days=0,
+         value_type="int", minimum=20, maximum=1000, unit="transfers", config_attr="TENURE_FULL_AT",
+         help="How many clean transfers earn the full credit. Not backtested."),
+    Spec("FABLE_RECIPIENT_MEMORY_DAYS", "How long a recipient stays known", "Scoring detection", "config", None,
+         rotate_days=0, value_type="int", minimum=30, maximum=1095, unit="days", config_attr="RECIPIENT_MEMORY_DAYS",
+         help="After this long without a payment, a recipient counts as new again. Not backtested."),
 )}
 
 # Model names an operator may choose. Extend with FABLE_MODEL_ALLOWLIST.
@@ -284,6 +304,11 @@ def get(name: str) -> str:
     return spec.default if spec else ""
 
 
+def display_number(x: float) -> str:
+    """A setting's value for people: 500,000 and 0.08, never 0.08 shown as 0."""
+    return f"{x:,.0f}" if float(x) == int(x) else f"{x:,g}"
+
+
 def parse_setting(spec: Spec, raw) -> object:
     """A config value in its type. Raises ValueError when it is not valid."""
     text = str(raw).strip()
@@ -301,9 +326,9 @@ def parse_setting(spec: Spec, raw) -> object:
     if spec.choices and value not in spec.choices:
         raise ValueError(f"Choose {' or '.join(str(c) for c in spec.choices)}.")
     if spec.minimum is not None and value < spec.minimum:
-        raise ValueError(f"The lowest allowed is {spec.minimum:,.0f}.")
+        raise ValueError(f"The lowest allowed is {display_number(spec.minimum)}.")
     if spec.maximum is not None and value > spec.maximum:
-        raise ValueError(f"The highest allowed is {spec.maximum:,.0f}.")
+        raise ValueError(f"The highest allowed is {display_number(spec.maximum)}.")
     return value
 
 

@@ -196,3 +196,27 @@ EXPLAINER_TIMEOUT_SECONDS = float(os.getenv("FABLE_EXPLAINER_TIMEOUT", "10"))
 GHOST_COOLING_HIGH = int(os.getenv("GHOST_COOLING_HIGH", "15"))   # risk >= 0.9
 GHOST_COOLING_MED = int(os.getenv("GHOST_COOLING_MED", "10"))     # risk >= 0.7
 GHOST_COOLING_LOW = int(os.getenv("GHOST_COOLING_LOW", "5"))      # risk < 0.7
+
+# --- Scoring detection settings ---
+# These decide whether a signal fires at all, not how much it weighs, so the
+# Engine page cannot replay them. They are approved settings on the operator
+# console's Environment page; these are the built-in defaults.
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, "").strip() or default)
+    except ValueError:
+        return default
+
+
+# Transfers within the window that count as a burst, and as a heavy burst.
+VELOCITY_WINDOW_MINUTES = _env_int("FABLE_VELOCITY_WINDOW_MIN", 10)
+VELOCITY_FLAG_COUNT = _env_int("FABLE_VELOCITY_FLAG", 3)
+VELOCITY_HIGH_COUNT = _env_int("FABLE_VELOCITY_HIGH", 5)
+# The most a long, clean history can take off a score, and how many clean
+# transfers earn all of it.
+TENURE_DISCOUNT_MAX = _env_float("FABLE_TENURE_DISCOUNT_MAX", 0.08)
+TENURE_FULL_AT = _env_int("FABLE_TENURE_FULL_AT", 120)
+# How long a paid recipient stays "known" rather than new.
+RECIPIENT_MEMORY_DAYS = _env_int("FABLE_RECIPIENT_MEMORY_DAYS", 540)

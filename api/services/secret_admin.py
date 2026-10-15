@@ -217,7 +217,7 @@ def overview() -> dict:
         env_val = vault.env_value(name)
         if spec.kind == "config":
             current = vault.setting(name)
-            display = ("true" if current else "false") if spec.value_type == "bool" else f"{current:,.0f}" if isinstance(current, (int, float)) else str(current)
+            display = ("true" if current else "false") if spec.value_type == "bool" else vault.display_number(current) if isinstance(current, (int, float)) else str(current)
             default = getattr(config, spec.config_attr) if spec.config_attr else None
             default = ("true" if default else "false") if spec.value_type == "bool" else str(default)
         else:
