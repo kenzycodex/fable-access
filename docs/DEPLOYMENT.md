@@ -135,6 +135,62 @@ container is `api-api-1` and the image is `api-api`.
 
 ## 4. Deploying an update
 
+### Automatic (recommended)
+
+Every push to `main` deploys the API by itself once its tests pass. The
+frontend already deploys itself through Vercel.
+
+GitHub Actions (the **Deploy API** job in `.github/workflows/ci.yml`) connects
+to the droplet with a key that can only run one command,
+`api/scripts/deploy_server.sh`, installed as `/usr/local/bin/fable-deploy`. That
+script:
+
+1. takes the latest `main` (a reset, so a rewritten history never blocks it;
+   `.env` and the database are ignored by git and kept);
+2. backs up the database with SQLite's own backup, keeping the last 10;
+3. rebuilds and recreates the container;
+4. waits for `/health` to answer **with every required router loaded**;
+5. if that fails, rebuilds the previous version and marks the run failed, so a
+   broken push never stays live.
+
+Deploys run one at a time; a second push waits for the first.
+
+**One-time setup, on the droplet:**
+
+```bash
+cd /var/www/fable && git fetch origin && git reset --hard origin/main
+install -m 755 api/scripts/deploy_server.sh /usr/local/bin/fable-deploy
+
+# A key that can run the deploy and nothing else (no shell, no forwarding).
+ssh-keygen -t ed25519 -N "" -C "github-deploy" -f /root/.ssh/github_deploy
+echo "command=\"/usr/local/bin/fable-deploy\",restrict $(cat /root/.ssh/github_deploy.pub)" >> /root/.ssh/authorized_keys
+
+# The two values GitHub needs:
+cat /root/.ssh/github_deploy                                   # -> DEPLOY_SSH_KEY
+echo "YOUR_DROPLET_IP $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)"   # -> DEPLOY_KNOWN_HOSTS
+rm /root/.ssh/github_deploy                                    # GitHub keeps the only copy
+```
+
+**Then on GitHub:** the repository's **Settings → Secrets and variables →
+Actions → New repository secret**, three times:
+
+| Secret | Value |
+|---|---|
+| `DEPLOY_HOST` | the droplet's IP address |
+| `DEPLOY_SSH_KEY` | the whole private key printed above, from `-----BEGIN` to `-----END` |
+| `DEPLOY_KNOWN_HOSTS` | the one line printed after it |
+
+`DEPLOY_USER` is optional (it defaults to `root`). Until the secrets exist the
+deploy job skips with a notice instead of failing.
+
+To deploy by hand at any time, on the droplet: `fable-deploy`. To see what a
+deploy did: the **Actions** tab on GitHub, or the run's log.
+
+**To revoke it:** delete the `github-deploy` line from
+`/root/.ssh/authorized_keys`.
+
+### By hand
+
 This is the step that catches people, so it gets its own section.
 
 **The application code is copied into the image at build time** (`COPY . .` in
