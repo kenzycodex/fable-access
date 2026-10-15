@@ -36,11 +36,11 @@ from fastapi import HTTPException
 from core import config
 from core import secrets as vault
 from core.db import cursor, row_to_dict
+from services import approvals
+from services.approvals import APPROVAL_HOURS, COOLING_HOURS
 
 logger = logging.getLogger("fable.secrets.audit")
 
-APPROVAL_HOURS = 24
-COOLING_HOURS = 12
 ROLLBACK_DAYS = 7
 REASONS = ("routine", "compromised")
 
@@ -114,7 +114,8 @@ def _reserved(email: str) -> bool:
     return domain.endswith((".test", ".example", ".invalid", ".localhost")) or domain in ("test", "example", "invalid", "localhost")
 
 
-def alert_owners(subject: str, body: str, exclude: str | None = None) -> None:
+def alert_owners(subject: str, body: str, exclude: str | None = None, path: str = "/operator/secrets",
+                 closing: str = "If you did not expect this, cancel it there and rotate the key.") -> None:
     """Email every platform owner. Best effort: a missing mail server never
     blocks the action, which is already in the audit trail."""
     if not (config.SMTP_USERNAME and config.SMTP_PASSWORD):
@@ -127,8 +128,7 @@ def alert_owners(subject: str, body: str, exclude: str | None = None) -> None:
         msg["Subject"] = f"[Fable security] {subject}"
         msg["From"] = config.SMTP_FROM
         msg["To"] = email
-        msg.set_content(f"{body}\n\nReview it in the operator console: {config.FRONTEND_URL.rstrip('/')}/operator/secrets\n"
-                        "If you did not expect this, cancel it there and rotate the key.")
+        msg.set_content(f"{body}\n\nReview it in the operator console: {config.FRONTEND_URL.rstrip('/')}{path}\n{closing}")
         try:
             with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT, timeout=10) as server:
                 server.starttls()
@@ -186,9 +186,7 @@ def test_value(name: str, value: str) -> tuple[bool, str]:
 # ── Reading the state ────────────────────────────────────────────────────────
 
 def _owners() -> list[str]:
-    with cursor() as cur:
-        cur.execute("SELECT email FROM operators WHERE role = 'platform_owner' AND active = 1 AND totp_enabled = 1")
-        return [r["email"] for r in cur.fetchall()]
+    return approvals.owners()
 
 
 def _public_change(c: dict) -> dict:
@@ -277,12 +275,11 @@ def _clean_value(spec: vault.Spec, value: str) -> str:
 def _new_change(name: str, action: str, op_email: str, reason: str, rotation: str | None,
                 value: str | None = None, target_version: int | None = None, kind: str = "secret",
                 note: str | None = None) -> dict:
-    owners = _owners()
-    single = len(owners) < 2
+    wait = approvals.plan()
+    single = wait["single"]
     cid = f"chg_{pysecrets.token_hex(10)}"
-    now = _now()
     sealed = vault.seal(value, name, cid, purpose="pending") if value is not None else {}
-    status = "cooling" if single else "pending"
+    status = wait["status"]
     with cursor() as cur:
         cur.execute(
             """INSERT INTO secret_changes (id, name, action, status, rotation_reason, reason, target_version, ciphertext,
@@ -291,8 +288,7 @@ def _new_change(name: str, action: str, op_email: str, reason: str, rotation: st
             (cid, name, action, status, rotation, reason, target_version, sealed.get("ciphertext"), sealed.get("nonce"),
              sealed.get("wrapped_key"), sealed.get("kid"),
              vault.last4(value, kind) if value else None, vault.fingerprint(value) if value else None,
-             op_email, int(single), _iso(now + timedelta(hours=COOLING_HOURS)) if single else None,
-             _iso(now + timedelta(hours=APPROVAL_HOURS)) if not single else None, (note or "").strip()[:200] or None),
+             op_email, int(single), wait["apply_after"], wait["expires_at"], (note or "").strip()[:200] or None),
         )
         cur.execute("SELECT * FROM secret_changes WHERE id = ?", (cid,))
         change = row_to_dict(cur.fetchone())
@@ -388,8 +384,7 @@ def approve(op: dict, cid: str) -> dict:
     c = _change(cid)
     if c["status"] != "pending":
         raise HTTPException(status_code=409, detail="That change is not waiting for approval.")
-    if c["proposed_by"] == op["email"]:
-        raise HTTPException(status_code=403, detail="Another owner has to approve a change you proposed.")
+    approvals.ensure_checker(c["proposed_by"], op["email"])
     _writable(c["name"])
     return _apply(c, approver=op["email"])
 
