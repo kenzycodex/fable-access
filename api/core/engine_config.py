@@ -69,6 +69,20 @@ WEIGHT_GROUPS: list[tuple[str, list[tuple[str, str, float]]]] = [
         ("velocity", "Burst of transfers", 0.10),
         ("velocity_high", "Heavy burst of transfers", 0.20),
     ]),
+    # Points for the rail itself (agents/shield/channel_risk.py explains the
+    # NIBSS grounding). A channel at or below CHANNEL_GATE adds nothing, which
+    # is how an in-person branch transfer carries no channel signal at all.
+    # The environment names are FABLE_CHANNEL_<NAME>, kept from before.
+    ("Channel risk", [
+        ("channel_internet", "Internet banking", 0.22),
+        ("channel_pos", "POS", 0.18),
+        ("channel_mobile_app", "Mobile app", 0.12),
+        ("channel_ussd", "USSD", 0.12),
+        ("channel_atm", "ATM", 0.12),
+        ("channel_qr", "QR", 0.10),
+        ("channel_branch", "Branch", 0.02),
+        ("channel_unknown", "Any other channel", 0.15),
+    ]),
 ]
 WEIGHT_DEFAULTS = {key: default for _, items in WEIGHT_GROUPS for key, _, default in items}
 WEIGHT_LABELS = {key: label for _, items in WEIGHT_GROUPS for key, label, _ in items}
@@ -106,6 +120,8 @@ DRIFT_DAYS = 30
 
 
 def weight_env(key: str) -> str:
+    if key.startswith("channel_"):
+        return f"FABLE_CHANNEL_{key[len('channel_'):].upper()}"
     return f"FABLE_W_{key.upper()}"
 
 
@@ -192,7 +208,15 @@ def canonical(params: dict) -> str:
 
 
 def params_hash(params: dict) -> str:
-    return hashlib.sha256(canonical(params).encode()).hexdigest()
+    """SHA-256 of a parameter set exactly as given.
+
+    Not normalised first, on purpose: a version stored before a parameter
+    existed (the channel weights joined later) must keep the hash it was
+    approved with. Everything this module stores or applies is already
+    complete (normalise and apply_env return full sets), so for those the
+    result is the same as hashing the normalised form.
+    """
+    return hashlib.sha256(json.dumps(params, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def flat(params: dict) -> dict[str, float]:

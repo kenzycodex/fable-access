@@ -24,36 +24,16 @@ equity problem — USSD is how Nigeria's feature-phone population banks, and
 penalising the rail hardest landed the most friction on the customers least
 equipped to clear a step-up.
 
-Every value is env-overridable (FABLE_CHANNEL_<NAME>) so an institution can
-retune against its own labelled outcomes, which is the only thing that would
-make these authoritative rather than reasoned.
+The values are engine parameters (core/engine_config.py, the "Channel risk"
+group on the operator console's Engine page), changed with a backtest and a
+second owner's approval like every other weight. FABLE_CHANNEL_<NAME> in the
+server environment still wins over the console. Retuning against an
+institution's own labelled outcomes is the only thing that would make these
+authoritative rather than reasoned.
 """
-import os
+from agents.shield.weights import channel_key, weights
 
 
-def _w(channel: str, default: float) -> float:
-    try:
-        return float(os.getenv(f"FABLE_CHANNEL_{channel.upper()}", default))
-    except ValueError:
-        return default
-
-
-CHANNEL_RISK_WEIGHTS = {
-    # Highest fraud rate: a large share of fraud on a small share of volume.
-    "internet": _w("internet", 0.22),
-    "pos": _w("pos", 0.18),
-    # Heavily exploited and growing fastest, but also the largest share of
-    # legitimate volume, so the rate is close to average.
-    "mobile_app": _w("mobile_app", 0.12),
-    # Not among the top exploited channels in any NIBSS year, despite carrying
-    # roughly a third of transaction volume.
-    "ussd": _w("ussd", 0.12),
-    "atm": _w("atm", 0.12),
-    "qr": _w("qr", 0.10),
-    "branch": _w("branch", 0.02),   # In-person, lowest risk
-    "unknown": _w("unknown", 0.15),  # Conservative default
-}
-
-
-def get_channel_risk(channel: str) -> float:
-    return CHANNEL_RISK_WEIGHTS.get(channel, CHANNEL_RISK_WEIGHTS["unknown"])
+def get_channel_risk(channel: str, p: dict | None = None) -> float:
+    """The channel's weight in the parameters in force (or `p`)."""
+    return weights(p)[channel_key(channel)]

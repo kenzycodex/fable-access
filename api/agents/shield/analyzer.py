@@ -23,11 +23,13 @@ from agents.shield.explainer import explain_now
 from agents.shield.nip_codes import get_nip_risk_signal
 from agents.shield.patterns import match_scam_pattern
 from agents.shield.weights import (
+    CHANNEL_GATE,
     VELOCITY_FLAG_COUNT,
     VELOCITY_HIGH_COUNT,
     VELOCITY_WINDOW_MINUTES,
     amount_key,
     amount_tier,
+    channel_key,
     decide,
     finish,
     tenure_applied,
@@ -156,7 +158,7 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     # How the score is built, term by term (see weights.py). Every contribution
     # goes through add(), which evaluates it with the same function a backtest
     # uses, so a stored decision replays exactly.
-    parts: dict = {"terms": [], "tenure": 0.0, "nip34": False}
+    parts: dict = {"v": 2, "terms": [], "tenure": 0.0, "nip34": False}
 
     def add(t: list) -> float:
         parts["terms"].append(t)
@@ -256,10 +258,13 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
 
     # Step 4: Channel risk weight
     channel = transaction.get("channel", "mobile_app")
-    channel_boost = get_channel_risk(channel)
-    if channel_boost > 0.05:
+    # Always recorded, gated at CHANNEL_GATE, so a backtest can see what
+    # raising a quiet channel (branch) above the gate would do.
+    channel_boost = get_channel_risk(channel, p)
+    channel_value = add(term({channel_key(channel): 1}, gate=CHANNEL_GATE))
+    if channel_boost > CHANNEL_GATE:
         signals.append(f"channel_risk: {channel} (+{channel_boost})")
-        score += add(term(const=channel_boost))
+        score += channel_value
 
     # Step 5: NIP response code — rail-sourced only.
     #

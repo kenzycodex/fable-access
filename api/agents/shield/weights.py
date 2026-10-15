@@ -46,6 +46,16 @@ VELOCITY_HIGH_COUNT = int(os.getenv("FABLE_VELOCITY_HIGH", "5"))
 AMOUNT_TIERS = (50, 25, 10, 5)
 
 
+# A channel weight at or below this adds nothing: the rail is not a signal.
+CHANNEL_GATE = 0.05
+
+
+def channel_key(channel: str | None) -> str:
+    """The weight key for a channel; anything unlisted uses the "unknown" one."""
+    key = f"channel_{channel}"
+    return key if key in engine_config.WEIGHT_DEFAULTS else "channel_unknown"
+
+
 def amount_key(tier: int) -> str:
     return f"amount_{tier}x" if tier else "amount_3x"
 
@@ -115,26 +125,33 @@ def decide(score: float, channel: str | None, institution_id: str | None = None,
 
 
 # --- Score parts -------------------------------------------------------------
-# A term is [coefficients, constant, divisor, rounded]:
+# A term is [coefficients, constant, divisor, rounded, gate]:
 #
 #     value = (constant + sum(coefficient * weight[key])) / divisor
 #
-# rounded to 3 places when `rounded` is set. Fixed contributions (cold start,
-# channel risk, NIP code, scam pattern, ML anomaly) are terms with no keys.
+# rounded to 3 places when `rounded` is set, and counted only when it is above
+# `gate` (when one is given; channel risk uses CHANNEL_GATE). Fixed
+# contributions (cold start, NIP code, scam pattern, ML anomaly) are terms with
+# no keys. Parts recorded before the gate existed have four elements.
 # The final score is the terms added in order, then the tenure discount, the
 # clamp to [0, 1] and the NIP-34 override, exactly as the analyzer always did.
 
-def term(coefs: dict | None = None, const: float = 0.0, divisor: float = 1, rounded: bool = False) -> list:
-    return [dict(coefs or {}), const, divisor, 1 if rounded else 0]
+def term(coefs: dict | None = None, const: float = 0.0, divisor: float = 1, rounded: bool = False,
+         gate: float | None = None) -> list:
+    t = [dict(coefs or {}), const, divisor, 1 if rounded else 0]
+    return t + [gate] if gate is not None else t
 
 
 def term_value(t: list, w: dict) -> float:
-    coefs, const, divisor, rounded = t
+    coefs, const, divisor, rounded = t[:4]
     x = const
     for key, coef in coefs.items():
         x += coef * w[key]
     x = x / divisor if divisor != 1 else x
-    return round(x, 3) if rounded else x
+    x = round(x, 3) if rounded else x
+    if len(t) > 4 and t[4] is not None and not x > t[4]:
+        return 0.0
+    return x
 
 
 def raw_score(parts: dict, w: dict) -> float:
