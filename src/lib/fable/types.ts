@@ -93,6 +93,9 @@ export interface Transaction extends ScoreResult {
   /** What a person at the bank concluded. Only flagged and blocked transfers
    * are reviewed, so this is null for a pass. */
   review?: CaseReview | null;
+  /** The engine version (approved weights and thresholds) that scored it.
+   * Null on transfers scored before versions were recorded. */
+  engineVersion?: number | null;
 }
 
 export type ReviewState = "open" | "in_review" | "escalated" | "resolved";

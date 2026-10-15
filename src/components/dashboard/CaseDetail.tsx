@@ -163,6 +163,11 @@ function CaseBody({ data, onClose }: { data: CaseDetailData; onClose?: () => voi
             <p className="text-[12px] font-semibold text-d-muted">Risk score</p>
             <span className="text-[13px] font-bold tabular-nums text-d-text">{formatRiskScore(t.riskScore)}</span>
           </div>
+          {t.engineVersion != null && (
+            <p className="-mt-1 mb-2 text-[11px] text-d-faint" title="The approved weights and thresholds that produced this score">
+              Scored by engine v{t.engineVersion}
+            </p>
+          )}
           <div className="h-2 overflow-hidden rounded-full bg-d-surface-2">
             <div className="h-full rounded-full" style={{ width: `${Math.round(t.riskScore * 100)}%`, backgroundColor: color }} />
           </div>

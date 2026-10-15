@@ -567,6 +567,7 @@ export interface ApiTransactionRow {
   assignee?: string | null;
   reviewed_by?: string | null;
   reviewed_at?: string | null;
+  engine_version?: number | null;
 }
 
 function prettyRecipient(id: string | null, account: string | null): string {
@@ -615,6 +616,7 @@ export function mapApiRow(r: ApiTransactionRow): Transaction {
     // showing a name from a tenant that had been deleted.
     customerName: r.customer_name || prettyUserId(r.user_id),
     userId: r.user_id ?? undefined,
+    engineVersion: r.engine_version ?? null,
     remote: true,
     review: r.review_state
       ? {
