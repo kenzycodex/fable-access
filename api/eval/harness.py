@@ -92,6 +92,20 @@ def score_row(row: dict) -> float:
     return min(round(score, 3), 1.0)
 
 
+def metrics(tp: int, fp: int, tn: int, fn: int) -> dict:
+    """Precision, recall, F1 and false-positive rate from a confusion matrix.
+
+    The one definition, shared with the engine backtest (services/backtest.py),
+    so the console and this harness can never disagree on what "recall" means.
+    """
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tp / (tp + fn) if (tp + fn) else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+    fpr = fp / (fp + tn) if (fp + tn) else 0.0
+    return {"precision": round(precision, 4), "recall": round(recall, 4), "f1": round(f1, 4),
+            "false_positive_rate": round(fpr, 4)}
+
+
 def _decision(score: float, channel: str | None) -> str:
     th = thresholds_for(channel)
     return "BLOCK" if score >= th["block"] else "FLAG" if score >= th["flag"] else "PASS"
@@ -124,10 +138,7 @@ def evaluate(path: str) -> dict:
             tn += 1
         caught += 1 if (label and flagged) else 0
 
-    precision = tp / (tp + fp) if (tp + fp) else 0.0
-    recall = tp / (tp + fn) if (tp + fn) else 0.0
-    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
-    fpr = fp / (fp + tn) if (fp + tn) else 0.0
+    m = metrics(tp, fp, tn, fn)
 
     pr_auc = None
     try:
@@ -142,10 +153,10 @@ def evaluate(path: str) -> dict:
         "n": len(rows),
         "fraud": sum(labels),
         "confusion": {"tp": tp, "fp": fp, "tn": tn, "fn": fn},
-        "precision": round(precision, 4),
-        "recall": round(recall, 4),
-        "f1": round(f1, 4),
-        "false_positive_rate": round(fpr, 4),
+        "precision": m["precision"],
+        "recall": m["recall"],
+        "f1": m["f1"],
+        "false_positive_rate": m["false_positive_rate"],
         "pr_auc": pr_auc,
     }
 
