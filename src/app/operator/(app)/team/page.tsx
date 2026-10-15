@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { ShieldCheck, UserPlus } from "@phosphor-icons/react";
+import { Crown, EnvelopeSimple, Fingerprint, ShieldCheck, UserPlus, UsersThree } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { ConfirmDialog, Dialog } from "@/components/dashboard/Dialog";
-import { Avatar, Badge, Button, Card, Field, PageHeader, Skeleton, TextInput, table } from "@/components/dashboard/primitives";
+import { Avatar, Badge, Button, Card, CardHeader, Field, Notice, PageHeader, Skeleton, StatCard, StatGrid, TextInput, table } from "@/components/dashboard/primitives";
 import { ago, fullDate } from "@/components/operator/ui";
 import {
   can,
@@ -12,6 +12,7 @@ import {
   inviteOperator,
   removeOperator,
   ROLE_LABEL,
+  useOperatorPasskeys,
   useOperatorSession,
   useOperatorTeam,
   type Operator,
@@ -20,6 +21,12 @@ import {
 
 const ROLES: OperatorRole[] = ["platform_owner", "platform_admin", "support"];
 
+const ROLE_HELP: { role: OperatorRole; icon: React.ReactNode; body: string }[] = [
+  { role: "platform_owner", icon: <Crown size={16} weight="fill" />, body: "Everything, including operators, integration keys, Ask Fable limits, clearing and deleting institutions." },
+  { role: "platform_admin", icon: <ShieldCheck size={16} weight="fill" />, body: "Provisions, suspends and reactivates institutions, invites owners, reads every audit view and exports." },
+  { role: "support", icon: <UsersThree size={16} weight="fill" />, body: "Reads institutions and operator activity to help banks. Changes nothing." },
+];
+
 /** Fable's own staff. Platform owners invite, change and remove operators. */
 export default function OperatorTeamPage() {
   const session = useOperatorSession();
@@ -27,6 +34,11 @@ export default function OperatorTeamPage() {
   const owner = can(session?.role, "platform_owner");
   const [inviting, setInviting] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  const { data: myKeys } = useOperatorPasskeys();
+  const team = data?.operators ?? [];
+  const owners = team.filter((o) => o.role === "platform_owner" && o.status !== "invited").length;
+  const invited = team.filter((o) => o.status === "invited").length;
+  const withMfa = team.filter((o) => o.mfa).length;
 
   async function setRole(email: string, role: OperatorRole) {
     try {
@@ -45,7 +57,28 @@ export default function OperatorTeamPage() {
         description="Fable staff with access to this platform. Everyone signs in with an authenticator app."
         actions={owner && <Button icon={<UserPlus size={16} />} onClick={() => setInviting(true)}>Invite operator</Button>}
       />
-      <Card padded={false}>
+      <StatGrid>
+        <StatCard label="Operators" value={data ? String(team.length) : "-"} sub={`${invited} invite${invited === 1 ? "" : "s"} pending`}
+          icon={<UsersThree size={17} weight="fill" />} featured />
+        <StatCard label="Platform owners" value={data ? String(owners) : "-"}
+          sub={owners < 2 ? "Add a second for maker-checker" : "Key changes need two of them"} icon={<Crown size={17} weight="fill" />}
+          tone={owners < 2 ? "warning" : "success"} />
+        <StatCard label="Authenticator set up" value={data ? `${withMfa}/${team.length}` : "-"} sub="Required to sign in"
+          icon={<ShieldCheck size={17} weight="fill" />} tone="success" />
+        <StatCard label="Your passkeys" value={myKeys ? String(myKeys.passkeys.length) : "-"}
+          sub={myKeys?.passkeys.length ? "Preferred for key changes" : "Add one under Integrations"}
+          icon={<Fingerprint size={17} weight="fill" />} tone="brand" />
+      </StatGrid>
+
+      {data && owners < 2 && (
+        <Notice tone="warning">
+          There is only one platform owner. Integration-key changes then wait out a 12-hour cooling-off period instead of a second owner&apos;s approval. Invite a second owner to restore maker-checker.
+        </Notice>
+      )}
+
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
+      <Card padded={false} className="xl:col-span-2">
+        <div className="p-5 pb-3"><CardHeader title="Fable staff" subtitle="Everyone who can sign in to this platform." /></div>
         {isLoading ? (
           <div className="p-5"><Skeleton className="h-24" /></div>
         ) : (
@@ -76,13 +109,13 @@ export default function OperatorTeamPage() {
               })}
             </ul>
             <div className={`${table.wrap} hidden md:block`}>
-              <table className={table.base}>
+              <table className={`${table.base} min-w-[680px]`}>
                 <thead>
                   <tr className={table.head}>
                     <th className={table.th}>Operator</th>
                     <th className={table.th}>Role</th>
                     <th className={table.th}>Status</th>
-                    <th className={table.th}>Last sign-in</th>
+                    <th className={`${table.th} whitespace-nowrap`}>Last sign-in</th>
                     <th className={table.th} />
                   </tr>
                 </thead>
@@ -95,7 +128,7 @@ export default function OperatorTeamPage() {
                           <span className="flex items-center gap-3">
                             <Avatar name={o.name || o.email} size="sm" />
                             <span className="min-w-0">
-                              <span className="block font-semibold text-d-text">
+                              <span className="block whitespace-nowrap font-semibold text-d-text">
                                 {o.name || o.email}{you && <span className="ml-2 text-[12px] font-normal text-d-faint">(you)</span>}
                               </span>
                               {o.name && <span className="block text-[12px] text-d-muted">{o.email}</span>}
@@ -121,6 +154,31 @@ export default function OperatorTeamPage() {
           </>
         )}
       </Card>
+      <div className="flex flex-col gap-4">
+        <Card>
+          <CardHeader title="Roles" subtitle="Least privilege: give each person the lowest role that does their job." />
+          <ul className="flex flex-col gap-3">
+            {ROLE_HELP.map((r) => (
+              <li key={r.role} className="flex gap-3">
+                <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">{r.icon}</span>
+                <span>
+                  <span className="block text-[13px] font-semibold text-d-text">{ROLE_LABEL[r.role]}</span>
+                  <span className="block text-[12px] leading-relaxed text-d-muted">{r.body}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+        <Card>
+          <CardHeader title="How operators sign in" />
+          <ul className="flex flex-col gap-2 text-[12px] leading-relaxed text-d-muted">
+            <li className="flex gap-2"><ShieldCheck size={14} weight="fill" className="mt-0.5 shrink-0 text-emerald-500" />A password and an authenticator code, every time. Codes cannot be reused.</li>
+            <li className="flex gap-2"><Fingerprint size={14} weight="fill" className="mt-0.5 shrink-0 text-emerald-500" />A passkey or a fresh code again for any integration-key change.</li>
+            <li className="flex gap-2"><EnvelopeSimple size={14} weight="fill" className="mt-0.5 shrink-0 text-emerald-500" />Invites are one-time links that expire in 3 days. No password is ever emailed.</li>
+          </ul>
+        </Card>
+      </div>
+      </div>
       <InviteDialog open={inviting} onClose={() => setInviting(false)} onDone={() => mutate()} />
       <ConfirmDialog
         open={removing !== null}
