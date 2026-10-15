@@ -27,6 +27,13 @@ def main() -> int:
     from core.db import cursor
     from services.secret_admin import log_event
 
+    if "--stored" in sys.argv:
+        # The names now stored in the console, pipe-separated, for removing
+        # exactly those lines from .env (and nothing else).
+        with cursor() as cur:
+            cur.execute("SELECT DISTINCT name FROM platform_secrets WHERE status = 'active' ORDER BY name")
+            print("|".join(r["name"] for r in cur.fetchall()))
+        return 0
     apply = "--apply" in sys.argv
     if vault.master_key() is None:
         print("FABLE_SECRETS_KEY is not set (or is not 32 bytes). Set it in .env and restart first.")
