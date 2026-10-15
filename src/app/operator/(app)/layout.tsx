@@ -4,11 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
-import { List, Moon, Plus, ShieldCheck, Sun } from "@phosphor-icons/react";
+import { List, Moon, Sun } from "@phosphor-icons/react";
 import { IconButton } from "@/components/app-kit";
 import { OPERATOR_PAGES, OperatorSidebar } from "@/components/operator/OperatorSidebar";
 import { useConsoleLayout } from "@/lib/fable/layout";
-import { can, ROLE_LABEL, useOperatorSession } from "@/lib/fable/operator";
+import { useOperatorSession } from "@/lib/fable/operator";
+import { useApiStatus } from "@/lib/fable/useBackend";
 
 /**
  * The operator platform's frame. Fable staff only: without an operator session
@@ -20,6 +21,7 @@ export default function OperatorLayout({ children }: { children: React.ReactNode
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const { resolvedTheme, setTheme } = useTheme();
+  const api = useApiStatus();
 
   useEffect(() => {
     if (session === null) window.location.replace("/operator/login");
@@ -57,14 +59,20 @@ export default function OperatorLayout({ children }: { children: React.ReactNode
             <span className="truncate text-[15px] font-bold text-d-text lg:hidden">{crumb ?? current?.label ?? "Operator"}</span>
           </div>
           <div className="flex items-center gap-2">
-            {can(session.role, "platform_admin") && pathname !== "/operator/institutions/new" && (
-              <Link href="/operator/institutions/new"
-                className="hidden h-10 items-center gap-1.5 rounded-xl bg-brand px-3.5 text-[13px] font-semibold text-white transition-all hover:brightness-110 sm:inline-flex">
-                <Plus size={15} weight="bold" /> New institution
-              </Link>
-            )}
-            <span className="hidden h-10 items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 text-[12px] font-semibold text-amber-700 dark:text-amber-300 md:inline-flex">
-              <ShieldCheck size={14} weight="fill" /> {ROLE_LABEL[session.role]}
+            <span role="status"
+              title={api === "api" ? "The Fable API is answering" : api === "checking" ? "Checking the API" : "The Fable API is not answering"}
+              className={`inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-[12px] font-semibold ${
+                api === "api"
+                  ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                  : api === "checking"
+                    ? "border-d-border bg-d-surface-2 text-d-muted"
+                    : "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
+              }`}>
+              <span className="relative flex size-2">
+                {api === "api" && <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-60" />}
+                <span className={`relative inline-flex size-2 rounded-full ${api === "api" ? "bg-emerald-500" : api === "checking" ? "bg-d-faint" : "bg-red-500"}`} />
+              </span>
+              <span className="hidden sm:inline">{api === "api" ? "API healthy" : api === "checking" ? "Checking API" : "API not answering"}</span>
             </span>
             <IconButton label="Toggle dark mode" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
               <Sun size={18} className="hidden dark:block" />

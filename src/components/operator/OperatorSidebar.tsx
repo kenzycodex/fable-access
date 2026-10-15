@@ -79,7 +79,6 @@ function Badge({ kind, active }: { kind: "attention" | "security"; active: boole
  */
 export function OperatorSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
-  const api = useApiStatus();
 
   return (
     <>
@@ -134,13 +133,6 @@ export function OperatorSidebar({ open, onClose }: { open: boolean; onClose: () 
           ))}
 
           <div className="mt-auto flex flex-col gap-1 border-t border-d-border pt-4">
-            <span className="nav-item flex h-10 items-center gap-3 rounded-xl px-3 text-[13px] font-medium text-d-muted"
-              title={api === "api" ? "The Fable API is answering" : api === "checking" ? "Checking the API" : "The Fable API is not answering"}>
-              <span className="flex size-[17px] items-center justify-center">
-                <span className={`size-2 rounded-full ${api === "api" ? "bg-emerald-500" : api === "checking" ? "bg-d-faint" : "bg-red-500"}`} />
-              </span>
-              <span className="nav-text">{api === "api" ? "API healthy" : api === "checking" ? "Checking API" : "API not answering"}</span>
-            </span>
             <a href="/docs" target="_blank" rel="noopener noreferrer" title="Documentation"
               className="nav-item flex h-10 items-center gap-3 rounded-xl px-3 text-[13px] font-medium text-d-muted transition-colors hover:bg-d-surface-2 hover:text-d-text">
               <BookOpen size={17} />

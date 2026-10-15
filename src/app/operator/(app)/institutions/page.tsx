@@ -63,8 +63,8 @@ function Institutions() {
         description="Every bank and fintech on Fable."
         actions={
           can(session?.role, "platform_admin") && (
-            <ButtonLink href="/operator/institutions/new" icon={<Plus size={16} weight="bold" />} className="sm:hidden">
-              New
+            <ButtonLink href="/operator/institutions/new" icon={<Plus size={16} weight="bold" />}>
+              New institution
             </ButtonLink>
           )
         }
