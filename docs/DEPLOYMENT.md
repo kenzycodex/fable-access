@@ -90,18 +90,38 @@ you are reaching for `systemctl`, you are on the wrong path.
    cp .env.example .env
    # Edit .env. FABLE_DB_PATH=/data/fable.db is required, and must match
    # the bind mount in docker-compose.yml. Also set, for production:
-   #   FABLE_SESSION_SECRET   signs console sessions; unset, everyone is signed
-   #                          out whenever the API restarts
-   #   FABLE_OPERATOR_KEY     lets you provision institutions; unset disables it
+   #   FABLE_SESSION_SECRET   signs console and operator sessions; unset,
+   #                          everyone is signed out whenever the API restarts
+   #   FABLE_PIN_PEPPER       server-held key in every PIN hash (+ FABLE_PIN_PEPPER_ID=1)
+   #   FABLE_SECRETS_KEY      master key for integration keys stored from the
+   #                          operator console (+ FABLE_SECRETS_KEY_ID=k1)
    #   FABLE_CORS_ORIGINS     your Vercel origins instead of "*"
    #   FRONTEND_URL, WEBAUTHN_RP_ID / WEBAUTHN_ORIGINS, and SMTP_* for email
    # api/.env.example documents every setting and its default.
+   chmod 600 .env
    ```
+   Generate the three secrets with:
+   ```bash
+   python3 -c "import secrets;print('FABLE_SESSION_SECRET='+secrets.token_urlsafe(48))" >> .env
+   python3 -c "import secrets;print('FABLE_PIN_PEPPER='+secrets.token_urlsafe(32))" >> .env
+   python3 -c "import secrets,base64;print('FABLE_SECRETS_KEY='+base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())" >> .env
+   ```
+   **Back up `FABLE_PIN_PEPPER` and `FABLE_SECRETS_KEY` offline**, in a password
+   manager two trusted people can open. Losing the pepper means every customer
+   sets a new PIN; losing the master key means re-entering every integration key.
+   See [SECRETS.md](SECRETS.md).
 3. **Build and start:**
    ```bash
    docker compose up -d --build
    docker compose logs --tail=40 api
    ```
+4. **Create the first Fable operator** (a platform owner). They enrol an
+   authenticator app at first sign-in at `/operator/login`:
+   ```bash
+   docker compose exec api python scripts/create_operator.py you@yourcompany.com "Your Name"
+   ```
+   Institutions are then created from the operator platform, empty and in
+   sandbox mode, with the owner invited by email. There is no provisioning key.
 
 `docker compose` reads `docker-compose.yml` from the **current directory**, so
 every command in this document assumes you are in `/var/www/fable/api`, not the
@@ -195,9 +215,9 @@ writes mid-change, and take a backup (section 4). Run them from
 ```bash
 docker compose stop api
 
-# Rename a demo customer's id so it follows their name (ecobank_tunde -> ecobank_segun)
-docker compose run --rm api python scripts/rename_customers.py
-docker compose run --rm api python scripts/rename_customers.py --apply
+# Clear one institution's customer data (dry run first)
+docker compose run --rm api python scripts/clear_institution_data.py <id>
+docker compose run --rm api python scripts/clear_institution_data.py <id> --apply
 
 # Remove every institution except the ones you name (irreversible; read the preview)
 docker compose run --rm api python scripts/remove_institutions.py --keep ecobank
@@ -210,7 +230,11 @@ docker compose up -d api
 ```
 
 `scripts/pin_tool.py` clears a customer's PIN (see PIN-RECOVERY.md) and
-`scripts/change_admin_email.py` changes a console login email. Each script's
+`scripts/change_admin_email.py` changes a console login email. For integration
+keys (see SECRETS.md): `import_env_secrets.py` moves keys from `.env` into
+encrypted storage, `verify_secret_audit.py` checks the key audit trail is
+intact, and `rewrap_secrets.py` rotates the master key. These three run with
+the API up (`docker compose exec -T api python scripts/...`). Each script's
 docstring has the details. After a code change that touches the schema, a
 restart migrates the database in place.
 
@@ -238,6 +262,11 @@ server {
 ```
 Run `certbot --nginx -d api.yourdomain.com` to secure it.
 
+**Streaming.** Ask Fable streams its answers as server-sent events. The API
+sends `X-Accel-Buffering: no`, which Nginx honours by default, so nothing is
+needed. Only if answers arrive all at once, add `proxy_buffering off;` to the
+location block above and run `sudo nginx -t && sudo systemctl reload nginx`.
+
 ---
 
 ## 6. Point the frontend at it
@@ -257,54 +286,31 @@ time, so an existing deployment will keep using the old value.
 
 ---
 
-## 7. Move the local database up
+## 7. Data on a new server
 
-If you want to use a local database as the starting point, be precise about
-what is in it: three institutions, their customers, ~90 days of
-seeded history, branding, and API keys.
+Fable has no demo data. A new server starts with an empty database: create the
+first operator (section 3), then create institutions from the operator platform.
+Each institution brings its own customers and history through **Settings >
+Data** in its console, by CSV or the imports API.
 
-### Option A — reseed on the server (cleanest)
-
-Nothing to migrate. Provision fresh and let the seeder run:
-
-```bash
-curl -X POST https://api.yourdomain.com/admin/provision \
-  -H "Content-Type: application/json" \
-  -d '{"institution_name":"Meridian MFB","admin_email":"risk@meridian.ng"}'
-```
-
-Each provision creates the tenant, its customers and 90 days of history. This
-is what I'd do: the local DB's history is generated anyway, so copying it
-carries no information that reseeding doesn't reproduce.
-
-### Option B — carry the local data across
-
-Only worth it if you've made transfers you want to keep. **This overwrites the
-server's database**, so take a backup on the server first (section 4). Stop the
-local API, snapshot the file with SQLite's backup (not a plain copy), and send
-that:
+To move an existing database to a new server instead, take a backup with
+SQLite's backup API (never a plain copy, the database runs in WAL mode):
 
 ```bash
-# On your machine, with the local API stopped
-cd api
-.venv/Scripts/python.exe -c "import sqlite3; s=sqlite3.connect('fable.db'); d=sqlite3.connect('fable.snapshot.db'); s.backup(d); d.close()"
-scp fable.snapshot.db user@your_vps_ip:/var/www/fable/api/data/fable.db
-
-# On the server
-cd /var/www/fable/api
-docker compose stop api
-rm -f data/fable.db-wal data/fable.db-shm
-docker compose up -d --build
+# On the old server
+docker compose exec -T api python -c "import os,sqlite3; s=sqlite3.connect(os.environ.get('FABLE_DB_PATH') or '/app/fable.db'); d=sqlite3.connect('/data/move.db'); s.backup(d); d.close()"
+# Copy data/move.db across, then on the new server
+docker compose stop api && mv data/move.db data/fable.db && rm -f data/fable.db-wal data/fable.db-shm && docker compose up -d --build
 ```
 
-The database holds every institution's customer data (API keys are stored only
-as hashes). Delete the snapshot afterwards, and never commit one (`*.db` is
-already git-ignored).
+Copy `.env` across too: without the same `FABLE_SESSION_SECRET`,
+`FABLE_PIN_PEPPER` and `FABLE_SECRETS_KEY`, sessions end, PINs stop verifying
+and stored keys cannot be read. Delete `move.db` afterwards: it holds every
+institution's data.
 
-⚠️ **Passkeys will not survive**, whichever option you pick. A credential is
-bound to the Relying Party ID it was registered against, so anything enrolled
-on `localhost` is invalid on your live domain. Customers re-enrol on first
-step-up. This is WebAuthn working correctly, not a bug.
+⚠️ **Passkeys are bound to the domain.** A credential registered on one domain
+(including `localhost`) is invalid on another. Customers and operators
+re-enrol. This is WebAuthn working correctly.
 
 ---
 
@@ -358,16 +364,6 @@ live mode lifts it, at real cost per lookup.
 **WebAuthn RP ID.** Must be the registrable domain with no scheme or port. A
 mismatch fails at verification time, not registration, so it looks like a
 signature problem rather than config.
-
-**Seed drift.** Passing transfers are learned as legitimate and shift
-baselines, so a demo gets duller the more you rehearse. Reset before pitching:
-
-```bash
-curl -X POST $API/v1/demo/seed-institution \
-  -H "Content-Type: application/json" \
-  -H "X-Fable-Operator-Key: $FABLE_OPERATOR_KEY" \
-  -d '{"institution_id":"<your-institution>","days":90}'
-```
 
 ---
 
