@@ -8,10 +8,10 @@ import { Badge, Button, Card, CardHeader, DetailRow, Eyebrow, Notice, Screen } f
 import { PageSpinner } from "@/components/demo/Spinner";
 import { GhostTimer } from "@/components/demo/GhostTimer";
 import { StepUpDialog } from "@/components/demo/StepUpDialog";
-import { StepUpRequiredError } from "@/lib/fable/api";
+import { GhostExpiredError, ghostDetail, StepUpRequiredError } from "@/lib/fable/api";
 import { stepUpRequirement, type StepUpRequirement } from "@/lib/fable/webauthn";
 import { formatNaira } from "@/lib/fable/format";
-import { cancelGhost, confirmGhost, useFableStore } from "@/lib/fable/store";
+import { cancelGhost, confirmGhost, markGhostEnded, useFableStore } from "@/lib/fable/store";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 
 const STEPS = [
@@ -32,20 +32,59 @@ export default function GhostPage() {
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [requirement, setRequirement] = useState<StepUpRequirement | null>(null);
   const [releasing, setReleasing] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [releaseError, setReleaseError] = useState<string | null>(null);
+  const [ended, setEnded] = useState<string | null>(null);
 
   useEffect(() => {
-    if (store !== null && !ghost) router.replace(href());
-  }, [store, ghost, router, href]);
+    if (store !== null && !ghost && !ended) router.replace(href());
+  }, [store, ghost, router, href, ended]);
+
+  if (ended) {
+    return (
+      <Screen>
+        <PageHeader title="Hold ended" subtitle="Nothing was sent" back />
+        <Card className="flex flex-col gap-4">
+          <Notice tone="neutral">{ended}</Notice>
+          <Button size="lg" full onClick={() => router.push(href())}>
+            Back to home
+          </Button>
+        </Card>
+      </Screen>
+    );
+  }
 
   if (!ghost) {
     return <PageSpinner />;
   }
 
-  function cancel() {
+  async function cancel() {
+    if (!ghost || cancelling) return;
+    setCancelling(true);
+    setReleaseError(null);
+    try {
+      await cancelGhost(ghost.id);
+      router.push(href());
+    } catch (err) {
+      setReleaseError(err instanceof Error ? err.message : "We couldn't cancel just now. Please try again.");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  /** The window closed on screen: ask the server what happened, since it is
+   * the server that ends the hold. */
+  async function checkExpiry() {
     if (!ghost) return;
-    cancelGhost(ghost.id);
-    router.push(href());
+    try {
+      const fresh = await ghostDetail(ghost.id);
+      if (fresh.status === "EXPIRED") {
+        markGhostEnded(ghost.id, "expired");
+        setEnded(new GhostExpiredError().message);
+      }
+    } catch {
+      // Unreachable: leave the screen as it is; release will say what happened.
+    }
   }
 
   async function confirm(token?: string) {
@@ -56,6 +95,11 @@ export default function GhostPage() {
       await confirmGhost(ghost.id, token ?? null);
       router.push(href());
     } catch (err) {
+      if (err instanceof GhostExpiredError) {
+        markGhostEnded(ghost.id, "expired");
+        setEnded(err.message);
+        return;
+      }
       if (err instanceof StepUpRequiredError) {
         // The server named the factor it wants; go and collect it.
         try {
@@ -99,7 +143,7 @@ export default function GhostPage() {
 
           <Card>
             <CardHeader title="Cooling window" subtitle="Cancel any time before it ends" />
-            <GhostTimer expiresAt={ghost.expiresAt} windowSeconds={ghost.windowSeconds} />
+            <GhostTimer expiresAt={ghost.expiresAt} windowSeconds={ghost.windowSeconds} onExpire={() => void checkExpiry()} />
           </Card>
         </div>
 
@@ -128,7 +172,7 @@ export default function GhostPage() {
           </Card>
 
           <Card className="flex flex-col gap-3">
-            <Button variant="danger" size="lg" full disabled={releasing} onClick={cancel}>
+            <Button variant="danger" size="lg" full loading={cancelling} disabled={releasing} onClick={() => void cancel()}>
               Cancel and get my money back
             </Button>
             <Button
@@ -136,6 +180,7 @@ export default function GhostPage() {
               size="lg"
               full
               loading={releasing}
+              disabled={cancelling}
               onClick={() => confirm()}
               icon={!releasing ? <HandPointing size={18} /> : undefined}
             >

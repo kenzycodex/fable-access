@@ -27,7 +27,7 @@ function ApiStatus() {
           ? "Connected to the Fable API: real Shield scoring and persistence"
           : checking
             ? "Checking the connection to the Fable API"
-            : "The Fable API is offline, so the console is running on its built-in engine"
+            : "The Fable API can't be reached, so console data can't load and no transfers are scored"
       }
     >
       <span className={`size-2 rounded-full ${checking ? "bg-d-faint" : live ? "bg-emerald-500" : "bg-amber-500"}`} />

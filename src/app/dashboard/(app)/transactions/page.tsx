@@ -20,7 +20,7 @@ import {
   table,
 } from "@/components/dashboard/primitives";
 import { formatNaira, formatNairaCompact, formatRelativeTime, formatRiskScore } from "@/lib/fable/format";
-import { CHANNEL_LABELS } from "@/lib/fable/scoring";
+import { CHANNEL_LABELS } from "@/lib/fable/constants";
 import type { RiskAction, Transaction } from "@/lib/fable/types";
 import { daysAgo, downloadCsv } from "@/lib/fable/console";
 import { useDashboardFeed } from "@/lib/fable/useBackend";

@@ -188,12 +188,20 @@ function FlagBlockResult() {
   // BLOCK goes to containment. FLAG goes through verification, then completes
   // with no cooling window.
   async function sendAnyway(token?: string) {
+    if (proceeding) return;
     if (isBlock) {
-      await createGhost();
-      router.push(href("/ghost"));
+      setProceeding(true);
+      setProceedError(null);
+      try {
+        await createGhost();
+        router.push(href("/ghost"));
+      } catch (err) {
+        setProceedError(err instanceof Error ? err.message : "We couldn't hold this transfer just now. Nothing was sent.");
+      } finally {
+        setProceeding(false);
+      }
       return;
     }
-    if (proceeding) return;
     setProceeding(true);
     setProceedError(null);
     try {

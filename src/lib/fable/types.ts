@@ -13,7 +13,8 @@ export type TransactionStatus =
   | "blocked" // Shield blocked; not overridden
   | "cancelled" // user cancelled a flagged or blocked transfer
   | "held" // routed into Ghost, cooling window running
-  | "released"; // user confirmed out of Ghost, funds sent
+  | "released" // user confirmed out of Ghost, funds sent
+  | "expired"; // the cooling window closed unconfirmed; nothing was sent
 
 export interface Signal {
   /** Machine code, e.g. "amount_anomaly". */
@@ -119,7 +120,7 @@ export interface GhostContainer {
   expiresAt: number;
   /** Total cooling window in seconds (for the progress bar). */
   windowSeconds: number;
-  status: "held" | "cancelled" | "released";
+  status: "held" | "cancelled" | "released" | "expired";
   /** True when this container lives in the Fable API (not just locally). */
   remote?: boolean;
 }

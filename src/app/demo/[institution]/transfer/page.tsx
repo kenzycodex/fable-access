@@ -31,11 +31,11 @@ import {
   inputClass,
 } from "@/components/app-kit";
 import { BehavioralTracker } from "@/lib/fable/biometrics";
-import { InsufficientFundsError, accountBalance, sandboxRecipients, type SavedRecipient } from "@/lib/fable/api";
+import { accountBalance, FableUnavailableError, InsufficientFundsError, sandboxRecipients, type SavedRecipient } from "@/lib/fable/api";
 import { collectDeviceFingerprint, type DeviceFingerprint } from "@/lib/fable/fingerprint";
 import { formatNaira } from "@/lib/fable/format";
 import { getGeolocationSnapshot, subscribeGeolocation, type GeoLocation } from "@/lib/fable/geolocation";
-import { CHANNEL_LABELS } from "@/lib/fable/scoring";
+import { CHANNEL_LABELS } from "@/lib/fable/constants";
 import { QUICK_AMOUNTS } from "@/lib/fable/seed";
 import { ensureSession, getSessionContext, type BankingSession } from "@/lib/fable/session";
 import { submitTransfer } from "@/lib/fable/store";
@@ -78,6 +78,7 @@ export default function TransferPage() {
   const [banks, setBanks] = useState<Bank[]>([]);
   const [selectedBankCode, setSelectedBankCode] = useState("");
   const [amount, setAmount] = useState("");
+  const submitRef = useRef<{ key: string; reference: string } | null>(null);
   const [narration, setNarration] = useState("");
   const [channel, setChannel] = useState<Channel>("app");
   const [detectedChannel, setDetectedChannel] = useState<Channel | null>(null);
@@ -228,6 +229,13 @@ export default function TransferPage() {
     if (!canSubmit || !contact) return;
     setSubmitting(true);
     setSubmitError(null);
+    // One reference per transfer the customer is making, reused if they retry
+    // after an error, so a retry returns the decision already made rather than
+    // booking a second one. A changed amount or recipient starts a new one.
+    const fingerprint = `${amountValue}|${contact.accountNumber || contact.token || contact.name}|${channel}`;
+    if (!submitRef.current || submitRef.current.key !== fingerprint) {
+      submitRef.current = { key: fingerprint, reference: `ref_${crypto.randomUUID()}` };
+    }
 
     // Everything the SDK collected on this page travels with the transfer.
     const sdk = {
@@ -243,14 +251,20 @@ export default function TransferPage() {
       // A short floor so the checking moment registers. Scoring is sub-200ms, so
       // a long artificial wait would be pure friction.
       const minDelay = new Promise((resolve) => setTimeout(resolve, 650));
-      await Promise.all([submitTransfer({ amount: amountValue, recipient: contact, narration, channel }, sdk), minDelay]);
+      await Promise.all([
+        submitTransfer({ amount: amountValue, recipient: contact, narration, channel }, sdk, submitRef.current.reference),
+        minDelay,
+      ]);
+      submitRef.current = null;
       router.push(href("/result"));
     } catch (err) {
       if (err instanceof InsufficientFundsError) {
         const short = err.shortfall > 0 ? ` You're ${formatNaira(err.shortfall)} short.` : "";
         setSubmitError(`Not enough balance for this transfer.${short}`);
+      } else if (err instanceof FableUnavailableError) {
+        setSubmitError(err.message);
       } else {
-        setSubmitError("We couldn't process this transfer just now. Please try again.");
+        setSubmitError("We couldn't process this transfer just now. Nothing was sent. Please try again.");
       }
       setSubmitting(false);
     }

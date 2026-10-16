@@ -126,10 +126,14 @@ export interface CaseDetail {
   };
   containment: {
     ghost_id: string;
-    status: string;
+    status: "HELD" | "RELEASED" | "CANCELLED" | "EXPIRED";
     cooling_window_minutes: number | null;
     created_at: string;
+    expires_at?: string | null;
     resolved_at: string | null;
+    resolved_by?: string | null;
+    resolution_note?: string | null;
+    transaction_id?: string | null;
   } | null;
   activity: { event_type: string; payload: Record<string, unknown>; created_at: string }[];
 }
@@ -150,6 +154,15 @@ export const addCaseNote = (id: string, body: string) => caseAction<CaseNote>(id
 export const resolveCase = (id: string, outcome: ReviewOutcome, note?: string) =>
   caseAction(id, "resolve", { outcome, note: note || null });
 export const reopenCase = (id: string) => caseAction(id, "reopen");
+
+/** Cancel a held transfer from the console. The money stays with the customer. */
+export const cancelCaseHold = (id: string, note: string) =>
+  call(`/v1/review/${encodeURIComponent(id)}/hold/cancel`, { method: "POST", ...json({ note }) });
+
+/** Release a held transfer after the bank confirmed it with the customer by its
+ * own means. Owners only; the note says how the customer confirmed. */
+export const releaseCaseHold = (id: string, note: string) =>
+  call(`/v1/review/${encodeURIComponent(id)}/hold/release`, { method: "POST", ...json({ note }) });
 
 // ---------------------------------------------------------------------------
 // Team
@@ -187,6 +200,8 @@ export interface RiskPolicy {
   hold_high_minutes: number;
   hold_medium_minutes: number;
   hold_low_minutes: number;
+  /** 1 when a customer may route a flagged transfer into a hold, not only a blocked one. */
+  hold_on_flag: number;
   custom: string[];
   updated_by: string | null;
   updated_at: string | null;

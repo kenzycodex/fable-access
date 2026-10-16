@@ -1,15 +1,14 @@
-// Client for the Fable backend — the FastAPI service in api/ (Shield's
-// scikit-learn ML + GPT-4o explanations, SQLite persistence). Every call
-// degrades gracefully: if the API is unreachable the store falls back to the
-// built-in client engine (scoring.ts), so the demo never breaks.
+// Client for the Fable backend, the FastAPI service in api/. Every decision is
+// the server's: when the API cannot be reached the caller is told so, and
+// nothing is scored or held in the browser.
 //
-// Point NEXT_PUBLIC_FABLE_API_URL at the deployed API (e.g. Railway) in prod;
+// Point NEXT_PUBLIC_FABLE_API_URL at the deployed API in production; it
 // defaults to the local FastAPI dev server.
 
 import type { BehavioralProfile } from "./biometrics";
 import type { DeviceFingerprint } from "./fingerprint";
 import { TRUSTED_CITY_M, type GeoLocation } from "./geolocation";
-import { cacheBaseline, CHANNEL_LABELS } from "./scoring";
+import { CHANNEL_LABELS } from "./constants";
 import type { SessionContext } from "./session";
 import { activeInstitution, activeUserId, authHeaders } from "./tenant";
 import type { Channel, ReviewOutcome, ReviewState, RiskAction, ScoreResult, Signal, Transaction, TransactionInput } from "./types";
@@ -283,11 +282,20 @@ function localIsoTimestamp(): string {
   );
 }
 
-/** POST /v1/shield/analyze — real Shield scoring (ML + rules + LLM explanation).
- * `sdk` carries the real collected context; omitted fields degrade gracefully. */
-/** Replay options. A queued offline transfer must be scored as the customer
- * and institution it was made for, not whoever is active now, and carries a
- * stable reference so the server recognises a retry. */
+/** Fable could not be reached (network error, timeout, or a server error), so
+ * no decision was made. Nothing was sent; the customer should try again. */
+export class FableUnavailableError extends Error {
+  constructor(message = "We couldn't reach Fable to check this transfer, so it hasn't been sent. Please try again.") {
+    super(message);
+    this.name = "FableUnavailableError";
+  }
+}
+
+/** POST /v1/shield/analyze: Fable's decision on a transfer. `sdk` carries the
+ * collected context; omitted fields are simply absent. */
+/** Options for a scoring call. `clientReference` is stable across retries of
+ * one transfer, so the server returns the decision it already made instead of
+ * booking a second one. */
 export interface ReplayOptions {
   clientReference?: string;
   userId?: string;
@@ -357,14 +365,11 @@ export async function shieldAnalyze(
   });
 
   // Not routed through fetchJson: a 422 here means the account cannot cover
-  // the transfer, which is a different outcome from the API being
-  // unreachable. Collapsing the two would send it to the local engine and
-  // score a transfer that can never execute.
-  //
-  // The timeout is generous because the AI explainer can be slow on a cold
-  // call, and a real score should not be pushed down to the fallback engine.
+  // the transfer, which is a different outcome from the API being unreachable.
+  // The decision never waits for the AI write-up, so a long wait here means
+  // the API is in trouble; 15 seconds is the most a customer should be kept.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25_000);
+  const timer = setTimeout(() => controller.abort(), 15_000);
   let raw: Response;
   try {
     raw = await fetch(`${API_BASE}/v1/shield/analyze`, {
@@ -392,8 +397,7 @@ export async function shieldAnalyze(
         detail.message ?? "Insufficient funds for this transfer.",
       );
     }
-    // A validation problem: let the caller fall back to the local engine rather
-    // than reporting a wrong reason to the customer.
+    // A validation problem, not an empty wallet: report it as one.
     throw new Error("Shield rejected the transfer payload (422 validation).");
   }
   if (!raw.ok) throw new Error(`Fable API ${raw.status} on /v1/shield/analyze`);
@@ -461,27 +465,11 @@ interface ApiGhostResponse {
 
 /** POST /v1/ghost/create — real cooling-window container. */
 export async function ghostCreate(txn: Transaction): Promise<{ id: string; expiresAt: number; windowSeconds: number }> {
+  // Only the decision's id: the server takes the hold's risk, signals and
+  // explanation from the decision it stored, never from the browser.
   const res = await fetchJson<ApiGhostResponse>("/v1/ghost/create", {
     method: "POST",
-    body: JSON.stringify({
-      user_id: activeUserId(),
-      institution_id: activeInstitution(),
-      transaction: {
-        amount: txn.amount,
-        recipient_id: txn.recipientName.toLowerCase(),
-        recipient_name: txn.recipientName,
-        recipient_account: txn.recipientToken ? "" : txn.recipientAccount,
-        recipient_token: txn.recipientToken ?? null,
-        recipient_bank: txn.recipientBank,
-        narration: txn.narration,
-        channel: CHANNEL_TO_API[txn.channel],
-      },
-      risk_score: txn.riskScore,
-      explanation: txn.explanation,
-      // The signals travel with the container so release can demand a stronger
-      // factor when the hold was caused by identity signals, not just amount.
-      signals: txn.signals.map((sig) => sig.code),
-    }),
+    body: JSON.stringify({ user_id: activeUserId(), transaction_id: txn.id }),
   });
   return {
     id: res.ghost_id,
@@ -496,6 +484,15 @@ export class StepUpRequiredError extends Error {
   constructor(readonly level: string, message: string) {
     super(message);
     this.name = "StepUpRequiredError";
+  }
+}
+
+/** The hold's cooling window closed before it was released, so nothing was
+ * sent and the money stayed with the customer. */
+export class GhostExpiredError extends Error {
+  constructor(message = "This hold expired, so the money stayed in your account. Start the transfer again if you still want to send it.") {
+    super(message);
+    this.name = "GhostExpiredError";
   }
 }
 
@@ -520,10 +517,17 @@ export async function ghostResolve(
       detail.message ?? "Verification required before this transfer can be released.",
     );
   }
+  if (res.status === 410) throw new GhostExpiredError();
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const detail = body?.detail;
-    throw new Error(typeof detail === "string" ? detail : `Fable API ${res.status} on ghost/${endpoint}`);
+    throw new Error(
+      typeof detail === "string"
+        ? detail
+        : typeof detail?.message === "string"
+          ? detail.message
+          : "We couldn't reach Fable just now. Your money is still held. Please try again.",
+    );
   }
 }
 
@@ -532,7 +536,8 @@ export function ghostDetail(ghostId: string): Promise<{
   ghost_id: string;
   risk_score: number | null;
   signals?: string[];
-  status: string;
+  status: "HELD" | "RELEASED" | "CANCELLED" | "EXPIRED";
+  expires_at?: string;
 }> {
   return fetchJson(`/v1/ghost/${ghostId}`);
 }
@@ -1156,23 +1161,7 @@ export async function customerOverview(
     } | null;
   }>(`/v1/sandbox/overview/${encodeURIComponent(userId)}?limit=${limit}${tenantParam(institution)}`);
 
-  // Cache the real baseline so the offline engine scores this customer against
-  // their own history rather than a single hardcoded average shared by
-  // everyone. Refreshed on every home-screen load, which is the last point the
-  // API was known to be reachable.
-  const sb = res.scoring_baseline;
-  cacheBaseline(
-    userId,
-    sb
-      ? {
-          avgAmount: sb.avg_amount,
-          typicalHours: sb.typical_hours,
-          knownRecipients: sb.known_recipients,
-          transactionCount: sb.transaction_count,
-          tenureDiscount: sb.tenure_discount,
-        }
-      : null,
-  );
+
 
   return {
     balance: res.balance,

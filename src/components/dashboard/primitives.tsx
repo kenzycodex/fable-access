@@ -166,6 +166,7 @@ const OUTCOME: Record<TransactionStatus, { label: string; tone: "success" | "war
   cancelled: { label: "Cancelled", tone: "neutral" },
   flagged: { label: "Awaiting review", tone: "warning" },
   blocked: { label: "Stopped", tone: "danger" },
+  expired: { label: "Hold expired, not sent", tone: "neutral" },
 };
 
 /** What happened to a transfer after the verdict. The verdict itself never
