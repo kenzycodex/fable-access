@@ -94,7 +94,7 @@ def get_user_baseline(user_id: str) -> dict | None:
     # shouldn't be flagged as coming from a stranger.
     with cursor() as cur:
         cur.execute(
-            "SELECT fingerprint_id FROM device_profiles WHERE user_id = ? AND trusted = 1",
+            "SELECT fingerprint_id FROM customer_devices WHERE user_id = ? AND trusted = 1",
             (user_id,),
         )
         devices |= {r["fingerprint_id"] for r in cur.fetchall() if r["fingerprint_id"]}
@@ -163,7 +163,7 @@ def _device_trust(user_id: str) -> dict[str, float]:
     try:
         with cursor() as cur:
             cur.execute(
-                "SELECT fingerprint_id, trust_score, times_seen FROM device_profiles WHERE user_id = ?",
+                "SELECT fingerprint_id, trust_score, times_seen FROM customer_devices WHERE user_id = ?",
                 (user_id,),
             )
             return {
@@ -383,17 +383,23 @@ def record_device_profile(user_id: str, device: dict) -> None:
     if device.get("screen_width") and device.get("screen_height"):
         screen = f"{device['screen_width']}x{device['screen_height']}"
 
+    if not device.get("fingerprint_id"):
+        return
     with _cursor() as cur:
+        # One row per customer and device: another customer's traffic from the
+        # same device never raises this customer's trust in it.
         cur.execute(
-            """INSERT INTO device_profiles
-               (fingerprint_id, user_id, platform, os, browser, screen, gpu, language, timezone, touch_support)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(fingerprint_id) DO UPDATE SET
+            """INSERT INTO customer_devices
+               (fingerprint_id, user_id, institution_id, platform, os, browser, screen, gpu, language, timezone,
+                touch_support)
+               VALUES (?, ?, (SELECT institution_id FROM customers WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(user_id, fingerprint_id) DO UPDATE SET
                  last_seen = datetime('now'),
                  times_seen = times_seen + 1,
                  trust_score = min(1.0, trust_score + 0.05)""",
             (
                 device.get("fingerprint_id"),
+                user_id,
                 user_id,
                 device.get("platform"),
                 device.get("os"),
@@ -413,8 +419,8 @@ def record_location(user_id: str, context: dict) -> None:
 
     with _cursor() as cur:
         cur.execute(
-            """INSERT INTO user_locations (user_id, latitude, longitude, city, region, country, source)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO user_locations (user_id, latitude, longitude, city, region, country, source, institution_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT institution_id FROM customers WHERE id = ?))""",
             (
                 user_id,
                 context.get("latitude"),
@@ -423,5 +429,6 @@ def record_location(user_id: str, context: dict) -> None:
                 context.get("region"),
                 context.get("country"),
                 context.get("location_source"),
+                user_id,
             ),
         )

@@ -88,7 +88,7 @@ def overview(request: Request, institution: str | None = Query(None)):
         # Devices and locations belong to the tenant's own customers, so scope
         # them through the transactions table rather than counting globally.
         cur.execute(
-            f"""SELECT COUNT(*) AS n FROM device_profiles
+            f"""SELECT COUNT(*) AS n FROM customer_devices
                 WHERE user_id IN (SELECT DISTINCT user_id FROM transactions{where})""",
             params,
         )

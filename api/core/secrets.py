@@ -202,6 +202,29 @@ def master_key() -> bytes | None:
     return key if len(key) == 32 else None
 
 
+def _decode_key(raw: str) -> bytes | None:
+    try:
+        key = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+    except ValueError:
+        return None
+    return key if len(key) == 32 else None
+
+
+def keyring() -> dict[str, bytes]:
+    """Every master key this server holds, by key id: the current one and any
+    previous ones still listed for a rotation."""
+    keys: dict[str, bytes] = {}
+    for item in (config.SECRETS_KEY_PREVIOUS or "").split(","):
+        kid, _, raw = item.strip().partition(":")
+        key = _decode_key(raw.strip()) if kid and raw else None
+        if key:
+            keys[kid.strip()] = key
+    current = master_key()
+    if current:
+        keys[config.SECRETS_KEY_ID] = current
+    return keys
+
+
 def _aad(name: str, version: int | str, purpose: str) -> bytes:
     return f"fable-secret|{name}|{version}|{purpose}".encode()
 
@@ -228,16 +251,25 @@ def open_sealed(row: dict, name: str, version: int | str, purpose: str = "active
     from cryptography.exceptions import InvalidTag
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-    kek = key or master_key()
-    if not kek or not row.get("ciphertext") or not row.get("wrapped_key"):
+    # The key named by the record's key id first, so a rotation in progress
+    # (values under the previous key) keeps working; then any other key held.
+    if key:
+        candidates = [key]
+    else:
+        ring = keyring()
+        first = ring.get(row.get("kid") or "")
+        candidates = ([first] if first else []) + [k for k in ring.values() if k is not first]
+    if not candidates or not row.get("ciphertext") or not row.get("wrapped_key"):
         raise SecretsError("This key cannot be opened.")
     aad = _aad(name, version, purpose)
-    try:
-        wrapped = bytes(row["wrapped_key"])
-        dek = AESGCM(kek).decrypt(wrapped[:12], wrapped[12:], aad)
-        return AESGCM(dek).decrypt(bytes(row["nonce"]), bytes(row["ciphertext"]), aad).decode()
-    except (InvalidTag, ValueError) as exc:
-        raise SecretsError("This key does not decrypt: wrong master key, or the record was tampered with.") from exc
+    wrapped = bytes(row["wrapped_key"])
+    for kek in candidates:
+        try:
+            dek = AESGCM(kek).decrypt(wrapped[:12], wrapped[12:], aad)
+            return AESGCM(dek).decrypt(bytes(row["nonce"]), bytes(row["ciphertext"]), aad).decode()
+        except (InvalidTag, ValueError):
+            continue
+    raise SecretsError("This key does not decrypt: wrong master key, or the record was tampered with.")
 
 
 def fingerprint(value: str) -> str:

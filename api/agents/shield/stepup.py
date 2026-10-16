@@ -114,8 +114,8 @@ SUCCESS_MARKER = "_verified_ok_"
 def record_failure(user_id: str, kind: str, reason: str) -> None:
     with cursor() as cur:
         cur.execute(
-            "INSERT INTO stepup_failures (user_id, kind, reason) VALUES (?, ?, ?)",
-            (user_id, kind, reason),
+            "INSERT INTO stepup_failures (user_id, kind, reason, institution_id) VALUES (?, ?, ?, ?)",
+            (user_id, kind, reason, _institution_of(user_id)),
         )
     audit.record(audit.STEPUP_FAILED, user_id, factor=kind, reason=reason)
 
@@ -465,12 +465,13 @@ def complete_registration(user_id: str, challenge_id: str, credential: dict, dev
         # Trust the device this passkey was enrolled on, so Shield stops treating
         # transfers from it as coming from an unrecognized device.
         if device_fingerprint:
+            # Trusted for this customer only. This used to move the global
+            # device row to whoever enrolled last.
             cur.execute(
-                """INSERT INTO device_profiles (fingerprint_id, user_id, trusted, last_seen)
-                   VALUES (?, ?, 1, datetime('now'))
-                   ON CONFLICT(fingerprint_id) DO UPDATE SET
-                     user_id = excluded.user_id, trusted = 1, last_seen = datetime('now')""",
-                (device_fingerprint, user_id),
+                """INSERT INTO customer_devices (fingerprint_id, user_id, institution_id, trusted, last_seen)
+                   VALUES (?, ?, ?, 1, datetime('now'))
+                   ON CONFLICT(user_id, fingerprint_id) DO UPDATE SET trusted = 1, last_seen = datetime('now')""",
+                (device_fingerprint, user_id, institution_id or _institution_of(user_id)),
             )
     return {"credential_id": credential_id, "device_label": device_label or "This device"}
 

@@ -121,6 +121,31 @@ CREATE TABLE IF NOT EXISTS device_profiles (
     trust_score REAL DEFAULT 0.5
 );
 
+-- The devices each customer has used, one row per customer and device.
+-- device_profiles keyed a row by the fingerprint alone, so the first customer
+-- to use a device owned its row everywhere: another customer's transfers from
+-- it, even at another bank, raised that row's trust and never counted as their
+-- own. Scoped by customer (and so by bank) here.
+CREATE TABLE IF NOT EXISTS customer_devices (
+    user_id TEXT NOT NULL,
+    institution_id TEXT,
+    fingerprint_id TEXT NOT NULL,
+    platform TEXT,
+    os TEXT,
+    browser TEXT,
+    screen TEXT,
+    gpu TEXT,
+    language TEXT,
+    timezone TEXT,
+    touch_support INTEGER,
+    first_seen TEXT DEFAULT (datetime('now')),
+    last_seen TEXT DEFAULT (datetime('now')),
+    times_seen INTEGER DEFAULT 1,
+    trust_score REAL DEFAULT 0.5,
+    trusted INTEGER DEFAULT 0,
+    PRIMARY KEY (user_id, fingerprint_id)
+);
+
 -- Explanations keyed by the shape of the decision that produced them, so an
 -- identical signal set never pays for the same sentence twice. Signal sets
 -- repeat heavily in practice: "new recipient + amount anomaly + USSD" is one
@@ -842,6 +867,16 @@ MIGRATIONS = {
         # console, with a note. NULL or 0: owners only.
         "analysts_can_release": "INTEGER",
     },
+    "stepup_failures": {"institution_id": "TEXT"},
+    "user_locations": {"institution_id": "TEXT"},
+    "webhooks": {
+        # The signing secret, envelope-encrypted with the master key
+        # (core/secrets.seal). The plaintext column is emptied once sealed.
+        "secret_ciphertext": "BLOB",
+        "secret_nonce": "BLOB",
+        "secret_wrapped": "BLOB",
+        "secret_kid": "TEXT",
+    },
     "stepup_challenges": {
         # Which channel a code went out on (email or sms), so the factor is
         # judged by when that contact was confirmed.
@@ -904,6 +939,8 @@ def _migrate(conn):
 
     _backfill_customers(conn)
     _create_history_view(conn)
+    _backfill_customer_devices(conn)
+    _seal_webhook_secrets(conn)
 
     # No institution is created here. One used to be inserted into an empty
     # database; institutions now come only from provisioning.
@@ -970,6 +1007,56 @@ def _backfill_customers(conn) -> None:
     conn.commit()
     if added:
         logger.info("Recorded %d existing customer(s) in the customers table.", added)
+
+
+def _backfill_customer_devices(conn) -> None:
+    """Copy device_profiles rows into customer_devices, once each.
+
+    Idempotent (INSERT OR IGNORE on the composite key). Each old row belongs to
+    the customer it was first recorded for, which is the only owner it ever
+    had; trust built by other customers' traffic cannot be told apart, so it
+    is carried over as it stands.
+    """
+    try:
+        conn.execute(
+            """INSERT OR IGNORE INTO customer_devices
+                 (user_id, institution_id, fingerprint_id, platform, os, browser, screen, gpu, language, timezone,
+                  touch_support, first_seen, last_seen, times_seen, trust_score, trusted)
+               SELECT d.user_id, c.institution_id, d.fingerprint_id, d.platform, d.os, d.browser, d.screen, d.gpu,
+                      d.language, d.timezone, d.touch_support, d.first_seen, d.last_seen, d.times_seen,
+                      d.trust_score, COALESCE(d.trusted, 0)
+               FROM device_profiles d LEFT JOIN customers c ON c.id = d.user_id"""
+        )
+    except sqlite3.OperationalError as exc:
+        logger.warning("Could not copy device profiles: %s", exc)
+
+
+def _seal_webhook_secrets(conn) -> None:
+    """Encrypt webhook signing secrets still stored in plain text.
+
+    Needs the master key; without it the secrets stay as they are (the same
+    as before) and the startup log says so. Idempotent: only rows with a
+    plaintext secret and no ciphertext are touched.
+    """
+    from core import secrets as vault
+
+    rows = conn.execute(
+        "SELECT id, secret FROM webhooks WHERE COALESCE(secret, '') != '' AND secret_ciphertext IS NULL"
+    ).fetchall()
+    if not rows:
+        return
+    if vault.master_key() is None:
+        logger.warning("%d webhook signing secret(s) are stored in plain text: set FABLE_SECRETS_KEY to encrypt them.",
+                       len(rows))
+        return
+    for hook_id, secret in rows:
+        sealed = vault.seal(secret, f"webhook:{hook_id}", 1, "webhook")
+        conn.execute(
+            """UPDATE webhooks SET secret_ciphertext = ?, secret_nonce = ?, secret_wrapped = ?, secret_kid = ?,
+                      secret = '' WHERE id = ? AND secret_ciphertext IS NULL""",
+            (sealed["ciphertext"], sealed["nonce"], sealed["wrapped_key"], sealed["kid"], hook_id),
+        )
+    logger.info("Encrypted %d webhook signing secret(s).", len(rows))
 
 
 def require_institution_id(institution_id: str | None) -> str:
@@ -1069,6 +1156,7 @@ CREATE INDEX IF NOT EXISTS ix_outbox_due         ON webhook_outbox(status, next_
 CREATE INDEX IF NOT EXISTS ix_ghost_expiry       ON ghost_containers(status, expires_at);
 CREATE INDEX IF NOT EXISTS ix_ghost_txn          ON ghost_containers(transaction_id);
 CREATE INDEX IF NOT EXISTS ix_inbox_user         ON sandbox_inbox(user_id, id);
+CREATE INDEX IF NOT EXISTS ix_devices_customer   ON customer_devices(user_id);
 """
 
 # Offline-replay idempotency rests entirely on client_reference, and the lookup
@@ -1077,9 +1165,12 @@ CREATE INDEX IF NOT EXISTS ix_inbox_user         ON sandbox_inbox(user_id, id);
 # partial unique index does the job and tolerates the many NULLs (every
 # online transfer has none). ledger_entries.reference got this right from the
 # start with a plain UNIQUE.
+# Unique per bank, not globally: two banks may use the same reference for
+# their own transfers. The old global index made the second bank's insert fail
+# with a 500 and told it the reference existed elsewhere.
 CLIENT_REF_INDEX = (
-    "CREATE UNIQUE INDEX IF NOT EXISTS ux_txn_client_ref "
-    "ON transactions(client_reference) WHERE client_reference IS NOT NULL"
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_txn_inst_client_ref "
+    "ON transactions(institution_id, client_reference) WHERE client_reference IS NOT NULL"
 )
 
 
@@ -1087,6 +1178,8 @@ def _create_indexes(conn) -> None:
     conn.executescript(INDEXES)
     try:
         conn.execute(CLIENT_REF_INDEX)
+        # The per-bank index is in place, so the global one can go.
+        conn.execute("DROP INDEX IF EXISTS ux_txn_client_ref")
     except sqlite3.IntegrityError:
         # Pre-existing duplicates from before the constraint existed. Log and
         # continue rather than refusing to boot: the index is a guard against

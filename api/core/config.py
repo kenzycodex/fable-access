@@ -90,6 +90,10 @@ ALLOW_DEBUG_OTP = (
 # python -c "import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
 SECRETS_KEY = os.getenv("FABLE_SECRETS_KEY", "").strip()
 SECRETS_KEY_ID = os.getenv("FABLE_SECRETS_KEY_ID", "k1").strip() or "k1"
+# Earlier master keys, still able to open values sealed under them during a
+# rotation: "kid:base64key", comma-separated. scripts/rewrap_secrets.py moves
+# values to the current key; then this can be emptied.
+SECRETS_KEY_PREVIOUS = os.getenv("FABLE_SECRETS_KEY_PREVIOUS", "").strip()
 # Break-glass: "off" makes the console read-only for keys.
 SECRETS_WRITE = os.getenv("FABLE_SECRETS_WRITE", "on").strip().lower() not in ("off", "0", "false", "no")
 # Model names an operator may choose, beyond the built-in allowlist.

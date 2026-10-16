@@ -181,24 +181,46 @@ def deliver(hook: dict, event: str, data: dict, *, sleep=time.sleep) -> bool:
 def hooks_for(institution_id: str, event: str) -> list[dict]:
     with cursor() as cur:
         cur.execute(
-            "SELECT id, institution_id, url, secret, events FROM webhooks WHERE institution_id = ? AND active = 1",
+            "SELECT id, institution_id, url, secret, events, secret_ciphertext, secret_nonce, secret_wrapped, "
+            "secret_kid FROM webhooks WHERE institution_id = ? AND active = 1",
             (institution_id,),
         )
         rows = [row_to_dict(r) for r in cur.fetchall()]
-    return [_with_secret(r) for r in rows if event in (r["events"] or "").split(",")]
+    return [with_secret(r) for r in rows if event in (r["events"] or "").split(",")]
 
 
-def _with_secret(row: dict) -> dict:
-    """The endpoint with its signing secret ready to use."""
-    return row
+def seal_secret(hook_id: str, secret: str) -> dict:
+    """Columns to store for a signing secret: encrypted when the master key is
+    set (secret column emptied), plain otherwise, as before."""
+    from core import secrets as vault
+
+    if vault.master_key() is None:
+        return {"secret": secret, "secret_ciphertext": None, "secret_nonce": None, "secret_wrapped": None,
+                "secret_kid": None}
+    sealed = vault.seal(secret, f"webhook:{hook_id}", 1, "webhook")
+    return {"secret": "", "secret_ciphertext": sealed["ciphertext"], "secret_nonce": sealed["nonce"],
+            "secret_wrapped": sealed["wrapped_key"], "secret_kid": sealed["kid"]}
+
+
+def with_secret(row: dict) -> dict:
+    """The endpoint with its signing secret ready to use (decrypted if sealed)."""
+    if row.get("secret") or not row.get("secret_ciphertext"):
+        return row
+    from core import secrets as vault
+
+    plain = vault.open_sealed({"ciphertext": row["secret_ciphertext"], "nonce": row["secret_nonce"],
+                               "wrapped_key": row["secret_wrapped"], "kid": row.get("secret_kid")},
+                              f"webhook:{row['id']}", 1, "webhook")
+    return {**row, "secret": plain}
 
 
 def _hook(webhook_id: str) -> dict | None:
     with cursor() as cur:
-        cur.execute("SELECT id, institution_id, url, secret, events, active FROM webhooks WHERE id = ?",
+        cur.execute("SELECT id, institution_id, url, secret, events, active, secret_ciphertext, secret_nonce, "
+                    "secret_wrapped, secret_kid FROM webhooks WHERE id = ?",
                     (webhook_id,))
         row = row_to_dict(cur.fetchone())
-    return _with_secret(row) if row else None
+    return with_secret(row) if row else None
 
 
 def emit(institution_id: str | None, event: str, data: dict) -> None:
