@@ -192,16 +192,44 @@ def _owned(table: str, key_column: str, value: str, institution_id: str, what: s
         raise _not_found(what)
 
 
+# Body fields that name something owned by a bank. Each is checked against the
+# caller's bank wherever it appears, not only in the path.
+_OWNED_BODY_FIELDS = {
+    "ghost_id": ("ghost_containers", "ghost_id", "Hold"),
+    "transaction_id": ("transactions", "id", "Transaction"),
+    "txid": ("transactions", "id", "Transaction"),
+}
+
+
 async def _json_body(request: Request) -> dict:
-    if request.method not in ("POST", "PUT", "PATCH"):
+    """The request body as the route will see it, parsed whatever its headers say.
+
+    This used to parse the body only when the Content-Type contained the
+    lower-case string "json". FastAPI decides differently: it lower-cases the
+    media type first, so `application/JSON` reached the route as JSON while the
+    guard saw no body at all. A Bank A credential could then name a Bank B
+    customer in the body of any /v1/stepup route and act on them.
+
+    The guard and the route must never disagree about what the body says, so
+    the guard no longer looks at the header. Any non-empty body is parsed as
+    JSON (Starlette caches the parsed object, and FastAPI's route reads that
+    same object, which is how the rewritten customer id reaches it). A body
+    that is not a JSON object is refused outright: every customer-scoped route
+    takes a JSON object, so anything else is either a mistake or an attempt to
+    find a parser the guard does not share. Failing closed is the point.
+    """
+    if request.method in ("GET", "HEAD", "OPTIONS"):
         return {}
-    if "json" not in request.headers.get("content-type", ""):
+    raw = await request.body()
+    if not raw or not raw.strip():
         return {}
     try:
-        body = await request.json()  # Starlette caches it; the route reads the same object
-    except Exception:  # noqa: BLE001 - a malformed body is the route's error to report
-        return {}
-    return body if isinstance(body, dict) else {}
+        body = await request.json()
+    except Exception as exc:  # noqa: BLE001 - not JSON at all
+        raise HTTPException(status_code=415, detail="Send the request body as a JSON object.") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="The request body must be a JSON object.")
+    return body
 
 
 async def _guard(request: Request, create: bool) -> None:
@@ -228,10 +256,20 @@ async def _guard(request: Request, create: bool) -> None:
     for key in ("txid", "transaction_id"):
         if params.get(key):
             _owned("transactions", "id", params[key], institution_id, "Transaction")
+    # The same ids named in the body are held to the same rule.
+    for key, (table, column, what) in _OWNED_BODY_FIELDS.items():
+        value = body.get(key)
+        if value is not None and value != "":
+            _owned(table, column, str(value), institution_id, what)
 
-    ref = params.get("user_id") or body.get("user_id")
+    # Every place a customer can be named must name the same customer. A path
+    # that says one customer and a body or query string that says another is
+    # refused, rather than letting whichever the route happens to read win.
+    claimed = [str(v) for v in (params.get("user_id"), body.get("user_id"),
+                                request.query_params.get("user_id"))
+               if v is not None and v != ""]
+    ref = claimed[0] if claimed else None
     if ref:
-        ref = str(ref)
         customer = customers.get(institution_id, ref)
         if not customer and create:
             try:
@@ -246,6 +284,9 @@ async def _guard(request: Request, create: bool) -> None:
             if customers.exists_elsewhere(institution_id, ref):
                 _record_cross_bank(institution_id, ref, "customer")
             raise _not_found("Customer")
+        for other in claimed[1:]:
+            if (customers.get(institution_id, other) or {}).get("id") != customer["id"]:
+                raise HTTPException(status_code=400, detail="The request names more than one customer.")
         # From here on the route works with Fable's id for this bank's
         # customer, whichever form the caller used. Path parameters and the JSON
         # body are both rewritten, because routes read the customer from either.
