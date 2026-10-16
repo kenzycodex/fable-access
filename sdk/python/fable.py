@@ -113,12 +113,11 @@ class Fable:
         })
 
     def step_up_requirement(self, user_id: str, verdict: dict) -> dict:
+        """Which factor a flagged transfer needs, from Fable's stored decision."""
         return self._request("POST", "/v1/stepup/requirement", {
             "user_id": user_id,
-            "risk_score": verdict["risk_score"],
-            "signals": verdict["signals"],
-            "action": verdict["action"],
             "purpose": "transfer",
+            "reference": verdict["transaction_id"],
         })
 
     def approve(self, transaction_id: str, user_id: str, stepup_token: str) -> dict:
@@ -126,16 +125,16 @@ class Fable:
             "user_id": user_id, "stepup_token": stepup_token,
         })
 
-    def hold(self, user_id: str, *, risk_score: float, signals: list, amount: float,
-             recipient_account: str, explanation: str = "", channel: str = "mobile_app") -> dict:
-        """Hold a blocked transfer the customer insists on, so the money stays recoverable."""
-        return self._request("POST", "/v1/ghost/create", {
-            "user_id": user_id,
-            "risk_score": risk_score,
-            "signals": signals,
-            "explanation": explanation,
-            "transaction": {"amount": amount, "recipient_account": recipient_account, "channel": channel},
-        })
+    def hold(self, user_id: str, transaction_id: str) -> dict:
+        """Hold a blocked transfer the customer insists on, so the money stays
+        recoverable. Keep the funds until a containment.released, .cancelled
+        or .expired webhook says what to do with them."""
+        return self._request("POST", "/v1/ghost/create", {"user_id": user_id, "transaction_id": transaction_id})
+
+    def request_release(self, ghost_id: str, user_id: str) -> dict:
+        """The customer cannot produce the proof a release needs and asks the bank instead."""
+        return self._request("POST", f"/v1/ghost/{urllib.parse.quote(ghost_id)}/request-release",
+                             {"user_id": user_id})
 
     def cancel_hold(self, ghost_id: str, user_id: str) -> dict:
         return self._request("POST", f"/v1/ghost/{urllib.parse.quote(ghost_id)}/cancel", {"user_id": user_id})

@@ -18,6 +18,7 @@ Each client covers the full loop:
 | Which factor a flag needs | `stepUpRequirement()` | `step_up_requirement()` |
 | Approve after the factor | `approve()` | `approve()` |
 | Hold, cancel or release in Ghost | `hold()`, `cancelHold()`, `releaseHold()` | `hold()`, `cancel_hold()`, `release_hold()` |
+| Ask the bank to release a hold | `requestRelease()` | `request_release()` |
 | Report the outcome | `feedback()` | `feedback()` |
 | Verify a webhook | `verifyWebhook()` | `verify_webhook()` |
 
