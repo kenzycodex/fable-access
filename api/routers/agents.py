@@ -1,8 +1,10 @@
 """Agent-level analytics for the institution dashboard's Agents section.
 
 Lets a risk team see each Fable agent as an operational unit: what Copilot has
-learned per customer, how Shield's 12-signal pipeline is deciding, and what
-Ghost has contained — all straight from SQLite, no synthetic numbers.
+learned per customer, how Shield's signals are deciding, and what Ghost has
+contained — all straight from SQLite, no synthetic numbers. Each agent's status
+is real: Ghost reads "off" when the institution switched it off and "degraded"
+when hold expiry has stopped running or its webhooks are failing.
 """
 from datetime import datetime, timezone
 
@@ -31,6 +33,32 @@ from core.tenancy import tenant_for_console
 from intelligence.context import tenant_clause
 
 router = APIRouter(prefix="/v1/agents", tags=["agents"])
+
+
+def _ghost_status(institution: str | None) -> dict:
+    """Whether Ghost is doing its job for this institution right now."""
+    from core.tenancy import disabled_agents
+    from services import scheduler
+
+    if "ghost" in disabled_agents(institution):
+        return {"status": "off", "detail": "Switched off for your institution."}
+    sched = scheduler.status()
+    if sched["enabled"] and "ghost_expiry" in sched["stale"]:
+        return {"status": "degraded", "detail": "Hold expiry has not run recently. Holds may outlive their window."}
+    try:
+        with cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM webhook_outbox WHERE institution_id = ? AND status = 'failed' "
+                "AND event LIKE 'containment.%' AND created_at >= datetime('now', '-1 day')",
+                (institution,),
+            )
+            failed = cur.fetchone()["n"]
+    except Exception:  # noqa: BLE001 - no outbox table on a very old database
+        failed = 0
+    if failed:
+        return {"status": "degraded",
+                "detail": f"{failed} hold update{'s' if failed != 1 else ''} could not be delivered to your webhook today."}
+    return {"status": "active", "detail": ""}
 
 
 # The Shield pipeline, as configuration the dashboard can render. Weights are
@@ -115,6 +143,8 @@ def overview(request: Request, institution: str | None = Query(None)):
     passed = by_action.get("PASS", 0)
     ghost_created = sum(g["count"] for g in ghost_rows.values())
     ghost_cancelled = ghost_rows.get("CANCELLED", {}).get("count", 0)
+    ghost_expired = ghost_rows.get("EXPIRED", {}).get("count", 0)
+    ghost = _ghost_status(institution)
 
     return {
         "copilot": {
@@ -139,17 +169,21 @@ def overview(request: Request, institution: str | None = Query(None)):
             "thresholds": _thresholds(institution),
         },
         "ghost": {
-            "status": "active",
+            "status": ghost["status"],
+            "detail": ghost["detail"],
             "containers_created": ghost_created,
             "cancelled": ghost_cancelled,
+            "expired": ghost_expired,
             "released": ghost_rows.get("RELEASED", {}).get("count", 0),
-            "held": ghost_rows.get("HELD", {}).get("count", 0),
+            "held": ghost_rows.get("HELD", {}).get("count", 0) + ghost_rows.get("RELEASE_REQUESTED", {}).get("count", 0),
             "cancellation_rate": round(ghost_cancelled / ghost_created, 4) if ghost_created else 0,
-            "money_saved_ngn": ghost_rows.get("CANCELLED", {}).get("amount", 0),
+            # Money that stayed with the customer: cancelled, or nobody released it.
+            "money_saved_ngn": ghost_rows.get("CANCELLED", {}).get("amount", 0)
+            + ghost_rows.get("EXPIRED", {}).get("amount", 0),
         },
         "watch": {
-            "status": "coming_soon",
-            "description": "Continuous account monitoring between transactions.",
+            "status": "planned",
+            "description": "Monitoring between transfers. Planned, not built.",
         },
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

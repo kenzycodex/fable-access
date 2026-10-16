@@ -869,9 +869,12 @@ export interface AgentsOverview {
     thresholds: { block: number; flag: number };
   };
   ghost: {
+    /** "active", "degraded" (expiry stalled or hold webhooks failing) or "off". */
     status: string;
+    detail?: string;
     containers_created: number;
     cancelled: number;
+    expired?: number;
     released: number;
     held: number;
     cancellation_rate: number;

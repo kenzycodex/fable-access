@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSyncExternalStore } from "react";
 import { LinkRow } from "@/components/dashboard/LinkRow";
-import { ArrowRight, ArrowSquareOut, Brain, Flag, Ghost, Lightning, RocketLaunch, ShieldCheck, Tray, X } from "@phosphor-icons/react";
+import { ArrowRight, ArrowSquareOut, Binoculars, Brain, Flag, Ghost, Lightning, RocketLaunch, ShieldCheck, Tray, X } from "@phosphor-icons/react";
 import { BarChart, DonutChart } from "@/components/dashboard/charts";
 import {
   Avatar,
@@ -21,19 +21,20 @@ import {
   table,
 } from "@/components/dashboard/primitives";
 import { changeLabel, dailyOutcomes, periodPair } from "@/lib/fable/analytics";
-import { LATENCY_BUDGET_MS } from "@/lib/fable/constants";
+import { LATENCY_BUDGET_MS, agentStatus } from "@/lib/fable/constants";
 import { formatNaira, formatNairaCompact, formatRelativeTime } from "@/lib/fable/format";
 import type { Transaction } from "@/lib/fable/types";
-import { useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
+import { useAgentsOverview, useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
 import { useOnboarding, useReviewCounts } from "@/lib/fable/useConsole";
 import { useFableStore } from "@/lib/fable/store";
 import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 
 const AGENTS = [
-  { name: "Copilot", role: "Learns each customer's habits", icon: Brain, href: "/dashboard/agents/copilot" },
-  { name: "Shield", role: "Scores every transfer", icon: ShieldCheck, href: "/dashboard/agents/shield" },
-  { name: "Ghost", role: "Holds risky transfers", icon: Ghost, href: "/dashboard/agents/ghost" },
-];
+  { key: "copilot", name: "Copilot", role: "Learns each customer's habits", icon: Brain, href: "/dashboard/agents/copilot" },
+  { key: "shield", name: "Shield", role: "Scores every transfer", icon: ShieldCheck, href: "/dashboard/agents/shield" },
+  { key: "ghost", name: "Ghost", role: "Holds risky transfers", icon: Ghost, href: "/dashboard/agents/ghost" },
+  { key: "watch", name: "Watch", role: "Monitoring between transfers", icon: Binoculars, href: "/dashboard/agents" },
+] as const;
 
 const isProtected = (t: Transaction) =>
   t.action !== "PASS" && (t.status === "blocked" || t.status === "cancelled" || t.status === "held");
@@ -269,28 +270,7 @@ export default function OverviewPage() {
         <div className="flex flex-col gap-4">
           <NeedsReview />
 
-          <Card>
-            <CardHeader title="Agents" subtitle="All running" />
-            <ul className="flex flex-col gap-1">
-              {AGENTS.map((a) => {
-                const Icon = a.icon;
-                return (
-                  <li key={a.name}>
-                    <Link href={a.href} className="-mx-2 flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-d-surface-2">
-                      <span className="flex size-10 items-center justify-center rounded-xl bg-brand/10 text-brand">
-                        <Icon size={20} weight="fill" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[14px] font-semibold text-d-text">{a.name}</span>
-                        <span className="block truncate text-[12px] text-d-muted">{a.role}</span>
-                      </span>
-                      <Badge tone="success">Active</Badge>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </Card>
+          <AgentsCard />
 
           <Card>
             <CardHeader
@@ -306,6 +286,45 @@ export default function OverviewPage() {
         </div>
       </div>
     </>
+  );
+}
+
+/** Each agent's real status: Ghost can be off or need attention, Watch is planned. */
+function AgentsCard() {
+  const { data, error } = useAgentsOverview();
+  const unreachable = !data && Boolean(error);
+  const statuses = data
+    ? { copilot: data.copilot.status, shield: data.shield.status, ghost: data.ghost.status, watch: data.watch.status }
+    : null;
+  const attention = statuses ? Object.values(statuses).some((s) => s === "degraded") : false;
+  const subtitle = unreachable ? "Not reachable" : !data ? "Checking" : attention ? "Needs attention" : "Running";
+  return (
+    <Card>
+      <CardHeader title="Agents" subtitle={subtitle} />
+      {data?.ghost.status === "degraded" && data.ghost.detail && (
+        <p className="mb-2 text-[12px] text-amber-700 dark:text-amber-400">{data.ghost.detail}</p>
+      )}
+      <ul className="flex flex-col gap-1">
+        {AGENTS.map((a) => {
+          const Icon = a.icon;
+          const status = unreachable ? { label: "Not reachable", tone: "danger" as const } : agentStatus(statuses?.[a.key]);
+          return (
+            <li key={a.name}>
+              <Link href={a.href} className="-mx-2 flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-d-surface-2">
+                <span className="flex size-10 items-center justify-center rounded-xl bg-brand/10 text-brand">
+                  <Icon size={20} weight="fill" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-semibold text-d-text">{a.name}</span>
+                  <span className="block truncate text-[12px] text-d-muted">{a.role}</span>
+                </span>
+                {data || unreachable ? <Badge tone={status.tone}>{status.label}</Badge> : <Skeleton className="h-5 w-16" />}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
   );
 }
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowRight, Binoculars, Brain, Ghost, ShieldCheck } from "@phosphor-icons/react";
 import { Badge, Card, Notice, PageHeader } from "@/components/dashboard/primitives";
+import { agentStatus } from "@/lib/fable/constants";
 import { formatNairaCompact } from "@/lib/fable/format";
 import { useAgentsOverview } from "@/lib/fable/useBackend";
 
@@ -30,7 +31,7 @@ export default function AgentsPage() {
           icon={<Brain size={22} weight="fill" />}
           name="Fable Copilot"
           tagline="Learns each customer's genuine habits so safe transfers stay frictionless."
-          live={Boolean(data)}
+          status={data?.copilot.status}
           stats={[
             { label: "Customers learned", value: fmt(data?.copilot.customers_learned) },
             { label: "Data points", value: fmt(data?.copilot.data_points) },
@@ -43,8 +44,8 @@ export default function AgentsPage() {
           href="/dashboard/agents/shield"
           icon={<ShieldCheck size={22} weight="fill" />}
           name="Fable Shield"
-          tagline="Scores every transfer against sixteen signals in real time."
-          live={Boolean(data)}
+          tagline="Scores every transfer against the customer's own history in real time."
+          status={data?.shield.status}
           stats={[
             { label: "Scored", value: fmt(data?.shield.transactions_scored) },
             { label: "Blocked", value: fmt(data?.shield.blocked) },
@@ -58,7 +59,8 @@ export default function AgentsPage() {
           icon={<Ghost size={22} weight="fill" />}
           name="Fable Ghost"
           tagline="Contains risky transfers in cooling windows so money can come back."
-          live={Boolean(data)}
+          status={data?.ghost.status}
+          detail={data?.ghost.detail}
           stats={[
             { label: "Containers", value: fmt(data?.ghost.containers_created) },
             { label: "Cancelled", value: fmt(data?.ghost.cancelled) },
@@ -78,7 +80,7 @@ export default function AgentsPage() {
                 <p className="text-[12px] text-d-muted">Continuous account monitoring</p>
               </div>
             </div>
-            <Badge>Coming soon</Badge>
+            <Badge>Planned</Badge>
           </div>
           <p className="mt-4 text-[13px] leading-relaxed text-d-muted">
             {data?.watch.description ?? "Continuous account monitoring between transactions."} Watch will observe login
@@ -99,14 +101,16 @@ function AgentCard({
   icon,
   name,
   tagline,
-  live,
+  status,
+  detail,
   stats,
 }: {
   href: string;
   icon: ReactNode;
   name: string;
   tagline: string;
-  live: boolean;
+  status: string | undefined;
+  detail?: string;
   stats: { label: string; value: string }[];
 }) {
   return (
@@ -120,8 +124,9 @@ function AgentCard({
               <p className="text-[12px] text-d-muted">{tagline}</p>
             </div>
           </div>
-          <Badge tone={live ? "success" : "neutral"}>{live ? "Active" : "Loading"}</Badge>
+          <Badge tone={status ? agentStatus(status).tone : "neutral"}>{status ? agentStatus(status).label : "Loading"}</Badge>
         </div>
+        {detail && <p className="mt-3 text-[12px] text-amber-700 dark:text-amber-400">{detail}</p>}
 
         <div className="mt-5 grid grid-cols-2 gap-3">
           {stats.map((s) => (
