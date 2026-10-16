@@ -39,6 +39,7 @@ import { CHANNEL_LABELS } from "@/lib/fable/constants";
 import { QUICK_AMOUNTS } from "@/lib/fable/seed";
 import { ensureSession, getSessionContext, type BankingSession } from "@/lib/fable/session";
 import { submitTransfer } from "@/lib/fable/store";
+import { authHeaders } from "@/lib/fable/tenant";
 import type { Channel, Recipient } from "@/lib/fable/types";
 
 interface Bank {
@@ -196,8 +197,9 @@ export default function TransferPage() {
     setFallbackReason(null);
     try {
       const res = await fetch("/api/resolve-account", {
+        // The lookup needs the signed-in session (src/lib/routeGuard.ts).
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ accountNumber: acct, bankCode }),
       });
       const data = await res.json();

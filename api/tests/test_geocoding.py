@@ -159,9 +159,13 @@ def test_everything_down_returns_none(monkeypatch):
 def test_endpoint(monkeypatch):
     from fastapi.testclient import TestClient
 
+    from core import sessions
+    from core.tenancy import register_institution
     from main import app
 
-    client = TestClient(app)
+    # The lookup now needs a bank's credential (it spends paid provider calls).
+    register_institution("geobank", "Geo Bank", "risk@geobank.ng")
+    client = TestClient(app, headers={"X-Fable-Session": sessions.issue("owner@geobank.ng", "geobank")["token"]})
     _reset(monkeypatch)
     _serve(monkeypatch, {"nominatim.openstreetmap.org": NOMINATIM_CAMPUS})
     res = client.get("/v1/geo/reverse", params={"lat": 6.5179853, "lon": 3.3996222})
