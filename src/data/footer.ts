@@ -1,5 +1,5 @@
 export const footerDescription =
-  "Fable is the AI security and intelligence infrastructure layer built for African banks and fintechs. It sits between the user and the transaction, so safe transfers go through instantly and the one suspicious transfer gets caught before money leaves the account.";
+  "Fable scores each transfer against the customer's own habits before it is sent, for Nigerian banks, wallets, payment service providers and lenders. Transfers that fit go straight through; the one that doesn't is checked, or held where the customer can still cancel it.";
 
 export const footerCopyrightSuffix = "Fable. All rights reserved.";
 

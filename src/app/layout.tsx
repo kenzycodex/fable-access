@@ -7,25 +7,25 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 export const metadata: Metadata = {
   metadataBase: new URL("https://fable.ng"),
   title: {
-    default: "Fable | AI Security & Fraud Intelligence for African Finance",
+    default: "Fable | Behavioural Fraud Risk for Nigerian Transfers",
     template: "%s | Fable",
   },
   description:
-    "Fable is the AI security and intelligence infrastructure layer built for African banks and fintechs. It knows each user's genuine habits deeply enough to approve safe transfers instantly and catch the one suspicious transaction before money leaves the account.",
+    "Fable is a behavioural risk layer for Nigerian banks, wallets, payment service providers and lenders. It compares each transfer with the customer's own habits, lets the ones that fit go straight through, and checks or holds the one that doesn't before money leaves the account.",
   openGraph: {
     type: "website",
     siteName: "Fable",
     locale: "en_US",
-    title: "AI Security & Fraud Intelligence Infrastructure for African Finance | Fable",
+    title: "Fable | Behavioural Fraud Risk for Nigerian Transfers",
     description:
-      "Security that disappears when you're safe. Shows up hard when you're not. Fable is the AI fraud intelligence layer built for African banks and fintechs.",
+      "Fable scores each transfer against the customer's own habits before it is sent, and holds the risky one where the customer can still cancel it. Built for Nigerian banks, wallets, PSPs and lenders.",
     url: "https://fable.ng/",
   },
   twitter: {
     card: "summary_large_image",
-    title: "AI Security & Fraud Intelligence Infrastructure for African Finance | Fable",
+    title: "Fable | Behavioural Fraud Risk for Nigerian Transfers",
     description:
-      "Security that disappears when you're safe. Shows up hard when you're not. Fable is the AI fraud intelligence layer built for African banks and fintechs.",
+      "Fable scores each transfer against the customer's own habits before it is sent, and holds the risky one where the customer can still cancel it. Built for Nigerian banks, wallets, PSPs and lenders.",
   },
 };
 

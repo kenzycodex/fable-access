@@ -23,7 +23,7 @@ import {
 export const metadata: Metadata = {
   title: "Why Fable",
   description:
-    "Built for African finance from the ground up: Nigerian scam patterns, NIP response codes, and CBN regulatory grounding no foreign fraud model has.",
+    "Who Fable is for and why: behavioural risk scoring and cooling-window holds for Nigerian banks, wallets, PSPs and lenders, built around the social engineering scams their customers meet.",
 };
 
 export default function WhyFablePage() {
@@ -47,11 +47,11 @@ export default function WhyFablePage() {
           <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Why Fable" }]} className="mb-[var(--spacing-l)]" />
           <div className="w-full lg:w-[65%]">
             <h1>
-              Security That <span className="font-marker">Disappears</span>
+              Quiet Until a Transfer <span className="font-marker">Doesn&rsquo;t Fit</span>
             </h1>
             <p className="mt-[var(--spacing-m)] max-w-[650px] text-l text-black/80">
-              Security that disappears when you&rsquo;re safe. Shows up hard when you&rsquo;re not. That&rsquo;s the
-              whole idea.
+              Most transfers look like the customer&rsquo;s own habits and go straight through. The one that
+              doesn&rsquo;t gets a PIN check, a question, or a hold the customer can cancel.
             </p>
             <div className="mt-[var(--spacing-l)]">
               <Link

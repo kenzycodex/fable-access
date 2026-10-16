@@ -57,7 +57,7 @@ export const privacyNotice: LegalDocument = {
       id: "who-we-are",
       title: "1. Who we are and what this covers",
       blocks: [
-        p("Fable (\"Fable\", \"we\", \"us\") builds AI security and intelligence infrastructure for banks, fintechs, wallets and payment gateways in Africa. Our platform scores transfers for fraud risk, explains the result in plain language, holds risky transfers in a recoverable cooling window, and gives the institution a console to see what happened."),
+        p("Fable (\"Fable\", \"we\", \"us\") builds behavioural fraud-risk software for banks, wallets, payment service providers and lenders in Nigeria. Our platform scores transfers for fraud risk, explains the result in plain language, holds risky transfers in a recoverable cooling window, and gives the institution a console to see what happened."),
         p("This notice covers three groups of people. Which of our roles applies to you depends on which group you are in."),
         table(
           ["You are", "Our role", "What that means"],
