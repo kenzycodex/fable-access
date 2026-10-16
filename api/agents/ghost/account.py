@@ -224,7 +224,8 @@ def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) 
 
     signals = loads(container.get("signals"), []) if container.get("signals") else []
     required = assurance.release_level(container.get("risk_score") or 0.0, signals)
-    proved = stepup_service.verify_token(stepup_token, user_id, "ghost_release", ghost_id)
+    info = stepup_service.token_info(stepup_token, user_id, "ghost_release", ghost_id)
+    proved = info["level"] if info else None
 
     if not assurance.satisfies(proved, required):
         stepup_service.record_failure(user_id, "ghost_release", f"missing_{required}")
@@ -233,8 +234,20 @@ def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) 
             "This transfer can't be released until you verify it's you.",
         )
 
-    if stepup_token:
-        stepup_service.consume_token(stepup_token)
+    # A factor set up after the money was held proves nothing about who the
+    # customer is: an attacker holding the session can create one. The same
+    # goes for a code sent to an email that was only just added.
+    created = stepup_service._parse_time(container.get("created_at"))
+    fresh_ok, late = stepup_service.factors_predate(info["factors"], created, user_id)
+    if not fresh_ok:
+        stepup_service.record_failure(user_id, "ghost_release", "factor_after_hold")
+        raise StepUpRequired(
+            required,
+            "A factor set up after this transfer was held can't release it. You can still cancel it.",
+        )
+
+    if not stepup_service.consume_token(stepup_token):
+        raise StepUpRequired(required, "That verification was already used. Verify again.")
 
     # Status first, and only if this call is the one that wins the race. Debiting
     # before the transition meant two concurrent releases could both debit; the

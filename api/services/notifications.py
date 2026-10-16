@@ -144,3 +144,41 @@ def notify_containment(user_id: str, institution_id: str | None, ghost_id: str,
             "Containment alert for %s (%s) was not delivered out-of-band; "
             "the customer will only see it in-app.", user_id, ghost_id,
         )
+
+
+_SECURITY_COPY = {
+    "pin_set": ("A transaction PIN was set", "A transaction PIN was set on your account."),
+    "pin_changed": ("Your transaction PIN was changed", "Your transaction PIN was changed."),
+    "pin_reset": ("Your transaction PIN was reset",
+                  "Your bank reset your transaction PIN. You will choose a new one the next time you verify a transfer."),
+    "email_changed": ("Your verification email was changed",
+                      "The email address that receives your verification codes was changed."),
+    "phone_changed": ("Your phone number was changed", "The phone number on your account was changed."),
+    "passkey_added": ("A device was added", "A new device was added for fingerprint or face confirmation."),
+    "two_factor_changed": ("Your verification preference changed",
+                           "Your 'always ask me to verify' setting was changed."),
+}
+
+
+def notify_security_change(user_id: str, institution_id: str | None, change: str,
+                           also_email: str | None = None) -> None:
+    """Tell the customer a security setting changed, in-app and by email.
+
+    `also_email` is the previous address when the email itself changed, so the
+    person who owned the account before the change hears about it: a takeover
+    that reroutes codes must not be silent to the real customer.
+    """
+    from core import security
+
+    title, lead = _SECURITY_COPY.get(change, ("Your security settings changed", "A security setting was changed."))
+    body = (
+        f"{lead}\n\nIf this was you, there is nothing to do.\n"
+        "If it was NOT you, contact your bank straight away and do not approve any transfer you did not start."
+    )
+    current = security.get_contact(user_id).get("email")
+    delivered = False
+    for address in {a for a in (current, also_email) if a}:
+        delivered = _send_email(address, title, body) or delivered
+    emailed = bool(current or also_email)
+    record(user_id, institution_id, "security", title, body,
+           channel="email" if emailed else "in_app", delivered=delivered if emailed else True)

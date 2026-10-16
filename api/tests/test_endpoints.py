@@ -27,6 +27,24 @@ USER = user_id_for("endpointbank", "chioma")
 PIN = "8317"
 
 
+def _flagged(ref: str, action: str = "FLAG") -> str:
+    """A stored decision for this customer, which a verification is bound to."""
+    import secrets as _s
+
+    from core import customers
+    from core.db import cursor
+
+    customer = customers.get("endpointbank", ref)
+    txid = f"txn_{_s.token_hex(6)}"
+    with cursor() as cur:
+        cur.execute(
+            "INSERT INTO transactions (id, user_id, amount, institution_id, action_taken, risk_score, "
+            "shield_signals) VALUES (?, ?, 5000, 'endpointbank', ?, 0.6, '[]')",
+            (txid, customer["id"], action),
+        )
+    return txid
+
+
 def _session(email: str, institution: str) -> dict:
     from core import sessions
 
@@ -77,7 +95,7 @@ def test_pin_can_be_set_and_then_verified(client):
     assert setup.status_code == 200, setup.text
 
     res = client.post("/v1/stepup/pin/verify", json={
-        "user_id": USER, "pin": PIN, "purpose": "transfer", "reference": "txn_test",
+        "user_id": USER, "pin": PIN, "purpose": "transfer", "reference": _flagged(USER),
     })
     assert res.status_code == 200, res.text
     body = res.json()
@@ -88,7 +106,7 @@ def test_pin_can_be_set_and_then_verified(client):
 
 def test_wrong_pin_is_a_400_not_a_500(client):
     res = client.post("/v1/stepup/pin/verify", json={
-        "user_id": USER, "pin": "0000", "purpose": "transfer", "reference": "txn_test",
+        "user_id": USER, "pin": "0000", "purpose": "transfer", "reference": _flagged(USER),
     })
     assert res.status_code == 400
 
@@ -207,9 +225,12 @@ def test_pin_rules_come_from_the_environment_not_the_code(client, monkeypatch):
 
     # Lock-out after a configured number of wrong attempts.
     monkeypatch.setattr(config, "PIN_MAX_ATTEMPTS", 2)
+    txid = _flagged(other)
     for _ in range(2):
-        client.post("/v1/stepup/pin/verify", json={"user_id": other, "pin": "1111", "purpose": "transfer"})
-    locked = client.post("/v1/stepup/pin/verify", json={"user_id": other, "pin": "4821", "purpose": "transfer"})
+        client.post("/v1/stepup/pin/verify", json={"user_id": other, "pin": "1111", "purpose": "transfer",
+                                                   "reference": txid})
+    locked = client.post("/v1/stepup/pin/verify", json={"user_id": other, "pin": "4821", "purpose": "transfer",
+                                                        "reference": txid})
     assert locked.status_code == 400 and "Too many" in locked.json()["detail"]
 
 

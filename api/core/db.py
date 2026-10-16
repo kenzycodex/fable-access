@@ -761,6 +761,20 @@ MIGRATIONS = {
         # true. These let a customer register where their codes actually go.
         "contact_email": "TEXT",
         "contact_phone": "TEXT",
+        # When each contact was last set. A code sent to an address that was
+        # only just added cannot release held money. NULL means the contact
+        # predates the column and counts as long-standing.
+        "contact_email_set_at": "TEXT",
+        "contact_phone_set_at": "TEXT",
+        # A new address waits here until the customer proves they receive
+        # mail at it; only then does it become contact_email.
+        "pending_email": "TEXT",
+    },
+    "stepup_tokens": {
+        # Which factors the token proves, and when each was enrolled (JSON), so
+        # a release can refuse factors set up after the money was held.
+        "factors": "TEXT",
+        "institution_id": "TEXT",
     },
 }
 
@@ -796,6 +810,14 @@ def _migrate(conn):
     converted = apikeys.hash_existing(conn)
     if converted:
         logger.info("Stored %d API key(s) as hashes instead of plain text.", converted)
+
+    # Step-up tokens were stored as issued. Store the hash instead, in place:
+    # a token still in flight keeps working, because it hashes to the new key.
+    import hashlib
+
+    for (raw,) in conn.execute("SELECT token FROM stepup_tokens WHERE token LIKE 'su\\_%' ESCAPE '\\'").fetchall():
+        conn.execute("UPDATE OR IGNORE stepup_tokens SET token = ? WHERE token = ?",
+                     ("h:" + hashlib.sha256(raw.encode()).hexdigest(), raw))
 
     conn.execute(
         """UPDATE transactions SET review_state = 'open'

@@ -138,6 +138,15 @@ STEPUP_TOKEN_TTL_SECONDS = _env_int("FABLE_STEPUP_TOKEN_TTL_SECONDS", 600)
 OTP_TTL_SECONDS = _env_int("FABLE_OTP_TTL_SECONDS", 600)
 OTP_MAX_ATTEMPTS = _env_int("FABLE_OTP_MAX_ATTEMPTS", 5)
 
+# A contact (email or phone) added or changed within this many hours cannot be
+# the factor that releases held money: pointing codes at an address the
+# attacker controls is the first move of a session takeover.
+CONTACT_SETTLE_HOURS = _env_int("FABLE_CONTACT_SETTLE_HOURS", 24)
+# The same rule for sandbox banks, whose money is simulated and whose test
+# customers are set up minutes before they are used. A factor set up after a
+# hold still never releases it.
+SANDBOX_CONTACT_SETTLE_MINUTES = _env_int("FABLE_SANDBOX_CONTACT_SETTLE_MINUTES", 0, minimum=0)
+
 # --- KYC / liveness provider ---
 # Unset here. With no provider the identity_check tier resolves to the
 # strongest combination actually available (passkey + PIN + emailed code)

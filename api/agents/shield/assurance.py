@@ -32,11 +32,49 @@ IDENTITY_SIGNALS = ("device_anomaly", "location_anomaly", "timezone_mismatch")
 IDENTITY_SIGNAL_ESCALATION = 2
 
 
+# A one-time code on its own is one factor, the same weight as a PIN. It is
+# named for what it is rather than recorded as "pin", so a token always says
+# which factor was actually proved.
+EQUIVALENT = {"otp": "pin"}
+
+
 def level_rank(level: str) -> int:
     try:
-        return LEVELS.index(level)
+        return LEVELS.index(EQUIVALENT.get(level, level))
     except ValueError:
         return 0
+
+
+def level_for_factors(factors: set[str] | list[str], has_passkey: bool) -> str:
+    """The tier a set of independently verified factors earns.
+
+    Each tier needs exactly the factors it names:
+
+      passkey + code + PIN  identity_check (the composed substitute for a
+                            vendor liveness check, which Fable does not have)
+      passkey + code        passkey_and_otp
+      PIN + code            passkey_and_otp only for a customer with no
+                            passkey: two independent factors, one of them out
+                            of band, so a customer whose phone cannot hold a
+                            passkey is not stranded. With a passkey enrolled
+                            the device factor is required.
+      passkey (+ PIN)       passkey
+      PIN or code alone     pin
+    """
+    have = set(factors)
+    if {"passkey", "otp", "pin"} <= have:
+        return "identity_check"
+    if {"passkey", "otp"} <= have:
+        return "passkey_and_otp"
+    if {"pin", "otp"} <= have and not has_passkey:
+        return "passkey_and_otp"
+    if "passkey" in have:
+        return "passkey"
+    if "pin" in have:
+        return "pin"
+    if "otp" in have:
+        return "otp"
+    return "none"
 
 
 def satisfies(provided: str | None, required: str) -> bool:
@@ -129,8 +167,10 @@ def describe(level: str) -> dict:
             "factors": ["passkey", "otp"],
         },
         "identity_check": {
-            "label": "Identity verification",
-            "detail": "This transfer needs a liveness check against your registered ID before it can proceed.",
-            "factors": ["identity_check"],
+            # Fable has no liveness or ID-document check. This tier is every
+            # factor the customer has, verified together, and says so.
+            "label": "Full verification",
+            "detail": "Confirm on this device, enter your PIN, then enter the code sent to your registered email.",
+            "factors": ["passkey", "pin", "otp"],
         },
     }.get(level, {"label": level, "detail": "", "factors": []})

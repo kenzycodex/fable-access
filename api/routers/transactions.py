@@ -118,8 +118,12 @@ def approve(txid: str, payload: ApproveRequest, request: Request):
                 status_code=401,
                 detail={"error": "step_up_required", "level": required, "message": "Verify it's you to send this transfer."},
             )
-        if payload.stepup_token:
-            stepup_service.consume_token(payload.stepup_token)
+        # Spent atomically: of two approvals racing with one token, one wins.
+        if not stepup_service.consume_token(payload.stepup_token):
+            raise HTTPException(
+                status_code=401,
+                detail={"error": "step_up_required", "level": required, "message": "Verify again to send this transfer."},
+            )
 
     institution_id = request.state.institution_id
 
