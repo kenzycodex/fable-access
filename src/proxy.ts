@@ -14,7 +14,7 @@ import type { NextRequest } from 'next/server'
  * not be copied into the frontend's runtime. That is deliberate and worth
  * being precise about.
  *
- *   This middleware is a routing convenience, not a security boundary.
+ *   This proxy is a routing convenience, not a security boundary.
  *
  * The security boundary is the API, which verifies the signature on every
  * request and derives the tenant from it. Someone who forges a well-formed but
@@ -38,7 +38,7 @@ function tokenIsUsable(raw: string | undefined): boolean {
   }
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname
   const signedIn = tokenIsUsable(request.cookies.get('fable_auth')?.value)
 
