@@ -197,7 +197,7 @@ def cold_start_status(active: dict, rows: list[dict]) -> dict:
     these weights keeps scoring a first NGN 900m at 0.47 until a version with
     them is approved and promoted.
     """
-    keys = list(engine_config.LEGACY_FILL)
+    keys = list(engine_config.FIRST_AMOUNT_KEYS)
     live = engine_config.normalise(active["params"])["weights"]
     live_on = any(live.get(k, 0) > 0 for k in keys)
     waiting = [

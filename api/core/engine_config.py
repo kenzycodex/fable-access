@@ -96,16 +96,29 @@ WEIGHT_GROUPS: list[tuple[str, list[tuple[str, str, float]]]] = [
         ("first_amount_5m", "No history: NGN 5m or more", 0.36),
         ("first_amount_20m", "No history: NGN 20m or more", 0.45),
     ]),
+    # Anomaly against the customer's own history (agents/shield/anomaly.py).
+    # Each weight turns one model's 0..1 anomaly-ness into points. The previous
+    # model (an Isolation Forest) scored even a typical transfer above its own
+    # gate, so it is being retired: versions approved under it keep it
+    # (LEGACY_FILL), and new versions use the nearest-neighbour model instead.
+    ("Anomaly model", [
+        ("ml_anomaly_previous", "Previous anomaly model (retiring)", 0.0),
+        ("ml_anomaly", "Unusual amount and hour for this customer", 0.10),
+    ]),
 ]
 WEIGHT_DEFAULTS = {key: default for _, items in WEIGHT_GROUPS for key, _, default in items}
 
 # Parameters added after versions were already approved. A stored version that
-# predates one reads it as LEGACY_FILL (no effect), so shipping the code changes
+# predates one reads it as LEGACY_FILL (what it did before), so shipping the code changes
 # no decision: the new values take effect only through a governed version.
 LEGACY_FILL = {
     "first_amount_100k": 0.0, "first_amount_500k": 0.0, "first_amount_1m": 0.0,
     "first_amount_5m": 0.0, "first_amount_20m": 0.0,
+    # A version from before the anomaly weights ran the previous model at 0.10.
+    "ml_anomaly_previous": 0.10, "ml_anomaly": 0.0,
 }
+FIRST_AMOUNT_KEYS = ("first_amount_100k", "first_amount_500k", "first_amount_1m", "first_amount_5m",
+                     "first_amount_20m")
 FIRST_AMOUNT_TIERS = (
     (20_000_000, "first_amount_20m"), (5_000_000, "first_amount_5m"), (1_000_000, "first_amount_1m"),
     (500_000, "first_amount_500k"), (100_000, "first_amount_100k"),
@@ -372,8 +385,9 @@ def seed_cold_start_draft() -> int | None:
                VALUES (?, 'draft', ?, ?, ?, ?, 'system')""",
             (version, canonical(params), params_hash(params), row["version"],
              "Prepared by the release: weights for customers with no history, so a large first transfer is "
-             "flagged or blocked instead of passing at 0.47. Backtest, then propose. Past decisions did not "
-             "record these terms, so the backtest under-reports their effect."),
+             "flagged or blocked instead of passing at 0.47, and the current anomaly model in place of the "
+             "previous one, which added points to typical transfers. Backtest, then propose. Past decisions "
+             "did not record these terms, so the backtest under-reports their effect."),
         )
         cur.execute("INSERT OR IGNORE INTO platform_settings (key, value, updated_by) VALUES (?, ?, 'system')",
                     (COLD_START_DRAFT_FLAG, str(version)))

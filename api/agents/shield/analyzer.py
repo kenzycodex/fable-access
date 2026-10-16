@@ -17,7 +17,7 @@ from agents.copilot.baseline import (
     get_user_baseline,
     get_user_history_arrays,
 )
-from agents.shield.anomaly import score_anomaly
+from agents.shield.anomaly import current_anomaly, previous_anomaly
 from agents.shield.channel_risk import get_channel_risk
 from agents.shield.explainer import explain_now
 from agents.shield.nip_codes import get_nip_risk_signal
@@ -37,6 +37,9 @@ from agents.shield.weights import (
 )
 from core import engine_config
 from core.utils import utcnow
+
+# The anomaly term counts only above this many points, as it always has.
+ML_GATE = 0.02
 
 PCI_FIELDS = ("card_number", "cvv", "pin", "track_data")
 
@@ -152,6 +155,13 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     # The detection settings in force (Environment page), read once per decision.
     rules = detection()
     w = p["weights"]
+    # A version running in shadow is scored by replaying this decision's parts,
+    # so a term it weighs must be recorded even when the live version does not.
+    shadow_version = engine_config.shadow()
+    shadow_w = shadow_version["params"]["weights"] if shadow_version else {}
+
+    def shadow_wants(key: str) -> bool:
+        return shadow_w.get(key, 0) > 0
 
     signals: list[str] = []
     score = 0.0
@@ -305,13 +315,25 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         signals.append(f"scam_pattern: {pattern['name']} (+{boost})")
         score += add(term(const=boost))
 
-    # Step 7 (auxiliary): Isolation Forest anomaly boost from own history
+    # Step 7 (auxiliary): Isolation Forest anomaly from own history. Both
+    # models' anomaly-ness is recorded, and the engine version's two weights
+    # decide which counts, so a backtest can replay either.
     if baseline:
         history_amounts, history_hours = get_user_history_arrays(user_id)
-        ml_boost = score_anomaly(history_amounts, history_hours, amount, now_hour, cache_key=user_id)
-        if ml_boost > 0.02:
-            signals.append(f"ml_anomaly: isolation forest deviation (+{ml_boost})")
-            score += add(term(const=ml_boost))
+        coefs = {}
+        if w.get("ml_anomaly_previous", 0) > 0 or shadow_wants("ml_anomaly_previous"):
+            coefs["ml_anomaly_previous"] = previous_anomaly(history_amounts, history_hours, amount, now_hour,
+                                                            cache_key=user_id)
+        if w.get("ml_anomaly", 0) > 0 or shadow_wants("ml_anomaly"):
+            coefs["ml_anomaly"] = current_anomaly(history_amounts, history_hours, amount, now_hour,
+                                                  cache_key=user_id)
+        coefs = {k: v for k, v in coefs.items() if v > 0}
+        if coefs:
+            ml_term = term(coefs, gate=ML_GATE)
+            ml_boost = round(term_value(ml_term, w), 4)
+            if ml_boost > 0:
+                signals.append(f"ml_anomaly: unusual amount and hour for this customer (+{ml_boost})")
+            score += add(ml_term)
 
     # Step 8: Device anomaly — unrecognized fingerprint (weight scales with amount)
     fingerprint = device.get("fingerprint_id")

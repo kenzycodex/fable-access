@@ -87,7 +87,7 @@ def test_a_version_approved_before_the_weights_existed_scores_as_approved(monkey
     for key in engine_config.LEGACY_FILL:
         legacy["weights"].pop(key)
     p = engine_config.normalise(legacy)
-    assert all(p["weights"][k] == 0.0 for k in engine_config.LEGACY_FILL)
+    assert all(p["weights"][k] == engine_config.LEGACY_FILL[k] for k in engine_config.LEGACY_FILL)
     monkeypatch.setattr(engine_config, "active",
                         lambda: {"version": 1, "params": p, "hash": engine_config.params_hash(p)})
     result = _score(900_000_000, "mobile_app")
