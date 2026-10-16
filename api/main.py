@@ -141,40 +141,36 @@ if config._SESSION_SECRET_IS_EPHEMERAL:
         "Set it in production: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
     )
 
-if config.ENVIRONMENT == "production" and config.WEBAUTHN_RP_ID == "localhost":
-    logger.error(
-        "WEBAUTHN_RP_ID is still 'localhost' in production. Every passkey "
-        "registration and assertion will fail origin validation, silently "
-        "pushing all step-up onto the weaker PIN/OTP path. Set it to the "
-        "site's registered domain (no scheme, no port)."
-    )
+def production_problems(cors_origins: list[str] | None = None) -> list[str]:
+    """Settings that are unsafe in production. In production the API refuses
+    to start while any of these remain; in development they are warnings."""
+    problems = []
+    if config._SESSION_SECRET_IS_EPHEMERAL:
+        problems.append("FABLE_SESSION_SECRET is not set (sessions would die on every restart).")
+    if (cors_origins if cors_origins is not None else CORS_ORIGINS) == ["*"]:
+        problems.append("FABLE_CORS_ORIGINS is '*' (any website could call the API from a visitor's browser).")
+    if not config.PIN_PEPPER:
+        problems.append("FABLE_PIN_PEPPER is not set (PIN hashes could be guessed offline from a database copy).")
+    if config.WEBAUTHN_RP_ID == "localhost":
+        problems.append("WEBAUTHN_RP_ID is 'localhost' (every passkey would fail).")
+    if os.getenv("FABLE_WEBHOOK_ALLOW_PRIVATE", "").lower() in ("1", "true", "yes"):
+        problems.append("FABLE_WEBHOOK_ALLOW_PRIVATE is on (webhooks could reach the server's own network).")
+    return problems
+
+
+_PROBLEMS = production_problems()
+if config.ENVIRONMENT == "production" and _PROBLEMS:
+    for _problem in _PROBLEMS:
+        logger.critical("Refusing to start in production: %s", _problem)
+    raise SystemExit("Unsafe production settings: " + " ".join(_PROBLEMS))
+for _problem in _PROBLEMS:
+    logger.warning("Not safe for production: %s", _problem)
 
 if config.ENVIRONMENT == "production" and not config.SECRETS_KEY:
     logger.warning(
         "FABLE_SECRETS_KEY is not set, so integration keys can only come from .env and the "
         "operator console's Secrets page is read-only. To enable it: "
         "python -c \"import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())\""
-    )
-
-if config.ENVIRONMENT == "production" and not config.PIN_PEPPER:
-    logger.warning(
-        "FABLE_PIN_PEPPER is not set, so customer PIN hashes have no server-held "
-        "key and could be guessed offline from a copy of the database. Set it, "
-        "and keep a copy offline: losing it locks every PIN. "
-        "python -c \"import secrets; print(secrets.token_urlsafe(32))\""
-    )
-
-if config.ENVIRONMENT == "production" and CORS_ORIGINS == ["*"]:
-    logger.warning(
-        "FABLE_CORS_ORIGINS is '*' in production, so any website can call this "
-        "API from a visitor's browser. Set it to your frontend origins, comma-"
-        "separated (for example https://fablehq.vercel.app)."
-    )
-
-if config.ENVIRONMENT == "production" and os.getenv("FABLE_WEBHOOK_ALLOW_PRIVATE", "").lower() in ("1", "true", "yes"):
-    logger.error(
-        "FABLE_WEBHOOK_ALLOW_PRIVATE is on in production. A console user could "
-        "point a webhook at this server's own network. Turn it off."
     )
 
 _REQUIRED = {"shield", "ghost", "copilot"}
