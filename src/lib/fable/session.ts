@@ -9,24 +9,22 @@ export type AuthMethod = "biometric" | "pin" | "password";
 
 export interface BankingSession {
   loginTimestamp: number; // ms epoch
-  authMethod: AuthMethod;
+  /** How the customer signed in to their bank app. The demo bank has no
+   * customer sign-in (staff pick a test customer), so it is null: sending a
+   * made-up value would put a fabricated fact in the decision record. A real
+   * integration passes the method its own login used. */
+  authMethod: AuthMethod | null;
   previousFailedAttempts: number;
 }
 
 export interface SessionContext {
   login_timestamp: string; // ISO
-  auth_method: AuthMethod;
+  auth_method: AuthMethod | null;
   session_duration_seconds: number;
   previous_failed_attempts: number;
 }
 
 const KEY = "fable_session_v1";
-
-function pickAuthMethod(): AuthMethod {
-  // Weighted like real mobile banking: most sessions open with biometrics.
-  const r = Math.random();
-  return r < 0.6 ? "biometric" : r < 0.9 ? "pin" : "password";
-}
 
 /** Start the session if one isn't running; returns the active session. */
 export function ensureSession(): BankingSession {
@@ -38,7 +36,7 @@ export function ensureSession(): BankingSession {
   }
   const session: BankingSession = {
     loginTimestamp: Date.now(),
-    authMethod: pickAuthMethod(),
+    authMethod: null,
     previousFailedAttempts: 0,
   };
   try {
