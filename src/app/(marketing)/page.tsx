@@ -41,7 +41,7 @@ export default function HomePage() {
                 <h1>
                   Stop Fraud Fast.
                   <br />
-                  <span className="font-marker text-accent">Three</span> AI Agents.
+                  <span className="font-marker text-accent">Three</span> Agents.
                 </h1>
               </Reveal>
               <Reveal delay={200}>
@@ -72,12 +72,12 @@ export default function HomePage() {
             <Reveal delay={150}>
               <p className="hidden md:block text-m max-w-[640px] text-white/80 pt-2">
                 Nigerian fraud losses jumped 603% between Q1 2024 and Q1 2025, with over a third of institutions 
-                still failing to report their total exposure. Fable is built to sit directly inside the transfer flow itself. 
-                By scoring every transaction across fourteen signal layers, inside a 200 millisecond budget, it stops fraudulent transfers 
-                instantly, without ever becoming a bottleneck for your legitimate users.
+                still failing to report their total exposure. Fable is built to sit directly inside the transfer flow itself.
+                It scores every transfer against sixteen signals within a 200 millisecond decision budget, measured on every
+                call, so a suspicious transfer can be stopped without slowing down your legitimate users.
               </p>
               <p className="md:hidden text-m text-white/80 pt-2">
-                Nigerian fraud losses jumped 603% between Q1 2024 and Q1 2025. Fable sits directly inside the transfer flow, scoring transactions in under 200ms to stop fraud instantly without slowing legitimate users.
+                Nigerian fraud losses jumped 603% between Q1 2024 and Q1 2025. Fable sits inside the transfer flow and decides within a 200ms budget, so legitimate users are not slowed down.
               </p>
             </Reveal>
           </div>
@@ -144,7 +144,8 @@ export default function HomePage() {
           <Reveal className="mx-auto flex w-full max-w-[560px] flex-col items-center gap-[var(--spacing-s)] py-[var(--section-space-l)] text-center text-white">
             <h2 className="text-light">Try it yourself.</h2>
             <p className="max-w-[420px] text-m text-white">
-              Run a transfer through Copilot, Shield, and Ghost. No bank account required, just the live demo.
+              Run a transfer through Copilot, Shield and Ghost in your institution&apos;s sandbox. Sign in with your
+              console account, or ask us for one. Balances are simulated and no real money moves.
             </p>
             <Button href={demoCta.href} tone="white" className="!px-7 !py-3.5">
               {demoCta.label}

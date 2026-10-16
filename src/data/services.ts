@@ -46,11 +46,11 @@ export const serviceTiers: ServiceTier[] = [
     accent: "neutral",
     featured: true,
     bodyLead: "Shield",
-    body: "adds real-time scam and deepfake defense on top of Copilot, priced per transaction scored.",
+    body: "adds real-time scam defence on top of Copilot, priced per transaction scored.",
     items: [
-      "Fourteen-layer real-time scoring",
+      "Sixteen-signal real-time scoring",
       "Plain-language decision explanations",
-      "Sub-200ms response budget, every call",
+      "200ms decision budget, measured on every call",
     ],
   },
   {
@@ -61,10 +61,10 @@ export const serviceTiers: ServiceTier[] = [
     priceNote: "priced on hold volume",
     accent: "accent",
     bodyLead: "Ghost",
-    body: "adds a disposable holding account and cooling window for any transfer a user overrides.",
+    body: "adds a cooling-window hold for any blocked transfer a user still wants to send.",
     items: [
-      "Cooling-window holding account",
-      "Recoverable funds on overridden blocks",
+      "Cooling-window holds, released only with stronger proof",
+      "Your bank holds the funds; Fable tells it when to send or return them",
       "Configurable hold duration per institution",
     ],
   },

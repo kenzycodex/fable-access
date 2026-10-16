@@ -102,8 +102,8 @@ export default function WhyFablePage() {
               Built for Every Rail Money <span className="font-marker text-accent">Moves On</span>
             </h2>
             <p className="max-w-[720px] text-l text-white/85">
-              Banks, fintechs, wallets, payment gateways, and crypto platforms plug in once via a single API call.
-              Under the hood, the same agent pipeline protects every rail.
+              Banks, fintechs, wallets and payment gateways score each transfer with one API call, and run a short
+              verification flow for the ones Shield flags. Today Fable protects naira transfers.
             </p>
           </Reveal>
           <Reveal>

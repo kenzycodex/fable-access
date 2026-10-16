@@ -23,7 +23,7 @@ export const overviewCards: IconCard[] = [
   {
     image: { src: "/images/why-fable/scale.webp", alt: "Radical transparency", width: 80, height: 80 },
     title: "Radical Transparency, by Design",
-    body: "Every intervention comes with plain-language reasoning. Users can open a single “what Fable knows about me” panel and toggle signals on or off.",
+    body: "Every intervention comes with plain-language reasoning, and users can open a single “what Fable knows about me” panel to see the habits each transfer is compared against.",
   },
   {
     image: { src: "/images/why-fable/pioneering-new-solutions.webp", alt: "Network effects", width: 80, height: 80 },
@@ -78,7 +78,7 @@ export const industryTabs: IndustryTab[] = [
     label: "Payment Gateways",
     panelTitle: "Payment Gateways",
     icon: { src: "/images/why-fable/ind-software.png", alt: "", width: 80, height: 76 },
-    body: "One API call routes context, device, and behavioral signals through the full agent pipeline in under 200ms, fast enough to sit in front of every transaction, not just the risky ones.",
+    body: "One call scores a transfer with its context, device and behavioural signals within a 200ms budget, fast enough to sit in front of every transaction. Flagged transfers use a short verification flow.",
     learnMoreHref: "#technology",
     caseStudies: [],
   },
@@ -86,7 +86,7 @@ export const industryTabs: IndustryTab[] = [
     label: "Crypto & Web3",
     panelTitle: "Crypto & Web3 Platforms",
     icon: { src: "/images/why-fable/ind-travel.png", alt: "", width: 80, height: 80 },
-    body: "The same behavioral and device intelligence that protects a NIP transfer extends to on-chain activity as the platform grows: one shared fraud graph across rails.",
+    body: "Planned: extending the behavioural and device checks that protect a NIP transfer to on-chain activity. Today Fable scores naira transfers only.",
     learnMoreHref: "#technology",
     caseStudies: [],
   },
@@ -108,7 +108,7 @@ export const technologyIntro =
 
 export const provenScience = {
   title: "Copilot Learns. Shield Defends. Ghost Contains.",
-  body: "Copilot builds a behavioral baseline per user: who they pay, when, how much, which devices. When a transfer matches it, friction disappears. When it breaks the pattern, Shield takes over: real-time scam and deepfake defense, scored and explained in plain language. If a user overrides a block anyway, Ghost routes the transfer into a disposable account with a cooling window, so even a fully-tricked user loses nothing.",
+  body: "Copilot builds a behavioral baseline per user: who they pay, when, how much, which devices. When a transfer matches it, friction disappears. When it breaks the pattern, Shield takes over: real-time scam defence, scored and explained in plain language. If a user still wants a blocked transfer sent, Ghost holds it for a cooling window, so even a fully-tricked user has time to cancel.",
   href: dashboardCta.href,
   image: { src: "/images/why-fable/phone-in-hand.webp", alt: "Reviewing a flagged transaction on a phone", width: 581, height: 463 },
 };

@@ -23,7 +23,7 @@ export const primaryNav: NavLink[] = [
  * 404 until /dashboard and /demo are actually built, same as any other
  * route that hasn't shipped yet. */
 export const dashboardCta = { label: "Dashboard", href: "/dashboard/login" };
-export const demoCta = { label: "See Live Demo", href: "/demo" };
+export const demoCta = { label: "Open the Sandbox", href: "/demo" };
 
 export const headerCta = {
   demo: dashboardCta,
