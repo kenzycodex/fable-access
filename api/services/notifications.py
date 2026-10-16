@@ -182,3 +182,28 @@ def notify_security_change(user_id: str, institution_id: str | None, change: str
     emailed = bool(current or also_email)
     record(user_id, institution_id, "security", title, body,
            channel="email" if emailed else "in_app", delivered=delivered if emailed else True)
+
+
+def notify_hold_ended(user_id: str, institution_id: str | None, ghost_id: str, amount: float,
+                      status: str, by: str) -> None:
+    """Tell the customer how a hold ended, in-app and by email when they have one."""
+    from core import security
+
+    staff = by.startswith("staff:")
+    copy = {
+        "RELEASED": ("Your held transfer was sent",
+                     f"The NGN {amount:,.0f} transfer we were holding has been released"
+                     + (" by your bank after it confirmed with you." if staff else " after you verified it.")),
+        "CANCELLED": ("Your held transfer was cancelled",
+                      f"The NGN {amount:,.0f} transfer we were holding was cancelled"
+                      + (" by your bank." if staff else ".") + " The money stayed in your account."),
+        "EXPIRED": ("Your held transfer was not sent",
+                    f"The NGN {amount:,.0f} transfer we were holding was not confirmed in time, so it was not "
+                    "sent. The money stayed in your account."),
+    }
+    title, lead = copy.get(status, ("Your held transfer changed", "A held transfer changed."))
+    body = lead + "\n\nIf you did not expect this, contact your bank straight away."
+    email = security.get_contact(user_id).get("email")
+    delivered = _send_email(email, title, body) if email else True
+    record(user_id, institution_id, "containment", title, body, reference=ghost_id,
+           channel="email" if email else "in_app", delivered=delivered)

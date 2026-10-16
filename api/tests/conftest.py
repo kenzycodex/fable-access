@@ -13,6 +13,9 @@ os.environ["FABLE_DB_PATH"] = os.path.join(tempfile.mkdtemp(prefix="fable-tests-
 # share one per-minute rate-limit bucket. The limiter has its own behaviour to
 # test; elsewhere it only gets in the way.
 os.environ.setdefault("FABLE_RATE_LIMIT_MAX", "100000")
+# The background scheduler would race the tests for the same rows. Tests run
+# its jobs directly (services.scheduler.run_due).
+os.environ["FABLE_SCHEDULER"] = "off"
 
 # No test may call a real AI or address provider, whatever a developer's local
 # .env holds. load_dotenv() never overrides a variable that is already set, so

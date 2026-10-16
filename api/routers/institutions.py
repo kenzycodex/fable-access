@@ -261,6 +261,8 @@ class SettingsPatch(BaseModel):
     hold_high_minutes: Optional[int] = None
     hold_medium_minutes: Optional[int] = None
     hold_low_minutes: Optional[int] = None
+    # Let customers route a flagged transfer into a hold, not only a blocked one.
+    hold_on_flag: Optional[bool] = None
     # Field names listed here are reset to Fable's default.
     reset: list[str] = []
 

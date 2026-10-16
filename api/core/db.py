@@ -356,6 +356,41 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Webhook events waiting to be delivered. Written in the same moment as the
+-- action that caused them and delivered from here, so a restart no longer
+-- loses a retry that was sleeping in a thread. One row per endpoint per event;
+-- the event id is fixed when the row is written, so a receiver can de-duplicate
+-- retries.
+CREATE TABLE IF NOT EXISTS webhook_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    webhook_id TEXT NOT NULL,
+    institution_id TEXT NOT NULL,
+    event TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending | sending | delivered | failed
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at REAL NOT NULL DEFAULT 0,
+    claimed_at REAL,
+    last_error TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    delivered_at TEXT
+);
+
+-- When each background job last ran, and the lease that keeps two workers
+-- from running the same job at once (services/scheduler.py).
+CREATE TABLE IF NOT EXISTS job_runs (
+    name TEXT PRIMARY KEY,
+    holder TEXT,
+    lease_until REAL NOT NULL DEFAULT 0,
+    last_started REAL NOT NULL DEFAULT 0,
+    last_finished REAL,
+    last_ok INTEGER,
+    last_detail TEXT,
+    runs INTEGER DEFAULT 0,
+    failures INTEGER DEFAULT 0
+);
+
 -- A bank's customers. The bank knows a customer by its own reference
 -- (external_ref); Fable keys everything else by id, which is unique across
 -- banks. Two banks can both have a customer "10293" without sharing a
@@ -701,6 +736,12 @@ MIGRATIONS = {
         # held because of an unfamiliar device demands a stronger factor than
         # one held purely on amount.
         "signals": "TEXT",
+        # The decision the hold was opened from. Risk and signals are copied
+        # from it, never taken from the caller.
+        "transaction_id": "TEXT",
+        # Who resolved it: the customer, staff at the bank, or the expiry job.
+        "resolved_by": "TEXT",
+        "resolution_note": "TEXT",
     },
     "api_keys": {
         "institution_id": "TEXT",
@@ -769,6 +810,11 @@ MIGRATIONS = {
         # A new address waits here until the customer proves they receive
         # mail at it; only then does it become contact_email.
         "pending_email": "TEXT",
+    },
+    "institution_settings": {
+        # 1 lets a customer route a flagged transfer into a hold as well as a
+        # blocked one (services/policy.py). NULL or 0: blocks only.
+        "hold_on_flag": "INTEGER",
     },
     "stepup_tokens": {
         # Which factors the token proves, and when each was enrolled (JSON), so
@@ -987,6 +1033,9 @@ CREATE INDEX IF NOT EXISTS ix_history_inst       ON transaction_history(institut
 CREATE INDEX IF NOT EXISTS ix_import_rows_job    ON import_rows(job_id, line);
 CREATE INDEX IF NOT EXISTS ix_import_jobs_inst   ON import_jobs(institution_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_txn_inst_clientref ON transactions(institution_id, client_reference);
+CREATE INDEX IF NOT EXISTS ix_outbox_due         ON webhook_outbox(status, next_attempt_at);
+CREATE INDEX IF NOT EXISTS ix_ghost_expiry       ON ghost_containers(status, expires_at);
+CREATE INDEX IF NOT EXISTS ix_ghost_txn          ON ghost_containers(transaction_id);
 """
 
 # Offline-replay idempotency rests entirely on client_reference, and the lookup

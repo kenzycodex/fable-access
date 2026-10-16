@@ -199,23 +199,25 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
             )
         except Exception:  # noqa: BLE001 — a notification must never fail a decision
             pass
-        webhooks.emit(
-            institution_id,
-            "transaction.blocked" if result["action"] == "BLOCK" else "transaction.flagged",
-            {
-                "id": transaction_id,
-                "user_id": payload.user_id,
-                "customer_ref": customer_ref,
-                "amount": transaction.get("amount"),
-                "recipient_account": transaction.get("recipient_account"),
-                "recipient_bank": transaction.get("recipient_bank"),
-                "channel": transaction.get("channel"),
-                "risk_score": result["risk_score"],
-                "action_taken": result["action"],
-                "signals": list(result["signals"]),
-                "explanation": result["explanation"],
-            },
-        )
+    # Every decision is an event, including a pass: a bank that waits on the
+    # webhook rather than the response needs to hear about all three.
+    webhooks.emit(
+        institution_id,
+        {"BLOCK": "transaction.blocked", "FLAG": "transaction.flagged"}.get(result["action"], "transaction.passed"),
+        {
+            "id": transaction_id,
+            "user_id": payload.user_id,
+            "customer_ref": customer_ref,
+            "amount": transaction.get("amount"),
+            "recipient_account": transaction.get("recipient_account"),
+            "recipient_bank": transaction.get("recipient_bank"),
+            "channel": transaction.get("channel"),
+            "risk_score": result["risk_score"],
+            "action_taken": result["action"],
+            "signals": list(result["signals"]),
+            "explanation": result["explanation"],
+        },
+    )
 
     # Row is committed; the write-up worker now has something to update. It
     # also populates the cache, so the next decision of this shape resolves

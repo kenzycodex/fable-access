@@ -49,6 +49,9 @@ def defaults() -> dict:
         "hold_high_minutes": setting("GHOST_COOLING_HIGH"),
         "hold_medium_minutes": setting("GHOST_COOLING_MED"),
         "hold_low_minutes": setting("GHOST_COOLING_LOW"),
+        # Whether a customer may route a flagged (not only a blocked) transfer
+        # into a hold. Off by default: a flag is verified and sent.
+        "hold_on_flag": 0,
     }
 
 
@@ -113,6 +116,7 @@ def update(institution_id: str, changes: dict, by: str) -> dict:
         merged[k] = v
     if not merged["hold_high_minutes"] >= merged["hold_medium_minutes"] >= merged["hold_low_minutes"]:
         raise PolicyError("Riskier transfers must be held at least as long as less risky ones.")
+    merged["hold_on_flag"] = 1 if merged.get("hold_on_flag") else 0
 
     # Store NULL where the value equals the default, so a later change to
     # Fable's defaults still reaches banks that never chose otherwise.
@@ -122,18 +126,20 @@ def update(institution_id: str, changes: dict, by: str) -> dict:
         cur.execute(
             """INSERT INTO institution_settings
                (institution_id, flag_threshold, block_threshold, hold_high_minutes,
-                hold_medium_minutes, hold_low_minutes, updated_by, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                hold_medium_minutes, hold_low_minutes, hold_on_flag, updated_by, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                ON CONFLICT(institution_id) DO UPDATE SET
                  flag_threshold = excluded.flag_threshold,
                  block_threshold = excluded.block_threshold,
                  hold_high_minutes = excluded.hold_high_minutes,
                  hold_medium_minutes = excluded.hold_medium_minutes,
                  hold_low_minutes = excluded.hold_low_minutes,
+                 hold_on_flag = excluded.hold_on_flag,
                  updated_by = excluded.updated_by,
                  updated_at = excluded.updated_at""",
             (institution_id, stored["flag_threshold"], stored["block_threshold"],
-             stored["hold_high_minutes"], stored["hold_medium_minutes"], stored["hold_low_minutes"], by),
+             stored["hold_high_minutes"], stored["hold_medium_minutes"], stored["hold_low_minutes"],
+             stored["hold_on_flag"], by),
         )
     _cache.pop(institution_id, None)
     return effective(institution_id)

@@ -1,16 +1,45 @@
-"""Fable Ghost — transaction containment layer.
+"""Fable Ghost: holding a risky transfer for a cooling window.
 
-When Shield flags a transfer HIGH risk but the user overrides, Ghost
-routes it through a disposable container with a cooling window. Cancel
-returns the funds; confirm releases them. In the demo build this is
-simulated in SQLite — production wires this to the Open Banking
-/accounts/{number}/holds endpoint.
+When Shield blocks a transfer (or flags one, where the bank's policy allows)
+and the customer still wants it sent, Ghost holds it for a short window in
+which the customer can cancel and keep the money, or release it with a
+stronger proof that it is them.
+
+Every hold is opened from a decision Fable stored. Its risk score, signals and
+explanation are copied from that decision, never taken from the caller: those
+values decide how long the hold lasts and how strong the release proof must
+be, so a caller who could set them could shorten the window and weaken the
+check.
+
+States: HELD, then exactly one of RELEASED, CANCELLED or EXPIRED. Every move is
+a single guarded UPDATE, so of two racing actions exactly one wins, and every
+move is audited, sent as a webhook and told to the customer.
+
+Where the money is: in the sandbox, Fable's simulated ledger reserves the
+amount while it is held and debits it only on release. A live bank keeps the
+money in its own core banking system. Fable moves nothing; the bank holds the
+funds when it receives containment.created and acts on containment.released,
+containment.cancelled or containment.expired.
 """
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from core.db import cursor, dumps, loads, require_institution_id, row_to_dict
 from core.secrets import setting
+
+logger = logging.getLogger("fable.ghost")
+
+HELD, RELEASED, CANCELLED, EXPIRED = "HELD", "RELEASED", "CANCELLED", "EXPIRED"
+
+
+class HoldError(ValueError):
+    """A hold that cannot be opened or changed, with a message for the caller."""
+
+    def __init__(self, message: str, status: int = 409, code: str = "hold_refused"):
+        super().__init__(message)
+        self.status = status
+        self.code = code
 
 
 def calculate_cooling_window(risk_score: float, institution_id: str | None = None) -> int:
@@ -26,6 +55,31 @@ def calculate_cooling_window(risk_score: float, institution_id: str | None = Non
     return setting("GHOST_COOLING_LOW")
 
 
+def holdable_actions(institution_id: str | None) -> set[str]:
+    """Which decisions a customer may route into a hold. Blocks always; flags
+    only where the bank has chosen that (policy hold_on_flag)."""
+    from services.policy import effective
+
+    actions = {"BLOCK"}
+    if institution_id and effective(institution_id).get("hold_on_flag"):
+        actions.add("FLAG")
+    return actions
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _signal_codes(raw) -> list[str]:
+    return [str(s) for s in (loads(raw, []) if isinstance(raw, str) else (raw or []))]
+
+
+def _public(container: dict) -> dict:
+    out = dict(container)
+    out["signals"] = _signal_codes(container.get("signals"))
+    return out
+
+
 def create_ghost_container(
     user_id: str,
     transaction: dict,
@@ -33,10 +87,12 @@ def create_ghost_container(
     explanation: str,
     institution_id: str | None = None,
     signals: list[str] | None = None,
+    transaction_id: str | None = None,
 ) -> dict:
+    """Write a HELD container. Callers pass values from a stored decision."""
     ghost_id = f"ghost_{uuid.uuid4().hex[:12]}"
     cooling_minutes = calculate_cooling_window(risk_score, institution_id)
-    created_at = datetime.now(timezone.utc)
+    created_at = _now()
     expires_at = created_at + timedelta(minutes=cooling_minutes)
 
     with cursor() as cur:
@@ -44,8 +100,8 @@ def create_ghost_container(
             """INSERT INTO ghost_containers
                (ghost_id, user_id, amount, recipient_id, recipient_account, recipient_bank,
                 status, cooling_window_minutes, risk_score, explanation, created_at, expires_at,
-                institution_id, signals)
-               VALUES (?, ?, ?, ?, ?, ?, 'HELD', ?, ?, ?, ?, ?, ?, ?)""",
+                institution_id, signals, transaction_id)
+               VALUES (?, ?, ?, ?, ?, ?, 'HELD', ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 ghost_id,
                 user_id,
@@ -60,12 +116,14 @@ def create_ghost_container(
                 expires_at.isoformat(),
                 require_institution_id(institution_id),
                 dumps(signals or []),
+                transaction_id,
             ),
         )
 
     return {
         "ghost_id": ghost_id,
-        "status": "HELD",
+        "transaction_id": transaction_id,
+        "status": HELD,
         "amount": transaction["amount"],
         "recipient_account": transaction.get("recipient_account"),
         "recipient_bank": transaction.get("recipient_bank"),
@@ -75,114 +133,227 @@ def create_ghost_container(
         "expires_at": expires_at.isoformat(),
         "risk_score": risk_score,
         "explanation": explanation,
+        "signals": list(signals or []),
     }
 
 
-def get_ghost_container(ghost_id: str) -> dict | None:
+def _decision(transaction_id: str, user_id: str, institution_id: str) -> dict | None:
     with cursor() as cur:
-        cur.execute("SELECT * FROM ghost_containers WHERE ghost_id = ?", (ghost_id,))
-        row = cur.fetchone()
-    return row_to_dict(row)
+        cur.execute("SELECT * FROM transactions WHERE id = ? AND user_id = ? AND institution_id = ?",
+                    (transaction_id, user_id, institution_id))
+        return row_to_dict(cur.fetchone())
 
 
-def sweep_expired() -> int:
-    """Auto-cancel holds whose cooling window has closed.
-
-    Cancel rather than release, because cancelling returns the money and
-    releasing moves it: if the customer never came back to confirm, the safe
-    reading of their silence is that they did not want the transfer. That is
-    also the direction the product's whole argument points — a scam victim who
-    walks away should end up with their money, not without it.
-
-    Runs at startup and can be called on a schedule. Idempotent: only rows
-    still in HELD are touched.
-    """
+def find_decision(user_id: str, institution_id: str, amount: float, recipient_account: str | None,
+                  within_minutes: int = 60) -> str | None:
+    """The stored decision an older client means when it opens a hold without
+    naming one: this customer's latest unresolved block (or flag) for the same
+    amount and recipient, made recently."""
     with cursor() as cur:
         cur.execute(
-            "UPDATE ghost_containers SET status = 'CANCELLED', resolved_at = datetime('now') "
-            "WHERE status = 'HELD' AND expires_at IS NOT NULL "
-            "  AND datetime(expires_at) <= datetime('now')",
+            """SELECT id FROM transactions
+               WHERE user_id = ? AND institution_id = ? AND action_taken IN ('BLOCK', 'FLAG')
+                 AND ABS(amount - ?) < 0.005 AND COALESCE(recipient_account, '') = COALESCE(?, '')
+                 AND COALESCE(status, '') NOT IN ('completed', 'released', 'held', 'cancelled', 'expired')
+                 AND datetime(created_at) >= datetime('now', ?)
+               ORDER BY datetime(created_at) DESC LIMIT 1""",
+            (user_id, institution_id, amount, recipient_account or "", f"-{int(within_minutes)} minutes"),
         )
-        swept = cur.rowcount
-    if swept:
-        from services import audit
-        audit.record(audit.CONTAINMENT_EXPIRED, None, count=swept)
-    return swept
+        row = cur.fetchone()
+    return row["id"] if row else None
+
+
+def open_hold(transaction_id: str, user_id: str, institution_id: str) -> tuple[dict, bool]:
+    """Open a hold from a stored decision. (container, created).
+
+    Idempotent: a decision already held returns its hold rather than holding
+    the money twice.
+    """
+    row = _decision(transaction_id, user_id, institution_id)
+    if not row:
+        raise HoldError("Transfer not found.", status=404, code="not_found")
+    action = row.get("action_taken") or "PASS"
+    if action not in holdable_actions(institution_id):
+        raise HoldError(
+            "Only a blocked transfer can be held." if action != "FLAG"
+            else "This bank verifies flagged transfers instead of holding them.",
+            code="not_holdable",
+        )
+
+    with cursor() as cur:
+        cur.execute("SELECT * FROM ghost_containers WHERE transaction_id = ? ORDER BY created_at DESC LIMIT 1",
+                    (transaction_id,))
+        existing = row_to_dict(cur.fetchone())
+    if existing:
+        return get_ghost_container(existing["ghost_id"]) or _public(existing), False
+    if row.get("status") in ("completed", "released", "cancelled"):
+        raise HoldError("This transfer has already been settled.", code="settled")
+
+    container = create_ghost_container(
+        user_id,
+        {"amount": row["amount"], "recipient_id": row.get("recipient_id"),
+         "recipient_account": row.get("recipient_account"), "recipient_bank": row.get("recipient_bank")},
+        float(row.get("risk_score") or 0.0),
+        row.get("explanation") or "",
+        institution_id,
+        _signal_codes(row.get("shield_signals")),
+        transaction_id=transaction_id,
+    )
+    with cursor() as cur:
+        cur.execute("UPDATE transactions SET status = 'held' WHERE id = ?", (transaction_id,))
+
+    from services import audit, webhooks
+
+    audit.record(audit.CONTAINMENT_CREATED, user_id, ghost_id=container["ghost_id"], transaction_id=transaction_id,
+                 amount=row["amount"], risk_score=row.get("risk_score"), institution_id=institution_id)
+    webhooks.emit(institution_id, "containment.created", {
+        "ghost_id": container["ghost_id"],
+        "transaction_id": transaction_id,
+        "user_id": user_id,
+        "amount": row["amount"],
+        "recipient_account": row.get("recipient_account"),
+        "recipient_bank": row.get("recipient_bank"),
+        "risk_score": row.get("risk_score"),
+        "cooling_window_minutes": container["cooling_window_minutes"],
+        "expires_at": container["expires_at"],
+    })
+    return container, True
+
+
+def get_ghost_container(ghost_id: str) -> dict | None:
+    """The hold, with its expiry applied if the window has closed: whoever
+    reads a hold sees its true state, even if the expiry job has not run."""
+    with cursor() as cur:
+        cur.execute("SELECT * FROM ghost_containers WHERE ghost_id = ?", (ghost_id,))
+        row = row_to_dict(cur.fetchone())
+    if row and row["status"] == HELD and has_expired(row):
+        expire_hold(ghost_id)
+        with cursor() as cur:
+            cur.execute("SELECT * FROM ghost_containers WHERE ghost_id = ?", (ghost_id,))
+            row = row_to_dict(cur.fetchone())
+    return _public(row) if row else None
 
 
 def has_expired(container: dict) -> bool:
-    """Whether the cooling window has closed.
-
-    `expires_at` was written on every container and then never read anywhere in
-    the API: no expiry check on release, no sweeper, nothing. The countdown was
-    a UI animation with no server-side existence, which meant a container could
-    be released days later and an abandoned one suppressed the customer's
-    available balance permanently.
-    """
+    """Whether the cooling window has closed."""
     raw = container.get("expires_at")
     if not raw:
         return False
     try:
-        expires = datetime.fromisoformat(str(raw))
+        expires = datetime.fromisoformat(str(raw).replace(" ", "T"))
     except (TypeError, ValueError):
         return False
     # Seeded rows are written naive; live ones carry an offset. Comparing the
     # two raises, so normalise before comparing.
     if expires.tzinfo is None:
         expires = expires.replace(tzinfo=timezone.utc)
-    return expires <= datetime.now(timezone.utc)
+    return expires <= _now()
 
 
-def _resolve(ghost_id: str, status: str) -> bool:
+def _resolve(ghost_id: str, status: str, by: str, note: str | None = None, only_if_expired: bool = False) -> bool:
     """Move a container out of HELD, atomically.
 
-    The status was read and then updated in a separate statement, so a
-    concurrent cancel and release could both pass the `status != HELD` check.
-    Guarding on the current status inside the UPDATE means exactly one of them
-    wins, and the loser can be told what actually happened.
+    Guarding on the current status inside the UPDATE means exactly one of two
+    racing actions wins, and the loser can be told what actually happened.
     """
+    expiry = " AND datetime(expires_at) <= datetime('now')" if only_if_expired else ""
     with cursor() as cur:
         cur.execute(
-            "UPDATE ghost_containers SET status = ?, resolved_at = ? "
-            "WHERE ghost_id = ? AND status = 'HELD'",
-            (status, datetime.now(timezone.utc).isoformat(), ghost_id),
+            "UPDATE ghost_containers SET status = ?, resolved_at = ?, resolved_by = ?, resolution_note = ? "
+            f"WHERE ghost_id = ? AND status = 'HELD'{expiry}",
+            (status, _now().isoformat(), by, (note or "")[:500] or None, ghost_id),
         )
         return cur.rowcount > 0
 
 
-def cancel_ghost(ghost_id: str, user_id: str) -> dict:
+_TXN_STATUS = {RELEASED: "released", CANCELLED: "cancelled", EXPIRED: "expired"}
+_EVENT = {RELEASED: "containment.released", CANCELLED: "containment.cancelled", EXPIRED: "containment.expired"}
+
+
+def _settled(container: dict, status: str, by: str, note: str | None = None) -> None:
+    """Everything that follows a hold ending: the transfer's status, the audit
+    trail, the bank's webhook and the customer's notification."""
+    from services import audit, notifications, webhooks
+
+    txid = container.get("transaction_id")
+    if txid:
+        with cursor() as cur:
+            # A release is the customer saying "this was really me", which is
+            # what the baselines learn from; a cancel or expiry teaches nothing.
+            cur.execute("UPDATE transactions SET status = ?, confirmed_legitimate = ? WHERE id = ?",
+                        (_TXN_STATUS[status], 1 if status == RELEASED else 0, txid))
+    event = {RELEASED: audit.CONTAINMENT_RELEASED, CANCELLED: audit.CONTAINMENT_CANCELLED,
+             EXPIRED: audit.CONTAINMENT_EXPIRED}[status]
+    audit.record(event, container.get("user_id"), ghost_id=container.get("ghost_id"), transaction_id=txid,
+                 amount=container.get("amount"), by=by, note=note, institution_id=container.get("institution_id"))
+    data = {
+        "ghost_id": container.get("ghost_id"),
+        "transaction_id": txid,
+        "user_id": container.get("user_id"),
+        "amount": container.get("amount"),
+        "status": status,
+        "resolved_by": by,
+    }
+    webhooks.emit(container.get("institution_id"), _EVENT[status], data)
+    webhooks.emit(container.get("institution_id"), "containment.resolved",
+                  {**data, "outcome": _TXN_STATUS[status]})
+    try:
+        notifications.notify_hold_ended(container.get("user_id"), container.get("institution_id"),
+                                        container.get("ghost_id"), container.get("amount") or 0, status, by)
+    except Exception as exc:  # noqa: BLE001 - a notification must never undo the outcome
+        logger.warning("Could not notify the customer about hold %s: %s", container.get("ghost_id"), exc)
+
+
+def expire_hold(ghost_id: str) -> bool:
+    """End a hold whose window has closed. The money stays with the customer:
+    if they never came back to confirm, the safe reading of their silence is
+    that they did not want the transfer."""
+    with cursor() as cur:
+        cur.execute("SELECT * FROM ghost_containers WHERE ghost_id = ?", (ghost_id,))
+        container = row_to_dict(cur.fetchone())
+    if not container or not _resolve(ghost_id, EXPIRED, "expiry", only_if_expired=True):
+        return False
+    _settled(container, EXPIRED, "expiry")
+    return True
+
+
+def sweep_expired() -> int:
+    """Expire every hold whose window has closed. Idempotent; run by the
+    scheduler every half minute and once at startup."""
+    with cursor() as cur:
+        cur.execute(
+            "SELECT ghost_id FROM ghost_containers WHERE status = 'HELD' AND expires_at IS NOT NULL "
+            "AND datetime(expires_at) <= datetime('now') LIMIT 500"
+        )
+        ids = [r["ghost_id"] for r in cur.fetchall()]
+    return sum(1 for gid in ids if expire_hold(gid))
+
+
+def cancel_ghost(ghost_id: str, user_id: str, by: str = "customer", note: str | None = None) -> dict:
     container = get_ghost_container(ghost_id)
     if not container:
         raise ValueError("Ghost container not found")
     if container["user_id"] != user_id:
         raise PermissionError("Unauthorized")
-
-    # Deliberately still allowed after expiry. Cancelling returns money to the
-    # customer, so it is always the safe direction; refusing it would strand
-    # funds to enforce a deadline that exists to protect them.
-    if not _resolve(ghost_id, "CANCELLED"):
+    if container["status"] == EXPIRED:
+        # Nothing to do: an expired hold already gave the money back.
+        return {"ghost_id": ghost_id, "status": EXPIRED,
+                "message": "This hold had already ended. Your money is safe."}
+    if not _resolve(ghost_id, CANCELLED, by, note):
         current = (get_ghost_container(ghost_id) or {}).get("status")
         raise ValueError(f"Container already resolved: {current}")
-
-    from services import audit
-    audit.record(audit.CONTAINMENT_CANCELLED, user_id, ghost_id=ghost_id,
-                 amount=container.get("amount"), institution_id=container.get("institution_id"))
-
+    _settled(container, CANCELLED, by, note)
     # Nothing to reverse: holding reserved the funds without debiting them,
     # so cancelling just drops the reservation and the balance is untouched.
     return {
         "ghost_id": ghost_id,
-        "status": "CANCELLED",
+        "status": CANCELLED,
         "message": "Transfer cancelled. Your money is safe.",
     }
 
 
 class ExpiredContainer(Exception):
-    """Release refused because the cooling window has closed.
-
-    Cancelling is still permitted, because returning money is always the safe
-    direction.
-    """
+    """Release refused because the cooling window has closed."""
 
 
 class StepUpRequired(Exception):
@@ -196,33 +367,42 @@ class StepUpRequired(Exception):
         self.level = level
 
 
+def _debit_if_sandbox(container: dict, user_id: str) -> None:
+    """In the sandbox the reservation becomes a real debit on Fable's simulated
+    ledger. A live bank keeps the money in its own systems: the release tells
+    it to submit the transfer, and Fable moves nothing."""
+    from core.tenancy import institution_mode
+
+    if institution_mode(container.get("institution_id")) != "live":
+        from services.accounts import debit
+
+        debit(
+            user_id, container["amount"], container.get("institution_id"),
+            transaction_id=container.get("transaction_id") or container["ghost_id"],
+            reference=f"ghost-release:{container['ghost_id']}",
+        )
+
+
 def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) -> dict:
     container = get_ghost_container(ghost_id)
     if not container:
         raise ValueError("Ghost container not found")
     if container["user_id"] != user_id:
         raise PermissionError("Unauthorized")
-    if container["status"] != "HELD":
+    if container["status"] == EXPIRED:
+        raise ExpiredContainer("This hold has expired, so the money stayed with you. Start the transfer again.")
+    if container["status"] != HELD:
         raise ValueError(f"Container already resolved: {container['status']}")
-
-    # The cooling window is a deadline, not decoration. It existed only as a
-    # timestamp nothing read, so a container could be released days after the
-    # window it was supposedly protected by had closed.
     if has_expired(container):
-        raise ExpiredContainer(
-            "This hold has expired. Cancel it and start the transfer again."
-        )
+        raise ExpiredContainer("This hold has expired. Start the transfer again.")
 
-    # The whole point of containment. Ghost holds money precisely because the
-    # transfer looked wrong, so "release" is the most attacker-valuable button
-    # in the product — and until now it was guarded only by a user_id the
-    # client supplies about itself. An attacker holding the session could
-    # simply press it. Releasing now costs a factor the session alone can't
-    # produce; cancelling stays free, because returning money is always safe.
+    # The whole point of containment. Releasing costs a factor the session
+    # alone can't produce; cancelling stays free, because returning money is
+    # always safe.
     from agents.shield import assurance
     from agents.shield import stepup as stepup_service
 
-    signals = loads(container.get("signals"), []) if container.get("signals") else []
+    signals = _signal_codes(container.get("signals"))
     required = assurance.release_level(container.get("risk_score") or 0.0, signals)
     info = stepup_service.token_info(stepup_token, user_id, "ghost_release", ghost_id)
     proved = info["level"] if info else None
@@ -249,36 +429,42 @@ def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) 
     if not stepup_service.consume_token(stepup_token):
         raise StepUpRequired(required, "That verification was already used. Verify again.")
 
-    # Status first, and only if this call is the one that wins the race. Debiting
-    # before the transition meant two concurrent releases could both debit; the
-    # ledger's idempotency reference caught that, but relying on a downstream
-    # guard for a correctness property this function owns is the wrong shape.
-    if not _resolve(ghost_id, "RELEASED"):
+    if not _resolve(ghost_id, RELEASED, "customer", f"verified: {proved}"):
         current = (get_ghost_container(ghost_id) or {}).get("status")
         raise ValueError(f"Container already resolved: {current}")
 
-    # In the sandbox the reservation becomes a real debit on Fable's simulated
-    # ledger. Until this moment the money was held but never taken, which is
-    # what made cancelling able to return it. A live bank keeps the money in
-    # its own systems: the release tells it to submit the transfer, and Fable
-    # moves nothing.
-    from core.tenancy import institution_mode
-
-    if institution_mode(container.get("institution_id")) != "live":
-        from services.accounts import debit
-
-        debit(
-            user_id, container["amount"], container.get("institution_id"),
-            transaction_id=ghost_id, reference=f"ghost-release:{ghost_id}",
-        )
-
-    from services import audit
-    audit.record(audit.CONTAINMENT_RELEASED, user_id, ghost_id=ghost_id,
-                 amount=container.get("amount"), risk_score=container.get("risk_score"),
-                 factor=proved, institution_id=container.get("institution_id"))
+    _debit_if_sandbox(container, user_id)
+    _settled(container, RELEASED, "customer", f"verified: {proved}")
 
     return {
         "ghost_id": ghost_id,
-        "status": "RELEASED",
+        "status": RELEASED,
         "message": f"Transfer released. Sending ₦{container['amount']:,.0f} to the recipient.",
     }
+
+
+def staff_resolve(ghost_id: str, institution_id: str, action: str, actor: str, note: str) -> dict:
+    """A bank staff member ends a hold from the console.
+
+    Cancelling returns the money and is always allowed. Releasing sends it and
+    is for when the bank has confirmed with the customer by its own means (a
+    call to the number on file, a visit to a branch); it needs an owner and a
+    written note, and is audited under the staff member's name.
+    """
+    container = get_ghost_container(ghost_id)
+    if not container or container.get("institution_id") != institution_id:
+        raise HoldError("Hold not found.", status=404, code="not_found")
+    note = (note or "").strip()
+    if action == "release" and len(note) < 10:
+        raise HoldError("Say how the customer confirmed this transfer (at least 10 characters).", status=422,
+                        code="note_required")
+    if container["status"] != HELD:
+        raise HoldError(f"This hold has already ended: {container['status'].lower()}.", code="resolved")
+    status = RELEASED if action == "release" else CANCELLED
+    if not _resolve(ghost_id, status, f"staff:{actor}", note):
+        current = (get_ghost_container(ghost_id) or {}).get("status")
+        raise HoldError(f"This hold has already ended: {str(current).lower()}.", code="resolved")
+    if status == RELEASED:
+        _debit_if_sandbox(container, container["user_id"])
+    _settled(container, status, f"staff:{actor}", note)
+    return get_ghost_container(ghost_id) or {}

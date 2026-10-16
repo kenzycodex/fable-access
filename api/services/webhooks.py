@@ -6,10 +6,13 @@ prove the call came from Fable and was not replayed:
 
     Fable-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<body>")>
 
-Delivery runs on a small thread pool, off the request path: a slow or broken
-receiver must never slow down a transfer decision. Each delivery is attempted up
-to three times with backoff, and every attempt is recorded so the console can
-show what happened.
+Every event is first written to an outbox table (webhook_outbox) with a fixed
+event id, then delivered off the request path: a slow or broken receiver must
+never slow down a transfer decision. A failed delivery is retried from the
+outbox with growing gaps (up to MAX_ATTEMPTS, about a day in all) by the
+scheduler, so a restart no longer loses a retry. Every attempt is recorded so
+the console can show what happened. Receivers should de-duplicate on the
+event id, since an event can arrive more than once.
 
 Targets must be public HTTPS. A URL that resolves to a private, loopback or
 link-local address is refused, because otherwise any console user could make the
@@ -36,15 +39,24 @@ from core.db import cursor, row_to_dict
 logger = logging.getLogger("fable.webhooks")
 
 EVENTS = (
+    "transaction.passed",
     "transaction.flagged",
     "transaction.blocked",
+    "transaction.approved",
     "containment.created",
+    "containment.released",
+    "containment.cancelled",
+    "containment.expired",
+    # Kept for endpoints subscribed before the three events above existed;
+    # still sent alongside them, with an "outcome" field.
     "containment.resolved",
     "case.resolved",
 )
 
-ATTEMPTS = 3
+ATTEMPTS = 3            # for a direct delivery (the console's test send)
+MAX_ATTEMPTS = 8        # for an outbox delivery, spread over about a day
 TIMEOUT_SECONDS = 5
+STALE_CLAIM_SECONDS = 300
 
 _pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="fable-webhook")
 
@@ -111,41 +123,55 @@ def _post(url: str, body: bytes, headers: dict) -> int:
         return exc.code
 
 
-def deliver(hook: dict, event: str, data: dict, *, sleep=time.sleep) -> bool:
-    """Send one event to one endpoint, retrying. Returns whether it landed."""
-    payload = {
+def _payload(institution_id: str, event: str, data: dict) -> dict:
+    return {
         "id": "evt_" + secrets.token_hex(10),
         "type": event,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "institution_id": hook["institution_id"],
+        "institution_id": institution_id,
         "data": data,
     }
-    body = json.dumps(payload, separators=(",", ":"), default=str).encode()
 
+
+def _attempt(hook: dict, event: str, body: bytes, attempt: int) -> tuple[bool, bool]:
+    """One delivery attempt. (landed, worth retrying)."""
+    ts = int(time.time())
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Fable-Webhooks/1.0",
+        "Fable-Event": event,
+        "Fable-Signature": sign(hook["secret"], ts, body),
+    }
+    try:
+        # Re-checked on every attempt: DNS can change between registration
+        # and delivery, which is the classic way around an SSRF check.
+        validate_url(hook["url"])
+        status = _post(hook["url"], body, headers)
+        ok = 200 <= status < 300
+        _record(hook, event, attempt, status, ok, None if ok else f"HTTP {status}")
+        if ok:
+            return True, False
+        # The receiver rejected it; retrying won't help, except for these.
+        return False, not (400 <= status < 500 and status not in (408, 429))
+    except WebhookError as exc:
+        _record(hook, event, attempt, None, False, str(exc))
+        return False, False
+    except Exception as exc:  # noqa: BLE001 - network errors of every kind
+        _record(hook, event, attempt, None, False, type(exc).__name__)
+        return False, True
+
+
+def deliver(hook: dict, event: str, data: dict, *, sleep=time.sleep) -> bool:
+    """Send one event to one endpoint now, retrying briefly. Returns whether it
+    landed. Used for the console's test send; real events go through the
+    outbox (emit)."""
+    body = json.dumps(_payload(hook["institution_id"], event, data), separators=(",", ":"), default=str).encode()
     for attempt in range(1, ATTEMPTS + 1):
-        ts = int(time.time())
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": "Fable-Webhooks/1.0",
-            "Fable-Event": event,
-            "Fable-Signature": sign(hook["secret"], ts, body),
-        }
-        try:
-            # Re-checked on every attempt: DNS can change between registration
-            # and delivery, which is the classic way around an SSRF check.
-            validate_url(hook["url"])
-            status = _post(hook["url"], body, headers)
-            ok = 200 <= status < 300
-            _record(hook, event, attempt, status, ok, None if ok else f"HTTP {status}")
-            if ok:
-                return True
-            if 400 <= status < 500 and status not in (408, 429):
-                return False  # the receiver rejected it; retrying won't help
-        except WebhookError as exc:
-            _record(hook, event, attempt, None, False, str(exc))
+        ok, retry = _attempt(hook, event, body, attempt)
+        if ok:
+            return True
+        if not retry:
             return False
-        except Exception as exc:  # noqa: BLE001 - network errors of every kind
-            _record(hook, event, attempt, None, False, type(exc).__name__)
         if attempt < ATTEMPTS:
             sleep(2 ** attempt)
     return False
@@ -158,22 +184,115 @@ def hooks_for(institution_id: str, event: str) -> list[dict]:
             (institution_id,),
         )
         rows = [row_to_dict(r) for r in cur.fetchall()]
-    return [r for r in rows if event in (r["events"] or "").split(",")]
+    return [_with_secret(r) for r in rows if event in (r["events"] or "").split(",")]
+
+
+def _with_secret(row: dict) -> dict:
+    """The endpoint with its signing secret ready to use."""
+    return row
+
+
+def _hook(webhook_id: str) -> dict | None:
+    with cursor() as cur:
+        cur.execute("SELECT id, institution_id, url, secret, events, active FROM webhooks WHERE id = ?",
+                    (webhook_id,))
+        row = row_to_dict(cur.fetchone())
+    return _with_secret(row) if row else None
 
 
 def emit(institution_id: str | None, event: str, data: dict) -> None:
-    """Queue `event` for every endpoint this institution subscribed to it.
+    """Record `event` for every endpoint this institution subscribed to it, then
+    start delivering it.
 
-    Never raises and never blocks: a webhook problem must not fail the action
-    that triggered it.
+    The outbox row is the promise: if delivery fails, or the process restarts,
+    the scheduler picks it up again. Never raises and never blocks: a webhook
+    problem must not fail the action that triggered it.
     """
     if not institution_id or event not in EVENTS:
         return
     try:
-        for hook in hooks_for(institution_id, event):
-            _pool.submit(deliver, hook, event, data)
+        ids = []
+        with cursor() as cur:
+            for hook in hooks_for(institution_id, event):
+                payload = _payload(institution_id, event, data)
+                cur.execute(
+                    """INSERT INTO webhook_outbox (webhook_id, institution_id, event, event_id, payload)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (hook["id"], institution_id, event, payload["id"],
+                     json.dumps(payload, separators=(",", ":"), default=str)),
+                )
+                ids.append(cur.lastrowid)
+        for row_id in ids:
+            _pool.submit(deliver_outbox_row, row_id)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Webhook emit failed for %s: %s", event, exc)
+
+
+def _backoff(attempts: int) -> float:
+    """Seconds before the next try: 30 s, 1 min, 2 min ... capped at 6 hours."""
+    return float(min(30 * 2 ** max(attempts - 1, 0), 6 * 3600))
+
+
+def deliver_outbox_row(row_id: int) -> str | None:
+    """Try one outbox row once, if it is due and nobody else is on it.
+    Returns its new status, or None when it was not claimed."""
+    now = time.time()
+    with cursor() as cur:
+        cur.execute(
+            "UPDATE webhook_outbox SET status = 'sending', claimed_at = ? "
+            "WHERE id = ? AND status = 'pending' AND next_attempt_at <= ?",
+            (now, row_id, now),
+        )
+        if not cur.rowcount:
+            return None
+        cur.execute("SELECT * FROM webhook_outbox WHERE id = ?", (row_id,))
+        row = row_to_dict(cur.fetchone())
+
+    hook = _hook(row["webhook_id"])
+    attempts = (row["attempts"] or 0) + 1
+    if not hook or not hook.get("active"):
+        status, ok, retry, error = "failed", False, False, "endpoint removed or paused"
+    else:
+        ok, retry = _attempt(hook, row["event"], row["payload"].encode(), attempts)
+        status = "delivered" if ok else ("pending" if retry and attempts < MAX_ATTEMPTS else "failed")
+        error = None if ok else "will retry" if status == "pending" else "gave up"
+    with cursor() as cur:
+        cur.execute(
+            """UPDATE webhook_outbox SET status = ?, attempts = ?, next_attempt_at = ?, claimed_at = NULL,
+                      last_error = ?, delivered_at = CASE WHEN ? = 'delivered' THEN datetime('now') END
+               WHERE id = ?""",
+            (status, attempts, time.time() + _backoff(attempts), error, status, row_id),
+        )
+    return status
+
+
+def drain(limit: int = 100) -> int:
+    """Deliver what is due. Run by the scheduler; safe to run anywhere, any
+    number of times. Returns how many rows were attempted."""
+    now = time.time()
+    with cursor() as cur:
+        # A worker that died mid-delivery leaves its row claimed; give it back.
+        cur.execute("UPDATE webhook_outbox SET status = 'pending', claimed_at = NULL "
+                    "WHERE status = 'sending' AND claimed_at < ?", (now - STALE_CLAIM_SECONDS,))
+        cur.execute("SELECT id FROM webhook_outbox WHERE status = 'pending' AND next_attempt_at <= ? "
+                    "ORDER BY id LIMIT ?", (now, limit))
+        ids = [r["id"] for r in cur.fetchall()]
+    done = 0
+    for row_id in ids:
+        if deliver_outbox_row(row_id) is not None:
+            done += 1
+    return done
+
+
+def outbox_status() -> dict:
+    """For /health: how much is waiting and how much has given up."""
+    with cursor() as cur:
+        cur.execute("SELECT status, COUNT(*) AS n FROM webhook_outbox GROUP BY status")
+        counts = {r["status"]: r["n"] for r in cur.fetchall()}
+        cur.execute("SELECT MIN(created_at) AS oldest FROM webhook_outbox WHERE status = 'pending'")
+        oldest = cur.fetchone()["oldest"]
+    return {"pending": counts.get("pending", 0) + counts.get("sending", 0),
+            "failed": counts.get("failed", 0), "oldest_pending": oldest}
 
 
 def transaction_summary(row: dict) -> dict:

@@ -142,11 +142,15 @@ class ShieldExplanationResponse(BaseModel):
 
 class GhostCreateRequest(BaseModel):
     user_id: str
-    transaction: Transaction
-    risk_score: float
-    explanation: str = ""
+    # The stored decision to hold. Its risk, signals and explanation are used.
+    transaction_id: Optional[str] = None
+    # Deprecated. Accepted from older clients only to find their recent block
+    # when no transaction_id is sent; never used for the hold's risk.
+    transaction: Optional[Transaction] = None
+    # Deprecated and ignored: the stored decision decides these.
+    risk_score: Optional[float] = None
+    explanation: Optional[str] = None
     institution_id: Optional[str] = None
-    # Why Shield held it — decides how strong the release factor must be.
     signals: list[str] = Field(default_factory=list)
 
 

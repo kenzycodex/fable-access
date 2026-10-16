@@ -4,7 +4,7 @@ import os
 import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from core import config
@@ -59,7 +59,22 @@ async def lifespan(_app: FastAPI):
         engine_admin.sweep()
     except Exception as exc:  # noqa: BLE001 - never block startup on this
         logger.warning("Could not prepare engine versions at startup: %s", type(exc).__name__)
+    from services import scheduler
+
+    register_jobs()
+    scheduler.start()
     yield
+    scheduler.stop()
+
+
+def register_jobs() -> None:
+    """The background jobs (services/scheduler.py). Each is idempotent."""
+    from agents.ghost.account import sweep_expired
+    from services import engine_admin, scheduler, webhooks
+
+    scheduler.register("ghost_expiry", 30, sweep_expired)
+    scheduler.register("webhook_outbox", 15, webhooks.drain)
+    scheduler.register("engine_sweep", 600, engine_admin.sweep)
 
 
 app = FastAPI(
@@ -178,7 +193,7 @@ def sweep_expired_containments() -> None:
 
         swept = sweep_expired()
         if swept:
-            logger.info("Auto-cancelled %d expired Ghost container(s) at startup.", swept)
+            logger.info("Expired %d Ghost hold(s) whose window closed while the API was down.", swept)
     except Exception as exc:  # noqa: BLE001 — never block boot
         logger.warning("Could not sweep expired containments: %s", exc)
 
@@ -209,13 +224,18 @@ def note_if_no_admins() -> None:
 
 
 @app.get("/health", tags=["system"])
-def health():
-    """Liveness plus the two things that can be silently wrong.
+def health(response: Response):
+    """Liveness plus the things that can be silently wrong.
 
     A process that answers this endpoint is not necessarily a working fraud
-    engine: the scoring router can fail to import, and the scam-pattern library
-    can fail to load, both without stopping the app. Reporting "ok" in either
-    case is how a broken deploy looks healthy, so both are surfaced here.
+    engine: the scoring router can fail to import, the scam-pattern library can
+    fail to load and the database can be unreachable, all without stopping the
+    app. Any of those is "degraded" with HTTP 503, so the deploy script and the
+    container health check stop trusting the process.
+
+    Background work (the scheduler and the webhook outbox) is reported as
+    warnings with a 200: a late expiry sweep or a slow bank endpoint is worth
+    seeing, but is not a reason to restart the scoring engine.
     """
     try:
         from agents.shield.patterns import library_health
@@ -223,9 +243,49 @@ def health():
     except Exception as exc:  # noqa: BLE001 — health must never itself fail
         patterns = {"healthy": False, "errors": [f"{type(exc).__name__}: {exc}"]}
 
+    try:
+        from core.db import cursor
+
+        with cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        database = {"healthy": True}
+    except Exception as exc:  # noqa: BLE001
+        database = {"healthy": False, "error": type(exc).__name__}
+
+    warnings: list[str] = []
+    try:
+        from services import scheduler
+
+        jobs = scheduler.status()
+        if jobs["enabled"] and not jobs["running"]:
+            warnings.append("The scheduler is not running.")
+        if jobs["stale"]:
+            warnings.append("Background jobs are late: " + ", ".join(jobs["stale"]))
+    except Exception as exc:  # noqa: BLE001
+        jobs = {"error": type(exc).__name__}
+    try:
+        from services import webhooks
+
+        outbox = webhooks.outbox_status()
+        if outbox["failed"]:
+            warnings.append(f"{outbox['failed']} webhook deliveries gave up.")
+    except Exception as exc:  # noqa: BLE001
+        outbox = {"error": type(exc).__name__}
+    try:
+        from core import ai_clients
+
+        # The decision never waits for prose; without a key, templates are used.
+        explainer = {"llm_configured": ai_clients.configured(), "fallback": "templates"}
+    except Exception:  # noqa: BLE001
+        explainer = {"llm_configured": None}
+
     degraded = sorted(_REQUIRED - set(_loaded))
+    bad = bool(degraded or not patterns.get("healthy") or not database["healthy"])
+    if bad:
+        response.status_code = 503
     return {
-        "status": "degraded" if (degraded or not patterns.get("healthy")) else "ok",
+        "status": "degraded" if bad else "ok",
         "service": "fable-api",
         "version": "1.0.0",
         "environment": config.ENVIRONMENT,
@@ -233,6 +293,11 @@ def health():
         "routers": _loaded,
         "missing_required_routers": degraded,
         "pattern_library": patterns,
+        "database": database,
+        "scheduler": jobs,
+        "webhook_outbox": outbox,
+        "explainer": explainer,
+        "warnings": warnings,
     }
 
 

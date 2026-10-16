@@ -8,7 +8,7 @@ console) agrees on where the money ended up.
 """
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from agents.shield import assurance
@@ -21,7 +21,12 @@ router = APIRouter(prefix="/v1/transactions", tags=["transactions"], dependencie
 
 # Outcomes a client may record. Kept explicit so a stray value can't overwrite
 # a transaction's status with something the rest of the app doesn't understand.
-VALID_STATUSES = {"completed", "flagged", "blocked", "cancelled", "held", "released"}
+VALID_STATUSES = {"completed", "flagged", "blocked", "cancelled", "held", "released", "expired"}
+
+# Statuses only the server sets: an approval, a hold and its outcome. A client
+# reporting one of them is accepted only when it is already true (a retry).
+SERVER_STATUSES = {"held", "released", "expired"}
+SETTLED = {"completed", "released", "cancelled", "expired"}
 
 
 def _get(txid: str) -> dict | None:
@@ -52,20 +57,50 @@ def set_status(txid: str, payload: StatusUpdate):
     if payload.user_id and row["user_id"] != payload.user_id:
         raise HTTPException(status_code=403, detail="Unauthorized")
 
-    # A customer who releases a contained transfer (or whose transfer settles)
-    # is telling us, as strongly as they can, "this was really me." That is the
-    # signal Copilot learns from: confirming it marks the row legitimate, so the
-    # recipient becomes known, the device becomes recognised, and the amount and
-    # hour join the baseline — the next transfer like it is no longer a stranger.
-    # Cancelling or leaving it blocked does the opposite and must not teach.
-    confirmed = 1 if payload.status in ("completed", "released") else 0
+    current = row.get("status")
+    if payload.status == current:
+        return {"id": txid, "status": current}
+    action = row.get("action_taken") or "PASS"
+    # This endpoint used to accept any of these statuses and mark "completed"
+    # or "released" as confirmed legitimate, which is what the baselines learn
+    # from. A client could therefore mark its own blocked transfer as settled
+    # and teach Fable that the recipient and amount were normal. Only the
+    # server's own approval and release paths may do that now.
+    if payload.status in SERVER_STATUSES:
+        raise HTTPException(status_code=409, detail="Fable sets this status itself when a hold changes.")
+    if payload.status == "completed" and action != "PASS":
+        raise HTTPException(status_code=409, detail="A flagged transfer is completed by verifying it, and a "
+                                                    "blocked one through a hold.")
+    if payload.status in ("flagged", "blocked") and payload.status != {"FLAG": "flagged", "BLOCK": "blocked"}.get(action):
+        raise HTTPException(status_code=409, detail="That status does not match Fable's decision.")
+    if current in SETTLED:
+        raise HTTPException(status_code=409, detail=f"This transfer is already {current}.")
 
+    # A cleared transfer that settles is the customer's own normal behaviour
+    # and teaches the baseline; a cancelled one teaches nothing.
+    confirmed = 1 if payload.status == "completed" else 0
     with cursor() as cur:
         cur.execute(
             "UPDATE transactions SET status = ?, confirmed_legitimate = ? WHERE id = ?",
             (payload.status, confirmed, txid),
         )
     return {"id": txid, "status": payload.status}
+
+
+class HoldRequest(BaseModel):
+    user_id: str
+
+
+@router.post("/{txid}/hold")
+def hold(txid: str, payload: HoldRequest, request: Request, background: BackgroundTasks):
+    """Hold a blocked transfer the customer still wants to send.
+
+    The same as /v1/ghost/create with a transaction_id: the hold takes its risk,
+    signals and explanation from this stored decision.
+    """
+    from routers.ghost import hold_from_decision
+
+    return hold_from_decision(request, background, payload.user_id, txid)
 
 
 class ApproveRequest(BaseModel):
@@ -151,9 +186,15 @@ def approve(txid: str, payload: ApproveRequest, request: Request):
             (txid,),
         )
 
-    from services import audit
+    from services import audit, webhooks
     audit.record(audit.TRANSFER_APPROVED, payload.user_id, transaction_id=txid,
                  amount=row["amount"], required_factor=required,
                  institution_id=institution_id)
+    # A live bank sends the money itself; this is its signal that the customer
+    # verified and the transfer may go.
+    webhooks.emit(institution_id, "transaction.approved", {
+        **webhooks.transaction_summary({**row, "status": "completed"}),
+        "verified_level": required,
+    })
 
     return {"id": txid, "status": "completed"}

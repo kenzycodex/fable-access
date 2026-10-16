@@ -1,28 +1,37 @@
+"""Ghost holds, as the customer's app sees them.
+
+A hold is opened from a decision Fable stored (POST /v1/ghost/create with the
+decision's transaction_id, or POST /v1/transactions/{id}/hold). Whatever risk
+score, signals or explanation a caller sends is ignored: those values set the
+hold's length and the strength of proof a release needs, so they come only
+from the stored decision.
+"""
+import logging
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
 from agents.ghost.account import (
     ExpiredContainer,
+    HoldError,
     StepUpRequired,
     cancel_ghost,
-    create_ghost_container,
+    find_decision,
     get_ghost_container,
+    open_hold,
     release_ghost,
 )
 from core.tenancy import customer_guard, disabled_agents
 from models.schemas import GhostActionRequest, GhostCreateRequest
-from services import audit, notifications, webhooks
+from services import notifications
 
 router = APIRouter(prefix="/v1/ghost", tags=["ghost"], dependencies=[Depends(customer_guard)])
+logger = logging.getLogger("fable.ghost")
 
 
-@router.post("/create")
-def create(payload: GhostCreateRequest, request: Request, background: BackgroundTasks):
-    transaction = payload.transaction.model_dump()
+def hold_from_decision(request: Request, background: BackgroundTasks, user_id: str,
+                       transaction_id: str) -> dict:
+    """Open (or return) the hold for a stored decision and tell the customer."""
     institution_id = request.state.institution_id
-    from services.sandbox_recipients import apply_token
-
-    apply_token(transaction, request.state.customer["id"])
-
     # An institution that has switched Ghost off gets no containment. Refusing
     # here is the honest behaviour: silently containing anyway would make the
     # toggle a lie in the other direction.
@@ -32,44 +41,50 @@ def create(payload: GhostCreateRequest, request: Request, background: Background
             detail={"error": "agent_disabled",
                     "message": "Ghost containment is switched off for this institution."},
         )
+    try:
+        container, created = open_hold(transaction_id, user_id, institution_id)
+    except HoldError as exc:
+        raise HTTPException(status_code=exc.status, detail={"error": exc.code, "message": str(exc)})
 
-    container = create_ghost_container(
-        payload.user_id, transaction, payload.risk_score, payload.explanation,
-        institution_id, payload.signals,
-    )
-
-    # Tell the customer out-of-band, on a channel the session cannot read.
-    #
-    # Containment used to notify nobody, so the only notice appeared on the
-    # screen the transfer came from — the screen an attacker is holding in
-    # exactly the case this feature exists to survive. A cooling window only
-    # helps if the real customer learns about it in time to cancel.
-    #
-    # Backgrounded because the hold is already in place and the money is
-    # already safe: a slow SMTP server must not delay the response, and a
-    # failed send must not fail containment.
-    audit.record(audit.CONTAINMENT_CREATED, payload.user_id,
-                 ghost_id=container["ghost_id"], amount=transaction.get("amount"),
-                 risk_score=payload.risk_score, institution_id=institution_id)
-
-    webhooks.emit(institution_id, "containment.created", {
-        "ghost_id": container["ghost_id"],
-        "user_id": payload.user_id,
-        "amount": transaction.get("amount"),
-        "recipient_account": transaction.get("recipient_account"),
-        "recipient_bank": transaction.get("recipient_bank"),
-        "risk_score": payload.risk_score,
-        "cooling_window_minutes": container["cooling_window_minutes"],
-        "expires_at": container.get("expires_at"),
-    })
-
-    background.add_task(
-        notifications.notify_containment,
-        payload.user_id, institution_id, container["ghost_id"],
-        transaction.get("amount", 0), transaction.get("recipient_name"),
-        container["cooling_window_minutes"], payload.explanation,
-    )
+    if created:
+        # Tell the customer out-of-band, on a channel the session cannot read:
+        # a cooling window only helps if the real customer learns about it in
+        # time to cancel. Backgrounded because the hold is already in place.
+        background.add_task(
+            notifications.notify_containment,
+            user_id, institution_id, container["ghost_id"],
+            container.get("amount", 0), None,
+            container["cooling_window_minutes"], container.get("explanation") or "",
+        )
     return container
+
+
+@router.post("/create")
+def create(payload: GhostCreateRequest, request: Request, background: BackgroundTasks):
+    """Hold a blocked transfer the customer still wants to send.
+
+    Send the decision's `transaction_id`. Older clients that send only the
+    transfer are matched to the customer's own recent block for the same amount
+    and recipient; if there is none, the request is refused.
+    """
+    if payload.risk_score is not None or payload.signals or payload.explanation:
+        logger.warning("ghost/create ignored caller-supplied risk, signals or explanation; "
+                       "the stored decision is used.")
+    transaction_id = payload.transaction_id
+    if not transaction_id and payload.transaction is not None:
+        from services.sandbox_recipients import apply_token
+
+        transaction = payload.transaction.model_dump()
+        apply_token(transaction, request.state.customer["id"])
+        transaction_id = find_decision(payload.user_id, request.state.institution_id,
+                                       transaction["amount"], transaction.get("recipient_account"))
+    if not transaction_id:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "transaction_id_required",
+                    "message": "Say which blocked transfer to hold: send its transaction_id."},
+        )
+    return hold_from_decision(request, background, payload.user_id, transaction_id)
 
 
 @router.get("/{ghost_id}")
@@ -80,23 +95,10 @@ def get(ghost_id: str):
     return container
 
 
-def _resolved(container: dict, outcome: str) -> None:
-    """Tell the bank's systems how a hold ended."""
-    webhooks.emit(container.get("institution_id"), "containment.resolved", {
-        "ghost_id": container.get("ghost_id"),
-        "user_id": container.get("user_id"),
-        "amount": container.get("amount"),
-        "outcome": outcome,
-        "status": container.get("status"),
-    })
-
-
 @router.post("/{ghost_id}/cancel")
 def cancel(ghost_id: str, payload: GhostActionRequest):
     try:
-        result = cancel_ghost(ghost_id, payload.user_id)
-        _resolved({**(get_ghost_container(ghost_id) or {}), **(result or {})}, "cancelled")
-        return result
+        return cancel_ghost(ghost_id, payload.user_id)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except PermissionError as e:
@@ -106,15 +108,12 @@ def cancel(ghost_id: str, payload: GhostActionRequest):
 @router.post("/{ghost_id}/confirm")
 def confirm(ghost_id: str, payload: GhostActionRequest):
     try:
-        result = release_ghost(ghost_id, payload.user_id, payload.stepup_token)
-        _resolved({**(get_ghost_container(ghost_id) or {}), **(result or {})}, "released")
-        return result
+        return release_ghost(ghost_id, payload.user_id, payload.stepup_token)
     except ExpiredContainer as e:
-        # 410, not 409: the hold existed and is now gone by design. Cancelling
-        # is still available, so the client can offer the safe action.
+        # 410, not 409: the hold existed and is now gone by design.
         raise HTTPException(
             status_code=410,
-            detail={"error": "container_expired", "message": str(e), "can_cancel": True},
+            detail={"error": "container_expired", "message": str(e), "can_cancel": False},
         )
     except StepUpRequired as e:
         # 401 with the demanded level, so the client knows which factor to run
