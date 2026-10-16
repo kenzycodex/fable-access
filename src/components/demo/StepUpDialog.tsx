@@ -30,6 +30,9 @@ interface DialogProps {
   open: boolean;
   onClose: () => void;
   onVerified: (token: string) => void;
+  /** For a hold the customer cannot release themselves: the two ways out. */
+  onCancelTransfer?: () => void;
+  onAskBank?: () => Promise<void>;
   requirement: StepUpRequirement | null;
   userId: string;
   institutionId: string | null;
@@ -75,7 +78,17 @@ function fallbackSteps(level: string, status: SecurityStatus | null): Factor[] |
   return null;
 }
 
-function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, purpose, reference }: DialogProps) {
+function StepUpFlow({
+  onVerified,
+  onClose,
+  onCancelTransfer,
+  onAskBank,
+  requirement,
+  userId,
+  institutionId,
+  purpose,
+  reference,
+}: DialogProps) {
   const { name: bankName } = useInstitution();
   const [status, setStatus] = useState<SecurityStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -257,13 +270,54 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
 
   if (!steps) {
     // Nothing the customer had in place reaches this level. Say so plainly and
-    // leave the safe action open, rather than offering a flow that must fail.
+    // offer the two ways out rather than a flow that must fail.
+    if (purpose === "ghost_release") {
+      return (
+        <div className="flex flex-col gap-4 pb-2">
+          <Notice tone="warning">
+            You can&apos;t release this transfer yourself with the security you had set up before it was held. Releasing
+            it needs your device, your PIN and a one-time code, all set up beforehand. This is a check of your own
+            security, not a face or ID check.
+          </Notice>
+          {onCancelTransfer && (
+            <Button size="lg" full variant="success" onClick={onCancelTransfer}>
+              Cancel the transfer and keep my money
+            </Button>
+          )}
+          {onAskBank && (
+            <Button
+              size="lg"
+              full
+              variant="secondary"
+              loading={busy}
+              onClick={async () => {
+                setBusy(true);
+                setError(null);
+                try {
+                  await onAskBank();
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "We couldn't send your request. Please try again.");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Ask my bank to release it
+            </Button>
+          )}
+          <p className="text-[12px] leading-relaxed text-d-faint">
+            If you ask your bank, someone there may call you on the number they have on file to confirm it&apos;s you.
+            The money stays held until then. Nobody will ever ask you for your PIN or a code.
+          </p>
+          {error && <Notice tone="danger">{error}</Notice>}
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col gap-4 pb-2">
         <Notice tone="warning">
-          {purpose === "ghost_release"
-            ? "This transfer can't be released with the verification you had set up before it was held. You can cancel it and get your money back, then set up your PIN, email and device in Security before trying again."
-            : "This needs verification you haven't set up yet. Set up your PIN, email and device in Security, then try again."}
+          This needs verification you haven&apos;t set up yet. Set up your PIN, email and device in Security, then try
+          again.
         </Notice>
         <Button size="lg" full onClick={onClose}>
           Close

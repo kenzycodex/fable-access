@@ -97,6 +97,8 @@ export interface Transaction extends ScoreResult {
   /** The engine version (approved weights and thresholds) that scored it.
    * Null on transfers scored before versions were recorded. */
   engineVersion?: number | null;
+  /** The status of the hold opened from this decision, when known (review queue). */
+  holdStatus?: string | null;
 }
 
 export type ReviewState = "open" | "in_review" | "escalated" | "resolved";

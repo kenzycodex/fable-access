@@ -126,7 +126,7 @@ export interface CaseDetail {
   };
   containment: {
     ghost_id: string;
-    status: "HELD" | "RELEASED" | "CANCELLED" | "EXPIRED";
+    status: "HELD" | "RELEASE_REQUESTED" | "RELEASED" | "CANCELLED" | "EXPIRED";
     cooling_window_minutes: number | null;
     created_at: string;
     expires_at?: string | null;
@@ -136,6 +136,8 @@ export interface CaseDetail {
     transaction_id?: string | null;
   } | null;
   activity: { event_type: string; payload: Record<string, unknown>; created_at: string }[];
+  /** Whether this bank lets analysts release holds (owners always can). */
+  analysts_can_release?: boolean;
 }
 
 export async function caseDetail(id: string): Promise<CaseDetail> {
@@ -202,6 +204,8 @@ export interface RiskPolicy {
   hold_low_minutes: number;
   /** 1 when a customer may route a flagged transfer into a hold, not only a blocked one. */
   hold_on_flag: number;
+  /** 1 when analysts, not only owners, may release a held transfer. */
+  analysts_can_release: number;
   custom: string[];
   updated_by: string | null;
   updated_at: string | null;

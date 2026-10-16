@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from core.db import cursor, loads, row_to_dict
 from core.tenancy import require_role, tenant_for_console
 from routers.dashboard import TXN_COLUMNS, shape_rows, txn_filters
-from services import audit, webhooks
+from services import audit, policy, webhooks
 
 router = APIRouter(prefix="/v1/review", tags=["review"])
 
@@ -212,6 +212,8 @@ def case_detail(txid: str, request: Request):
         },
         "containment": containment,
         "activity": list(reversed(trail)),
+        # Whether this bank lets analysts release holds (owners always can).
+        "analysts_can_release": bool(policy.effective(institution).get("analysts_can_release")),
     }
 
 

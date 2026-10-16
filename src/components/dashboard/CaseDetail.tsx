@@ -46,6 +46,7 @@ export const STATE_TONE: Record<ReviewState, "neutral" | "brand" | "danger" | "s
 
 const HOLD_LABEL: Record<string, string> = {
   HELD: "holding the money",
+  RELEASE_REQUESTED: "the customer asked you to verify them and release it",
   RELEASED: "released",
   CANCELLED: "cancelled",
   EXPIRED: "expired, not sent",
@@ -58,6 +59,7 @@ const EVENT_LABEL: Record<string, string> = {
   "case.resolved": "Resolved",
   "case.reopened": "Reopened",
   "containment.created": "Held by Ghost",
+  "containment.release_requested": "Customer asked the bank to release",
   "containment.released": "Hold released",
   "containment.cancelled": "Hold cancelled",
   "containment.expired": "Hold expired, not sent",
@@ -247,7 +249,7 @@ function CaseBody({ data, onClose }: { data: CaseDetailData; onClose?: () => voi
                 {data.containment.resolved_by ? ` · by ${data.containment.resolved_by.replace(/^staff:/, "")}` : ""}
               </p>
               {data.containment.resolution_note && <p className="mt-1">Note: {data.containment.resolution_note}</p>}
-              {data.containment.status === "HELD" && canReview && (
+              {(data.containment.status === "HELD" || data.containment.status === "RELEASE_REQUESTED") && canReview && (
                 <div className="mt-3 flex flex-col gap-2">
                   <label htmlFor="hold-note" className="text-[12px] font-semibold text-d-muted">
                     Note (required to release: how the customer confirmed it)
@@ -270,7 +272,7 @@ function CaseBody({ data, onClose }: { data: CaseDetailData; onClose?: () => voi
                     >
                       Cancel hold, keep the money with the customer
                     </Button>
-                    {canManage && (
+                    {(canManage || data.analysts_can_release) && (
                       <Button
                         size="sm"
                         loading={busy === "hold-release"}
@@ -282,9 +284,9 @@ function CaseBody({ data, onClose }: { data: CaseDetailData; onClose?: () => voi
                     )}
                   </div>
                   <p className="text-[11px] text-d-faint">
-                    {canManage
+                    {canManage || data.analysts_can_release
                       ? "Release only after confirming with the customer on the number on file. It is recorded under your name."
-                      : "Only an owner can release a held transfer."}
+                      : "Only an owner can release a held transfer at this bank."}
                     {" "}In live mode Fable moves no money: your systems act on the webhook.
                   </p>
                 </div>

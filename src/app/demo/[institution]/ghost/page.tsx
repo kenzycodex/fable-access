@@ -8,7 +8,7 @@ import { Badge, Button, Card, CardHeader, DetailRow, Eyebrow, Notice, Screen } f
 import { PageSpinner } from "@/components/demo/Spinner";
 import { GhostTimer } from "@/components/demo/GhostTimer";
 import { StepUpDialog } from "@/components/demo/StepUpDialog";
-import { GhostExpiredError, ghostDetail, StepUpRequiredError } from "@/lib/fable/api";
+import { GhostExpiredError, ghostDetail, ghostRequestRelease, StepUpRequiredError } from "@/lib/fable/api";
 import { stepUpRequirement, type StepUpRequirement } from "@/lib/fable/webauthn";
 import { formatNaira } from "@/lib/fable/format";
 import { cancelGhost, confirmGhost, markGhostEnded, useFableStore } from "@/lib/fable/store";
@@ -35,6 +35,7 @@ export default function GhostPage() {
   const [cancelling, setCancelling] = useState(false);
   const [releaseError, setReleaseError] = useState<string | null>(null);
   const [ended, setEnded] = useState<string | null>(null);
+  const [askedBank, setAskedBank] = useState(false);
 
   useEffect(() => {
     if (store !== null && !ghost && !ended) router.replace(href());
@@ -186,6 +187,12 @@ export default function GhostPage() {
             >
               I&apos;m sure, release the transfer
             </Button>
+            {askedBank && (
+              <Notice tone="neutral">
+                We&apos;ve asked your bank to verify you. They may call you on the number they have on file. The money
+                stays held until they release it, and you can still cancel.
+              </Notice>
+            )}
             {/* A refused release has to be visible. Failing quietly would read as
                 a broken button, when the money is in fact being held on purpose. */}
             {releaseError && <Notice tone="danger">{releaseError}</Notice>}
@@ -205,6 +212,15 @@ export default function GhostPage() {
         institutionId={institutionId}
         purpose="ghost_release"
         reference={ghost.id}
+        onCancelTransfer={() => {
+          setStepUpOpen(false);
+          void cancel();
+        }}
+        onAskBank={async () => {
+          await ghostRequestRelease(ghost.id);
+          setAskedBank(true);
+          setStepUpOpen(false);
+        }}
       />
     </Screen>
   );

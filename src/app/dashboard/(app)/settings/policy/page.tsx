@@ -26,6 +26,7 @@ const FIELDS: (keyof PolicyFields)[] = [
   "hold_medium_minutes",
   "hold_low_minutes",
   "hold_on_flag",
+  "analysts_can_release",
 ];
 
 function PolicyForm({ data, onSaved }: { data: PolicyResponse; onSaved: (next: PolicyResponse) => void }) {
@@ -139,6 +140,20 @@ function PolicyForm({ data, onSaved }: { data: PolicyResponse; onSaved: (next: P
                 a flagged transfer is verified and sent, and only a blocked one can be held.
               </span>
             </label>
+            <label className="mt-3 flex items-start gap-3 text-[13px] text-d-muted">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 accent-[var(--brand-primary,#7c3aed)]"
+                checked={form.analysts_can_release === 1}
+                disabled={!canManage}
+                onChange={(e) => set("analysts_can_release", e.target.checked ? 1 : 0)}
+              />
+              <span>
+                <span className="font-semibold text-d-text">Let analysts release held transfers.</span> Off by default:
+                only owners can. Every release needs a note of how the customer was verified and is recorded under the
+                person&apos;s name.
+              </span>
+            </label>
           </div>
 
           {canManage && (
@@ -210,10 +225,11 @@ const LABELS: Record<keyof PolicyFields, string> = {
   hold_medium_minutes: "Hold, score 0.7 to 0.9",
   hold_low_minutes: "Hold, below 0.7",
   hold_on_flag: "Holds for flagged transfers",
+  analysts_can_release: "Analysts can release holds",
 };
 
 function fmt(k: keyof PolicyFields, v: number) {
-  if (k === "hold_on_flag") return v ? "On" : "Off";
+  if (k === "hold_on_flag" || k === "analysts_can_release") return v ? "On" : "Off";
   return k.endsWith("threshold") ? v.toFixed(2) : `${v} min`;
 }
 
@@ -225,6 +241,7 @@ function pick(p: PolicyFields): PolicyFields {
     hold_medium_minutes: p.hold_medium_minutes,
     hold_low_minutes: p.hold_low_minutes,
     hold_on_flag: p.hold_on_flag ? 1 : 0,
+    analysts_can_release: p.analysts_can_release ? 1 : 0,
   };
 }
 

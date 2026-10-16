@@ -375,6 +375,9 @@ export interface StepUpRequirement {
   available?: boolean;
   /** "stored_decision" when the level came from Fable's own record. */
   source?: string;
+  /** For a hold: nothing the customer has reaches the level, so they may ask
+   * their bank to verify them another way and release it. */
+  can_request_release?: boolean;
   passkey_registered: boolean;
   recent_failures: number;
 }

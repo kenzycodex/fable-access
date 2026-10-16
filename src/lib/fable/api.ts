@@ -531,12 +531,21 @@ export async function ghostResolve(
   }
 }
 
+/** Ask the bank to verify the customer another way and release the hold.
+ * For a customer whose factors cannot reach the release level. */
+export async function ghostRequestRelease(ghostId: string): Promise<{ status: string; expires_at?: string }> {
+  return fetchJson(`/v1/ghost/${encodeURIComponent(ghostId)}/request-release`, {
+    method: "POST",
+    body: JSON.stringify({ user_id: activeUserId() }),
+  });
+}
+
 /** Ghost container detail, including the signals that justified the hold. */
 export function ghostDetail(ghostId: string): Promise<{
   ghost_id: string;
   risk_score: number | null;
   signals?: string[];
-  status: "HELD" | "RELEASED" | "CANCELLED" | "EXPIRED";
+  status: "HELD" | "RELEASE_REQUESTED" | "RELEASED" | "CANCELLED" | "EXPIRED";
   expires_at?: string;
 }> {
   return fetchJson(`/v1/ghost/${ghostId}`);
@@ -573,6 +582,8 @@ export interface ApiTransactionRow {
   reviewed_by?: string | null;
   reviewed_at?: string | null;
   engine_version?: number | null;
+  /** On review-queue rows: the status of the hold opened from this decision. */
+  hold_status?: string | null;
 }
 
 function prettyRecipient(id: string | null, account: string | null): string {
@@ -622,6 +633,7 @@ export function mapApiRow(r: ApiTransactionRow): Transaction {
     customerName: r.customer_name || prettyUserId(r.user_id),
     userId: r.user_id ?? undefined,
     engineVersion: r.engine_version ?? null,
+    holdStatus: r.hold_status ?? null,
     remote: true,
     review: r.review_state
       ? {
