@@ -53,6 +53,9 @@ async def lifespan(_app: FastAPI):
         from services import engine_admin
 
         engine_config.seed_if_empty()  # version 1 = the weights and thresholds in force today
+        drafted = engine_config.seed_cold_start_draft()
+        if drafted:
+            logger.info("Engine v%s drafted with the no-history amount weights; review it on the Engine page.", drafted)
         engine_admin.sweep()
     except Exception as exc:  # noqa: BLE001 - never block startup on this
         logger.warning("Could not prepare engine versions at startup: %s", type(exc).__name__)

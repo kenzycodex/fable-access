@@ -250,6 +250,23 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         signals.append(f"new_recipient: first transfer to this account (+{boost})")
         score += boost
 
+    # Step 2b: the amount, when the customer has no history of their own.
+    #
+    # With nothing personal to compare against, the amount anomaly cannot fire,
+    # and a first transfer of any size scored the same. The highest naira tier
+    # reached is priced, at full weight with no history anywhere and at half
+    # weight when the bank's population gives a norm (which the amount anomaly
+    # then also uses). Recorded even when its weight is zero, so a backtest of a
+    # future version can see it.
+    if cold_start:
+        tier_key = next((key for floor, key in engine_config.FIRST_AMOUNT_TIERS if amount >= floor), None)
+        if tier_key:
+            first_term = term({tier_key: 0.5 if baseline else 1.0}, rounded=True)
+            first_value = add(first_term)
+            if first_value > 0:
+                signals.append(f"first_transfer_amount: a large amount with no history to compare (+{first_value})")
+                score += first_value
+
     # Step 3: Time anomaly — device-local hour vs the user's typical hours
     typical_hours = baseline["typical_hours"] if baseline else list(range(8, 22))
     if baseline and now_hour not in typical_hours:
