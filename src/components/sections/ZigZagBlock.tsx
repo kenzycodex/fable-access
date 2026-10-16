@@ -2,19 +2,11 @@ import Image from "next/image";
 import type { ReactNode } from "react";
 import { Reveal } from "@/components/ui/Reveal";
 import { Button } from "@/components/ui/Button";
-import { TestimonialCard } from "./TestimonialCard";
 
 interface ZigZagCta {
   label: string;
   href: string;
   external?: boolean;
-}
-
-interface ZigZagTestimonial {
-  quote: string;
-  name: string;
-  role: string;
-  logo?: { src: string; alt: string; width: number; height: number };
 }
 
 interface ZigZagBlockProps {
@@ -24,7 +16,6 @@ interface ZigZagBlockProps {
   title: ReactNode;
   body: ReactNode;
   cta?: ZigZagCta;
-  testimonial?: ZigZagTestimonial;
   /** "dark" for blocks sitting on a black/navy section (white text). */
   tone?: "light" | "dark";
 }
@@ -36,7 +27,6 @@ export function ZigZagBlock({
   title,
   body,
   cta,
-  testimonial,
   tone = "light",
 }: ZigZagBlockProps) {
   const imageCol = (
@@ -69,11 +59,6 @@ export function ZigZagBlock({
             >
               {cta.label}
             </Button>
-          </div>
-        )}
-        {testimonial && (
-          <div className="mt-[var(--spacing-m)]">
-            <TestimonialCard {...testimonial} tone={tone} />
           </div>
         )}
       </div>
