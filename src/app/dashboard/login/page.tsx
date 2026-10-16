@@ -14,7 +14,9 @@ import { login, sessionToken, useFableStore } from "@/lib/fable/store";
 function nextPath(): string {
   if (typeof window === "undefined") return "/dashboard";
   const next = new URLSearchParams(window.location.search).get("next") ?? "";
-  return next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+  // A same-site path only. "//host" and "/\host" are read by browsers as
+  // another site, so a backslash anywhere is refused too.
+  return next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/dashboard";
 }
 
 export default function DashboardLoginPage() {

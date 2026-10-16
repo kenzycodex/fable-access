@@ -172,3 +172,14 @@ def test_production_problems_name_every_unsafe_setting(monkeypatch):
     monkeypatch.setattr(config, "WEBAUTHN_RP_ID", "fablehq.vercel.app")
     monkeypatch.delenv("FABLE_WEBHOOK_ALLOW_PRIVATE")
     assert production_problems(["https://fablehq.vercel.app"]) == []
+
+
+def test_credentials_never_reach_the_audit_log(client):
+    from core.db import cursor
+    from services import audit
+
+    audit.record("test.redaction", None, institution_id=A, pin="1234", stepup_token="su_x", password="p", ok=1)
+    with cursor() as cur:
+        cur.execute("SELECT payload FROM audit_log WHERE event_type = 'test.redaction' ORDER BY id DESC LIMIT 1")
+        payload = cur.fetchone()["payload"]
+    assert "1234" not in payload and "su_x" not in payload and '"ok": 1' in payload
