@@ -1,5 +1,28 @@
 from agents.copilot.baseline import format_hours, get_user_baseline
 
+# What Fable does not keep. Only true statements: device location is stored
+# when the customer allows it, so it is not listed here.
+WHAT_WE_DONT_STORE = [
+    "Your messages or call content",
+    "Card numbers or CVVs",
+    "Your PIN in readable form (only a one-way hash)",
+    "Any data sold to third parties",
+]
+
+
+def your_controls() -> dict:
+    """What a customer can do about their own data today. Every flag is false
+    until the control exists; the keys are kept so existing clients still parse
+    the response. Requests for a copy or erasure go through the customer's bank."""
+    return {
+        "can_reset_baseline": False,
+        "can_disable_location": False,
+        "can_disable_device_tracking": False,
+        "can_export_data": False,
+        "can_delete_all_data": False,
+        "how_to_request": "Ask your bank for a copy of your data or for it to be deleted.",
+    }
+
 
 def get_transparency_data(user_id: str) -> dict:
     baseline = get_user_baseline(user_id)
@@ -15,19 +38,8 @@ def get_transparency_data(user_id: str) -> dict:
                 "preferred_channel": "N/A",
                 "transactions_analyzed": 0,
             },
-            "what_we_dont_store": [
-                "Your messages or call content",
-                "Exact GPS coordinates (only general area)",
-                "Card numbers, CVVs, or PINs",
-                "Any data sold to third parties",
-            ],
-            "your_controls": {
-                "can_reset_baseline": True,
-                "can_disable_location": True,
-                "can_disable_device_tracking": True,
-                "can_export_data": True,
-                "can_delete_all_data": True,
-            },
+            "what_we_dont_store": WHAT_WE_DONT_STORE,
+            "your_controls": your_controls(),
         }
 
     low = max(baseline["avg_amount"] * 0.3, 0)
@@ -43,17 +55,6 @@ def get_transparency_data(user_id: str) -> dict:
             "preferred_channel": baseline["preferred_channel"],
             "transactions_analyzed": baseline["transaction_count"],
         },
-        "what_we_dont_store": [
-            "Your messages or call content",
-            "Exact GPS coordinates (only general area)",
-            "Card numbers, CVVs, or PINs",
-            "Any data sold to third parties",
-        ],
-        "your_controls": {
-            "can_reset_baseline": True,
-            "can_disable_location": True,
-            "can_disable_device_tracking": True,
-            "can_export_data": True,
-            "can_delete_all_data": True,
-        },
+        "what_we_dont_store": WHAT_WE_DONT_STORE,
+        "your_controls": your_controls(),
     }

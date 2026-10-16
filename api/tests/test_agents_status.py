@@ -64,3 +64,12 @@ def test_a_switched_off_ghost_reads_off(client):
         assert _overview(client)["ghost"]["status"] == "off"
     finally:
         set_disabled_agents(BANK, set())
+
+
+def test_the_transparency_panel_claims_only_controls_that_exist():
+    from agents.copilot.transparency import get_transparency_data
+
+    body = get_transparency_data("nobody-with-history")
+    controls = body["your_controls"]
+    assert not any(v for k, v in controls.items() if k.startswith("can_")), "no control is built yet"
+    assert not any("GPS" in line for line in body["what_we_dont_store"]), "device location is stored"
