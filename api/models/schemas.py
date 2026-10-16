@@ -89,6 +89,12 @@ class Context(BaseModel):
     # Device-local time (Shield judges time-of-day against this, not server UTC)
     client_timestamp: Optional[str] = None
     client_timezone: Optional[str] = None
+    # A NIP response code the bank's server observed on the rail (a retry after
+    # a failed attempt, or an integration that already spoke to NIBSS). Only
+    # honoured from the bank's API key, never from a browser session: code 34
+    # forces a block, so the party being scored must not be able to set it.
+    nip_source: Optional[Literal["rail"]] = None
+    nip_response_code: Optional[str] = Field(None, pattern=r"^[0-9A-Za-z]{2}$")
 
 
 class ShieldAnalyzeRequest(BaseModel):

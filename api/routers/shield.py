@@ -77,6 +77,18 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     device = payload.device.model_dump() if payload.device else {}
     context = payload.context.model_dump() if payload.context else {}
 
+    # A NIP code is evidence from the payment rail, so only the bank's own
+    # server (its API key) may report one. From a console or browser session
+    # it is dropped, and noted.
+    if context.get("nip_source") or context.get("nip_response_code"):
+        if request.state.caller.get("role") != "service":
+            import logging
+
+            logging.getLogger("fable.shield").warning(
+                "Ignored a NIP response code sent without the institution's API key.")
+            context["nip_source"] = None
+            context["nip_response_code"] = None
+
     # Server-observed client IP as a fallback when the SDK didn't send one.
     if not device.get("ip") and request.client:
         device["ip"] = request.client.host
@@ -113,7 +125,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
                 risk_level=existing["risk_level"] or "LOW",
                 action=existing["action_taken"] or "PASS",
                 signals=loads(existing["shield_signals"], []) or [],
-                explanation="Previously scored offline; synced without rescoring.",
+                explanation="This transfer was already scored; this is the decision made then.",
                 latency_ms=replay_ms,
                 decision_ms=replay_ms,
                 explanation_source="template",
