@@ -357,7 +357,6 @@ def test_pin_change_wrong_guesses_lock_the_pin(client, monkeypatch):
 
 
 def test_pin_change_is_notified(client, sent):
-    from core import security
 
     user = _customer("pin-notify")
     _set_email(user, "pn@example.ng", None)
