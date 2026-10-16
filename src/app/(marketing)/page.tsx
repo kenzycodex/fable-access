@@ -39,7 +39,7 @@ export default function HomePage() {
 
               <Reveal delay={100}>
                 <h1>
-                  Stop Fraud Fast.
+                  Catch the Scam Before It Clears.
                   <br />
                   <span className="font-marker text-accent">Three</span> Agents.
                 </h1>
@@ -47,7 +47,7 @@ export default function HomePage() {
               <Reveal delay={200}>
                 <p className="text-l max-w-[620px] text-white/85">
                   Copilot learns how your users actually move money. Shield stops the transfer that doesn&rsquo;t fit.
-                  Ghost gives even a fully-scammed user a way back. All in the 10 seconds NIP gives you.
+                  Ghost gives even a fully-scammed user a way back. Each decision is made well inside NIP&rsquo;s 10 seconds.
                 </p>
               </Reveal>
               <Reveal delay={300}>
@@ -66,18 +66,18 @@ export default function HomePage() {
           <div className="flex flex-col gap-[var(--content-gap)] pb-[var(--spacing-xl)] lg:flex-row lg:items-start lg:justify-between">
             <Reveal delay={0}>
               <h2 className="lg:max-w-[540px] leading-[1.1]">
-                Built for a Market Losing <span className="font-marker text-accent">Billions</span> <span className="whitespace-nowrap">a Quarter</span>
+                Built for a Market Losing <span className="font-marker text-accent">Billions</span> <span className="whitespace-nowrap">a Year</span>
               </h2>
             </Reveal>
             <Reveal delay={150}>
               <p className="hidden md:block text-m max-w-[640px] text-white/80 pt-2">
-                Nigerian fraud losses jumped 603% between Q1 2024 and Q1 2025, with over a third of institutions 
-                still failing to report their total exposure. Fable is built to sit directly inside the transfer flow itself.
+                Nigerian financial institutions reported ₦25.85bn lost to fraud in 2025, more than half of it
+                through internet banking. Fable is built to sit directly inside the transfer flow itself.
                 It scores every transfer against sixteen signals within a 200 millisecond decision budget, measured on every
                 call, so a suspicious transfer can be stopped without slowing down your legitimate users.
               </p>
               <p className="md:hidden text-m text-white/80 pt-2">
-                Nigerian fraud losses jumped 603% between Q1 2024 and Q1 2025. Fable sits inside the transfer flow and decides within a 200ms budget, so legitimate users are not slowed down.
+                Nigerian institutions reported ₦25.85bn lost to fraud in 2025. Fable sits inside the transfer flow and decides within a 200ms budget, so legitimate users are not slowed down.
               </p>
             </Reveal>
           </div>

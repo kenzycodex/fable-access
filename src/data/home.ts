@@ -1,5 +1,5 @@
 export const homeStats = [
-  { value: "₦25.82bn", label: "Lost to fraud", description: "In Q1 2025 alone.\nReported by NIBSS." },
+  { value: "₦25.85bn", label: "Lost to fraud", description: "By Nigerian institutions in 2025.\nReported by NIBSS." },
   { value: "200ms", label: "Decision budget", description: "Scores every transfer.\nInside the transfer flow." },
   { value: "10s", label: "Clearing window", description: "The strict NIP window.\nFable decides well inside it." },
   { value: "3", label: "Agents", description: "Copilot, Shield and Ghost.\nOne pipeline, in order." },
