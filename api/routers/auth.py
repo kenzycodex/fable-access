@@ -6,7 +6,7 @@ import time
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel
 
-from core import config, sessions
+from core import sessions
 from core.db import cursor, get_conn
 from core.utils import hash_password, needs_rehash, verify_password
 
@@ -143,7 +143,9 @@ def send_reset_email(email: str, token: str):
     if not mailer.configured():
         logger.info("Skipping reset email: SMTP is not configured.")
         return
-    reset_url = f"{config.FRONTEND_URL.rstrip('/')}/dashboard/reset-password?token={token}"
+    from core import integrations
+
+    reset_url = f"{integrations.frontend_url()}/dashboard/reset-password?token={token}"
     html_content = f"""
     <html>
       <body style="font-family: Arial, sans-serif; color: #333;">

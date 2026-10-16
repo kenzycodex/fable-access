@@ -31,7 +31,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 
-from core import config
+from core import config, integrations
 from core import secrets as vault
 from core.db import cursor, row_to_dict
 from services import approvals
@@ -82,7 +82,7 @@ def log_event(event: str, *, actor: str | None, name: str | None = None, version
     line = json.dumps({"secret_audit": event, "at": at, "name": name, "version": version, "change_id": change_id,
                        "actor": actor, "detail": detail or {}, "hash": digest}, default=str)
     logger.warning(line)
-    if config.SENTRY_DSN:
+    if config.SENTRY_DSN or vault.get("SENTRY_DSN"):
         try:
             import sentry_sdk
 
@@ -126,7 +126,7 @@ def alert_owners(subject: str, body: str, exclude: str | None = None, path: str 
     for email in owners:
         mailer.send(
             email, f"[Fable security] {subject}",
-            f"{body}\n\nReview it in the operator console: {config.FRONTEND_URL.rstrip('/')}{path}\n{closing}",
+            f"{body}\n\nReview it in the operator console: {integrations.frontend_url()}{path}\n{closing}",
         )
 
 
@@ -154,6 +154,8 @@ PROBES = {
         f"https://us1.locationiq.com/v1/reverse?{urllib.parse.urlencode({'key': v, 'lat': _LAT, 'lon': _LON, 'format': 'json'})}"),
     "geoapify": lambda v: _http_ok(
         f"https://api.geoapify.com/v1/geocode/reverse?{urllib.parse.urlencode({'apiKey': v, 'lat': _LAT, 'lon': _LON})}"),
+    "termii": lambda v: _http_ok(
+        f"{config.TERMII_BASE_URL}/api/get-balance?{urllib.parse.urlencode({'api_key': v})}"),
     "google": lambda v: _http_ok(
         f"https://maps.googleapis.com/maps/api/geocode/json?{urllib.parse.urlencode({'key': v, 'latlng': f'{_LAT},{_LON}'})}",
         ok=lambda status, body: status == 200 and '"status" : "OK"' in body.replace('"status":"OK"', '"status" : "OK"')),
@@ -171,6 +173,10 @@ def test_value(name: str, value: str) -> tuple[bool, str]:
     if spec.kind == "model":
         return (value in vault.allowed_models(name), "Allowed model." if value in vault.allowed_models(name)
                 else "That model is not on the allowlist.")
+    if not spec.probe:
+        # Nothing to call with the value alone (a mail password, a DSN); the
+        # console's "send a test" actions check these end to end.
+        return True, "Stored as given. Use the send-a-test action to check it."
     ok, message = PROBES[spec.probe](value)
     return ok, vault.scrub(message)
 
@@ -259,7 +265,7 @@ def _clean_value(spec: vault.Spec, value: str) -> str:
         if value not in vault.allowed_models(spec.name):
             raise HTTPException(status_code=422, detail="Choose a model from the allowlist.")
         return value
-    if not 8 <= len(value) <= 512 or any(ch.isspace() for ch in value):
+    if not 8 <= len(value) <= 512 or (not spec.allow_spaces and any(ch.isspace() for ch in value)):
         raise HTTPException(status_code=422, detail="That doesn't look like a key: 8 to 512 characters, no spaces.")
     return value
 

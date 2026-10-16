@@ -27,6 +27,16 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM = os.getenv("SMTP_FROM", "Fable Provisioning <no-reply@fable.ng>")
+# These, and the SMS settings below, can also be set from the operator console
+# (core/secrets.MANAGED). The environment still wins; code should read them
+# through core/integrations.py, not these constants, so a console change applies.
+
+# --- SMS (codes and short alerts) ---
+# "none" or a provider in services/sms.py. With none, SMS is unavailable and
+# the product says so; nothing ever claims an SMS was sent.
+SMS_PROVIDER = os.getenv("SMS_PROVIDER", "none").strip().lower() or "none"
+SMS_SENDER_ID = os.getenv("SMS_SENDER_ID", "Fable")
+TERMII_BASE_URL = os.getenv("TERMII_BASE_URL", "https://api.ng.termii.com")
 
 # --- Security / ops (all optional; safe demo defaults) ---
 # Comma-separated API keys. If set, protected endpoints require
@@ -42,6 +52,7 @@ RATE_LIMIT_WINDOW = int(os.getenv("FABLE_RATE_LIMIT_WINDOW", "60"))
 
 # CORS allowed origins. "*" for the demo; set a comma-separated list in prod.
 _raw_origins = os.getenv("FABLE_CORS_ORIGINS", "*")
+CORS_ORIGINS_RAW = _raw_origins.strip() or "*"
 CORS_ORIGINS = ["*"] if _raw_origins.strip() == "*" else [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 # Optional Sentry error monitoring.

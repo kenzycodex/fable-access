@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Fingerprint, EnvelopeSimple, CheckCircle } from "@phosphor-icons/react";
+import { Fingerprint, EnvelopeSimple, DeviceMobile, CheckCircle } from "@phosphor-icons/react";
 import { DemoSheet } from "@/components/demo/DemoSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { PinInput } from "@/components/demo/PinInput";
+import { SandboxCode } from "@/components/demo/SandboxCode";
 import { Button, Notice, SuccessTick } from "@/components/app-kit";
 import {
   authenticatePasskey,
@@ -109,6 +110,9 @@ function StepUpFlow({
   const [otpChallenge, setOtpChallenge] = useState<string | null>(null);
   const [otpDest, setOtpDest] = useState<string | null>(null);
   const [debugCode, setDebugCode] = useState<string | null>(null);
+  const [sentAt, setSentAt] = useState(0);
+  const [inbox, setInbox] = useState(false);
+  const [channel, setChannel] = useState<"email" | "sms">("email");
   const [code, setCode] = useState("");
 
   const level = requirement?.level ?? "pin";
@@ -226,10 +230,13 @@ function StepUpFlow({
     setBusy(true);
     setError(null);
     try {
-      const res = await sendOtp({ userId, institutionId, purpose, reference });
+      const askedAt = Date.now();
+      const res = await sendOtp({ userId, institutionId, purpose, reference, channel });
       setOtpChallenge(res.challenge_id);
       setOtpDest(res.destination);
       setDebugCode(res.debug_code ?? null);
+      setInbox(Boolean(res.sandbox_inbox));
+      setSentAt(askedAt);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send a code.");
     } finally {
@@ -431,23 +438,50 @@ function StepUpFlow({
       {active === "otp" && (
         <div className="flex flex-col gap-3">
           {!otpChallenge ? (
-            <Button
-              size="lg"
-              full
-              loading={busy}
-              onClick={requestCode}
-              icon={<EnvelopeSimple size={17} weight="bold" />}
-            >
-              {busy ? "Sending…" : "Send a code to my email"}
-            </Button>
+            <>
+              {/* Offer SMS only where the customer has a confirmed phone and
+                  SMS can actually be sent. */}
+              {status?.email_set && status?.phone_set && status?.sms_available && (
+                <div className="flex gap-2" role="radiogroup" aria-label="Where to send the code">
+                  {(["email", "sms"] as const).map((ch) => (
+                    <button
+                      key={ch}
+                      type="button"
+                      role="radio"
+                      aria-checked={channel === ch}
+                      onClick={() => setChannel(ch)}
+                      className={`flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border text-[12px] font-semibold transition-colors ${
+                        channel === ch ? "border-brand bg-brand/10 text-brand" : "border-d-border text-d-muted"
+                      }`}
+                    >
+                      {ch === "email" ? <EnvelopeSimple size={15} /> : <DeviceMobile size={15} />}
+                      {ch === "email" ? "Email" : "SMS"}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <Button
+                size="lg"
+                full
+                loading={busy}
+                onClick={() => {
+                  if (!status?.email_set && status?.phone_set && status?.sms_available) setChannel("sms");
+                  void requestCode();
+                }}
+                icon={channel === "sms" ? <DeviceMobile size={17} weight="bold" /> : <EnvelopeSimple size={17} weight="bold" />}
+              >
+                {busy ? "Sending…" : channel === "sms" ? "Send a code by SMS" : "Send a code to my email"}
+              </Button>
+            </>
           ) : (
             <>
               <p className="text-[13px] text-d-muted">
                 Code sent to <span className="font-semibold text-d-text">{otpDest}</span>.
               </p>
+              {inbox && <SandboxCode userId={userId} since={sentAt} />}
               {debugCode && (
                 <Notice>
-                  No mail server is configured, so the code is shown here:{" "}
+                  Local development: no mail server is configured, so the code is shown here:{" "}
                   <span className="font-mono font-bold">{debugCode}</span>
                 </Notice>
               )}

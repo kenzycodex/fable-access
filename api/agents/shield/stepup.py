@@ -273,7 +273,8 @@ def _parse_time(value) -> datetime | None:
     return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
 
 
-def factor_enrolled_at(user_id: str, factor: str, credential_id: str | None = None) -> str | None:
+def factor_enrolled_at(user_id: str, factor: str, credential_id: str | None = None,
+                       channel: str = "email") -> str | None:
     """When a factor was set up, as an ISO string, or None if not recorded.
 
     None is treated as long-standing: the timestamp columns arrived after the
@@ -290,11 +291,16 @@ def factor_enrolled_at(user_id: str, factor: str, credential_id: str | None = No
                             (user_id,))
             row = cur.fetchone()
             return row["created_at"] if row else None
-        cur.execute("SELECT pin_set_at, contact_email_set_at FROM user_security WHERE user_id = ?", (user_id,))
+        cur.execute("SELECT pin_set_at, contact_email_set_at, contact_phone_verified_at FROM user_security "
+                    "WHERE user_id = ?", (user_id,))
         row = cur.fetchone()
     if not row:
         return None
-    return row["pin_set_at"] if factor == "pin" else row["contact_email_set_at"] if factor == "otp" else None
+    if factor == "pin":
+        return row["pin_set_at"]
+    if factor == "otp":
+        return row["contact_phone_verified_at"] if channel == "sms" else row["contact_email_set_at"]
+    return None
 
 
 def contact_settle_window(user_id: str | None = None) -> timedelta:
@@ -550,47 +556,44 @@ def _hash_otp(code: str, challenge_id: str) -> str:
 def send_otp(user_id: str, purpose: str, reference: str | None,
              email: str | None = None, phone: str | None = None,
              channel: str = "email") -> dict:
+    """Create a one-time code and deliver it on one channel (services/delivery).
+
+    A sandbox bank's codes also land in its sandbox inbox, so delivery counts as
+    done there. For a live bank, a code that could not be delivered is a failed
+    factor: it is never handed back to the caller."""
+    from services import delivery
+
     code = f"{secrets.randbelow(1_000_000):06d}"
     challenge_id = f"chl_{secrets.token_hex(12)}"
+    channel = "sms" if channel == "sms" and phone else "email"
     with cursor() as cur:
         cur.execute(
             """INSERT INTO stepup_challenges
-               (challenge_id, user_id, kind, payload, purpose, reference, expires_at)
-               VALUES (?, ?, 'otp', ?, ?, ?, ?)""",
-            (challenge_id, user_id, _hash_otp(code, challenge_id), purpose, reference, _expiry(OTP_TTL_SECONDS)),
+               (challenge_id, user_id, kind, payload, purpose, reference, expires_at, channel, institution_id)
+               VALUES (?, ?, 'otp', ?, ?, ?, ?, ?, ?)""",
+            (challenge_id, user_id, _hash_otp(code, challenge_id), purpose, reference, _expiry(OTP_TTL_SECONDS),
+             channel, _institution_of(user_id)),
         )
 
-    if channel == "sms" and phone:
-        delivered = _deliver_otp_sms(phone, code)
-        destination = _mask_phone(phone)
-    else:
-        channel = "email"
-        delivered = _deliver_otp_email(email or "", code)
-        destination = _mask_email(email or "")
-
+    sent = delivery.send_code(user_id, channel, phone if channel == "sms" else (email or ""), code, purpose,
+                              reference)
     out = {
         "challenge_id": challenge_id,
-        "delivered": delivered,
-        "channel": channel,
-        "destination": destination,
+        "delivered": sent["delivered"],
+        "channel": sent["channel"],
+        "destination": sent["destination"],
         # Kept for the existing client field; the masked destination above is
         # the channel-agnostic name.
-        "email": destination,
+        "email": sent["destination"],
+        # True for a sandbox bank: the code is in the sandbox inbox, shown in
+        # the demo app as a labelled sandbox code.
+        "sandbox_inbox": sent["sandbox"],
     }
-    if not delivered:
-        # An undeliverable code is a FAILED factor, not a weaker one.
-        #
-        # This used to attach the plaintext code to the response whenever
-        # delivery failed — and with no SMS provider wired and SMTP usually
-        # unset, delivery fails by default. That handed the out-of-band factor
-        # to whoever held the session, which is precisely the attacker the
-        # out-of-band tier exists to stop: `assurance.py` defines it as "a code
-        # delivered to the registered address, so possession of the device is
-        # not possession of the channel". Returning it in the response collapses
-        # passkey_and_otp to passkey, and pin+otp to pin.
-        #
-        # It is now gated on an explicit opt-in that is never set in production,
-        # and never on delivery failure alone.
+    if not sent["delivered"]:
+        # An undeliverable code is a FAILED factor, not a weaker one. Returning
+        # it in the response would hand the out-of-band factor to whoever
+        # holds the session. FABLE_ALLOW_DEBUG_OTP is a local-development
+        # opt-in that production refuses.
         if config.ALLOW_DEBUG_OTP:
             out["debug_code"] = code
         else:
@@ -598,41 +601,6 @@ def send_otp(user_id: str, purpose: str, reference: str | None,
                 "We couldn't send your code right now. Try another way to verify."
             )
     return out
-
-
-def _mask_phone(phone: str) -> str:
-    digits = "".join(c for c in phone if c.isdigit())
-    if len(digits) < 4:
-        return "your registered number"
-    return f"{'•' * max(len(digits) - 4, 3)}{digits[-4:]}"
-
-
-def _deliver_otp_sms(phone: str, code: str) -> bool:
-    """Send the code by SMS. No provider is configured in this environment
-    (Termii/Twilio would slot in here), so this returns False and the caller
-    surfaces the code as a debug fallback — the same honest path email uses."""
-    if not getattr(config, "SMS_PROVIDER_KEY", ""):
-        return False
-    return False  # provider wiring goes here
-
-
-def _mask_email(email: str) -> str:
-    name, _, domain = email.partition("@")
-    if not domain:
-        return "your registered address"
-    shown = name[:2] if len(name) > 2 else name[:1]
-    return f"{shown}{'•' * max(len(name) - len(shown), 2)}@{domain}"
-
-
-def _deliver_otp_email(email: str, code: str) -> bool:
-    from services import mailer
-
-    return mailer.send(
-        email, f"Your Fable verification code: {code}",
-        f"Your verification code is {code}. It expires in 10 minutes.\n\n"
-        "If you did not request this, someone may be trying to move money from your account. "
-        "Do not share this code with anyone, including staff.",
-    )
 
 
 def verify_otp(user_id: str, challenge_id: str, code: str) -> dict:
@@ -657,4 +625,5 @@ def verify_otp(user_id: str, challenge_id: str, code: str) -> dict:
         raise ValueError("That code isn't right.")
 
     _consume_challenge(challenge_id)
-    return {"purpose": stored["purpose"], "reference": stored["reference"]}
+    return {"purpose": stored["purpose"], "reference": stored["reference"],
+            "channel": stored.get("channel") or "email"}

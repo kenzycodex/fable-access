@@ -30,6 +30,7 @@ import {
   rejectSecretChange,
   removeSecret,
   rollbackSecret,
+  sendTestMessage,
   testSecret,
   useOperatorSession,
   useSecrets,
@@ -151,6 +152,8 @@ export default function EnvironmentPage() {
           </ul>
         )}
       </Card>
+
+      {admin && <DeliveryCheck />}
 
       <ActionDialog action={action} items={items} single={(data?.owners ?? 0) < 2}
         onClose={() => setAction(null)} onDone={() => mutate()} onAction={setAction} owner={owner} writable={writable} />
@@ -542,5 +545,56 @@ function ActionDialog({ action, items, single, onClose, onDone, onAction, owner,
       }}>
       {reasonField}
     </StepUpDialog>
+  );
+}
+
+/** Send a real test email or SMS with the settings in force, to check them end
+ * to end. The settings themselves are edited in the list above. */
+function DeliveryCheck() {
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState<"email" | "sms" | null>(null);
+
+  async function send(kind: "email" | "sms", to: string) {
+    setBusy(kind);
+    try {
+      const r = await sendTestMessage(kind, to.trim());
+      if (r.sent) toast.success(r.message);
+      else toast.error(r.message);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not send the test.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card>
+      <p className="text-[14px] font-semibold text-d-text">Check email and SMS</p>
+      <p className="mt-1 text-[12px] text-d-muted">
+        Sends a real message with the mail and SMS settings in force. Sandbox banks never need this: their customers&apos;
+        codes appear in the demo app&apos;s sandbox inbox.
+      </p>
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <Field label="Email address">
+          <div className="flex gap-2">
+            <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.ng" />
+            <Button variant="secondary" loading={busy === "email"} disabled={!email.includes("@") || busy !== null}
+              onClick={() => void send("email", email)}>
+              Send test email
+            </Button>
+          </div>
+        </Field>
+        <Field label="Phone number">
+          <div className="flex gap-2">
+            <TextInput type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0803..." />
+            <Button variant="secondary" loading={busy === "sms"} disabled={phone.trim().length < 10 || busy !== null}
+              onClick={() => void send("sms", phone)}>
+              Send test SMS
+            </Button>
+          </div>
+        </Field>
+      </div>
+    </Card>
   );
 }

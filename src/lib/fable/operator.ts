@@ -478,6 +478,13 @@ export const approveSecretChange = (id: string, step_up: StepUp) =>
   call<SecretChange>(`/operator/secrets/changes/${encodeURIComponent(id)}/approve`, post({ step_up }));
 export const rejectSecretChange = (id: string, reason?: string) =>
   call<SecretChange>(`/operator/secrets/changes/${encodeURIComponent(id)}/reject`, post({ reason: reason || null }));
+/** Send a test email or SMS with the settings in force. */
+export const sendTestMessage = (kind: "email" | "sms", to: string) =>
+  call<{ sent: boolean; message: string }>(`/operator/integrations/test-${kind}`, {
+    method: "POST",
+    body: JSON.stringify({ to }),
+  });
+
 export const testSecret = (name: string) =>
   call<{ ok: boolean; message: string }>(`/operator/secrets/${encodeURIComponent(name)}/test`, { method: "POST" });
 

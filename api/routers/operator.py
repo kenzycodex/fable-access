@@ -13,7 +13,7 @@ import time
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from core import config, operators, totp
+from core import operators, totp
 from core.db import cursor, row_to_dict, slugify_institution
 from core.tenancy import get_institution, register_institution
 from core.utils import hash_password, needs_rehash, verify_password
@@ -581,14 +581,18 @@ def invite_operator(email: str, name: str | None, role: str, invited_by: str) ->
             (token_hash(token), email, int(time.time()) + operators.INVITE_TTL_SECONDS),
         )
     operators.record(audit.OPERATOR_INVITED, invited_by, operator_email=email, role=role)
-    return email, f"{config.FRONTEND_URL.rstrip('/')}/operator/accept?token={token}"
+    from core import integrations
+
+    return email, f"{integrations.frontend_url()}/operator/accept?token={token}"
 
 
 @router.post("/team", status_code=201)
 def add_operator(body: NewOperator, request: Request, background: BackgroundTasks):
     op = operators.require(request, "platform_owner")
     email, link = invite_operator(body.email, body.name, body.role, op["email"])
-    emailed = bool(config.SMTP_USERNAME and config.SMTP_PASSWORD)
+    from services import mailer
+
+    emailed = mailer.configured()
     background.add_task(_send_operator_invite, email, op["email"], link)
     return {**operators.public(operators.get(email)), "emailed": emailed, "invite_link": None if emailed else link}
 

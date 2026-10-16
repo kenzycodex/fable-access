@@ -377,6 +377,24 @@ CREATE TABLE IF NOT EXISTS webhook_outbox (
     delivered_at TEXT
 );
 
+-- What a sandbox bank's test customers would have received: one-time codes
+-- and notices. Shown in the demo app so testing never depends on a real
+-- inbox. Never written for a live bank (services/delivery.py).
+CREATE TABLE IF NOT EXISTS sandbox_inbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    institution_id TEXT,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL,              -- 'code' | 'notice'
+    channel TEXT,
+    destination TEXT,                -- masked
+    subject TEXT,
+    body TEXT,
+    code TEXT,
+    purpose TEXT,
+    reference TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- When each background job last ran, and the lease that keeps two workers
 -- from running the same job at once (services/scheduler.py).
 CREATE TABLE IF NOT EXISTS job_runs (
@@ -810,6 +828,11 @@ MIGRATIONS = {
         # A new address waits here until the customer proves they receive
         # mail at it; only then does it become contact_email.
         "pending_email": "TEXT",
+        # A phone number counts as a channel for codes only once the customer
+        # entered the code sent to it. Phones stored before this existed were
+        # never confirmed, so they stay on file but are not a factor.
+        "pending_phone": "TEXT",
+        "contact_phone_verified_at": "TEXT",
     },
     "institution_settings": {
         # 1 lets a customer route a flagged transfer into a hold as well as a
@@ -818,6 +841,12 @@ MIGRATIONS = {
         # 1 lets analysts (not only owners) release a held transfer from the
         # console, with a note. NULL or 0: owners only.
         "analysts_can_release": "INTEGER",
+    },
+    "stepup_challenges": {
+        # Which channel a code went out on (email or sms), so the factor is
+        # judged by when that contact was confirmed.
+        "channel": "TEXT",
+        "institution_id": "TEXT",
     },
     "stepup_tokens": {
         # Which factors the token proves, and when each was enrolled (JSON), so
@@ -1039,6 +1068,7 @@ CREATE INDEX IF NOT EXISTS ix_txn_inst_clientref ON transactions(institution_id,
 CREATE INDEX IF NOT EXISTS ix_outbox_due         ON webhook_outbox(status, next_attempt_at);
 CREATE INDEX IF NOT EXISTS ix_ghost_expiry       ON ghost_containers(status, expires_at);
 CREATE INDEX IF NOT EXISTS ix_ghost_txn          ON ghost_containers(transaction_id);
+CREATE INDEX IF NOT EXISTS ix_inbox_user         ON sandbox_inbox(user_id, id);
 """
 
 # Offline-replay idempotency rests entirely on client_reference, and the lookup

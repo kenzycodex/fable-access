@@ -16,9 +16,10 @@ version fails to open. Each row records the master key id, so the master key
 can be rotated by re-wrapping (scripts/rewrap_secrets.py) without anyone
 re-entering a value.
 
-Only a short list of integration keys is managed here (MANAGED). Session
-secrets, the master key, the PIN pepper, email (SMTP) settings and anything
-that changes a security boundary stay in the environment: see docs/SECRETS.md.
+Integration keys and platform settings are managed here (MANAGED), including
+email (SMTP), SMS, Sentry, the frontend URL and CORS origins. Only what
+protects the database itself stays environment-only: the session secret, the
+master key (FABLE_SECRETS_KEY) and the PIN pepper. See docs/DEPLOYMENT.md.
 """
 from __future__ import annotations
 
@@ -52,6 +53,10 @@ class Spec:
     unit: str = ""
     help: str = ""
     config_attr: str | None = None   # the built-in default, read from core.config
+    # Secrets only: whether the value may contain spaces (app passwords do).
+    allow_spaces: bool = False
+    # Read once at startup (CORS, Sentry): a change applies after a restart.
+    restart: bool = False
 
 
 MANAGED: dict[str, Spec] = {s.name: s for s in (
@@ -62,6 +67,32 @@ MANAGED: dict[str, Spec] = {s.name: s for s in (
     Spec("LOCATIONIQ_API_KEY", "LocationIQ key", "Address lookup", "secret", "locationiq"),
     Spec("GEOAPIFY_API_KEY", "Geoapify key", "Address lookup", "secret", "geoapify"),
     Spec("GOOGLE_MAPS_API_KEY", "Google Maps Geocoding key", "Address lookup", "secret", "google"),
+    # Email: invites, password resets, customer alerts and one-time codes.
+    Spec("SMTP_SERVER", "Mail server", "Email", "config", None, rotate_days=0, value_type="host",
+         config_attr="SMTP_SERVER", help="The SMTP host, for example smtp.gmail.com."),
+    Spec("SMTP_PORT", "Mail server port", "Email", "config", None, rotate_days=0, value_type="int",
+         minimum=1, maximum=65535, config_attr="SMTP_PORT", help="Usually 587 (STARTTLS)."),
+    Spec("SMTP_USERNAME", "Mail username", "Email", "config", None, rotate_days=0, value_type="str",
+         config_attr="SMTP_USERNAME", help="The account Fable signs in to the mail server with."),
+    Spec("SMTP_PASSWORD", "Mail password", "Email", "secret", None, allow_spaces=True,
+         help="The mail account's password or app password."),
+    Spec("SMTP_FROM", "Send as", "Email", "config", None, rotate_days=0, value_type="str",
+         config_attr="SMTP_FROM", help='The From line, for example "Fable <no-reply@fable.ng>".'),
+    # SMS: codes and short hold alerts, where a provider is configured.
+    Spec("SMS_PROVIDER", "SMS provider", "SMS", "config", None, rotate_days=0, value_type="str",
+         choices=("none", "termii"), config_attr="SMS_PROVIDER",
+         help="none keeps SMS off: the product says so and never claims an SMS was sent."),
+    Spec("TERMII_API_KEY", "Termii API key", "SMS", "secret", "termii"),
+    Spec("SMS_SENDER_ID", "SMS sender ID", "SMS", "config", None, rotate_days=0, value_type="str",
+         config_attr="SMS_SENDER_ID", help="The registered sender name customers see, up to 11 characters."),
+    # Operations.
+    Spec("SENTRY_DSN", "Sentry DSN", "Operations", "secret", None, restart=True,
+         help="Error reporting. Applies after a restart."),
+    Spec("FRONTEND_URL", "Frontend address", "Operations", "config", None, rotate_days=0, value_type="url",
+         config_attr="FRONTEND_URL", help="Used for links in emails, for example https://fablehq.vercel.app."),
+    Spec("FABLE_CORS_ORIGINS", "Allowed browser origins", "Operations", "config", None, rotate_days=0,
+         value_type="origins", config_attr="CORS_ORIGINS_RAW", restart=True,
+         help="Comma-separated frontend origins allowed to call the API. Applies after a restart."),
     # Platform settings: not secret, readable, changed through the same approval.
     Spec("TOPUP_MAX_AMOUNT", "Largest single sandbox top-up", "Sandbox money", "config", None, rotate_days=0,
          value_type="float", minimum=1_000, maximum=100_000_000, unit="₦", config_attr="TOPUP_MAX_AMOUNT",
@@ -325,6 +356,8 @@ def display_number(x: float) -> str:
 def parse_setting(spec: Spec, raw) -> object:
     """A config value in its type. Raises ValueError when it is not valid."""
     text = str(raw).strip()
+    if spec.value_type in ("str", "host", "url", "origins"):
+        return _parse_text(spec, text)
     if spec.value_type == "bool":
         lowered = text.lower()
         if lowered in ("1", "true", "yes", "on"):
@@ -343,6 +376,29 @@ def parse_setting(spec: Spec, raw) -> object:
     if spec.maximum is not None and value > spec.maximum:
         raise ValueError(f"The highest allowed is {display_number(spec.maximum)}.")
     return value
+
+
+_HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
+
+
+def _parse_text(spec: Spec, text: str) -> str:
+    """Text settings: trimmed, bounded, and checked by kind."""
+    if len(text) > 500:
+        raise ValueError("That is too long.")
+    if spec.choices and text not in spec.choices:
+        raise ValueError(f"Choose {' or '.join(str(c) for c in spec.choices)}.")
+    if spec.value_type == "host" and not _HOST_RE.match(text):
+        raise ValueError("Enter a host name, for example smtp.gmail.com.")
+    if spec.value_type == "url" and not re.match(r"^https?://[^\s/]+", text):
+        raise ValueError("Enter a full address starting with https://.")
+    if spec.value_type == "origins":
+        if text != "*":
+            for origin in (o.strip() for o in text.split(",")):
+                if not re.match(r"^https?://[^\s/,]+$", origin):
+                    raise ValueError("Enter origins like https://fablehq.vercel.app, separated by commas, with no path.")
+    if spec.name == "SMS_SENDER_ID" and not 1 <= len(text) <= 11:
+        raise ValueError("A sender ID is 1 to 11 characters.")
+    return text
 
 
 def setting(name: str):

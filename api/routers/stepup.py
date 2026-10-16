@@ -92,19 +92,20 @@ def _available_factors(user_id: str, cutoff: datetime | None) -> dict:
 
     st = security.status(user_id)
     pin_ok = bool(st.get("pin_set"))
-    email_ok = bool(st.get("email_set"))
-    if cutoff is not None or email_ok:
-        enrolled = {}
-        if pin_ok:
-            enrolled["pin"] = stepup.factor_enrolled_at(user_id, "pin")
-        if email_ok:
-            enrolled["otp"] = stepup.factor_enrolled_at(user_id, "otp")
-        _, late = stepup.factors_predate(enrolled, cutoff, user_id)
-        pin_ok = pin_ok and "pin" not in late
-        email_ok = email_ok and "otp" not in late
+    if pin_ok:
+        _, late = stepup.factors_predate({"pin": stepup.factor_enrolled_at(user_id, "pin")}, cutoff, user_id)
+        pin_ok = not late
+    # A code counts if either confirmed channel has settled: email, or SMS
+    # where it can be sent.
+    otp_ok = False
+    for channel, present in (("email", st.get("email_set")), ("sms", st.get("phone_set") and st.get("sms_available"))):
+        if present:
+            _, late = stepup.factors_predate({"otp": stepup.factor_enrolled_at(user_id, "otp", channel=channel)},
+                                             cutoff, user_id)
+            otp_ok = otp_ok or not late
     return {
         "pin": pin_ok,
-        "otp": email_ok,
+        "otp": otp_ok,
         "passkey": stepup.has_passkey(user_id, before=cutoff),
     }
 
@@ -322,10 +323,12 @@ class OtpSendRequest(BaseModel):
     user_id: str
     institution_id: Optional[str] = None
     # Deprecated and ignored: a code only ever goes to the customer's own
-    # registered, confirmed email. Letting the caller name the address meant
+    # registered, confirmed contact. Letting the caller name the address meant
     # an attacker could send the "out-of-band" code to themselves.
     email: Optional[str] = None
-    channel: str = "email"  # "email"; "sms" is not available
+    # "email" or "sms". SMS needs a confirmed phone and a configured provider
+    # (or a sandbox bank, whose codes go to the sandbox inbox).
+    channel: str = "email"
     purpose: str = "transfer"
     reference: Optional[str] = None
 
@@ -337,21 +340,27 @@ def otp_send(payload: OtpSendRequest, request: Request):
     _check_binding(request, payload.user_id, payload.purpose, payload.reference)
     if payload.email:
         logger.warning("otp/send ignored a caller-supplied email; codes go to the registered address only.")
-    if payload.channel == "sms":
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "sms_unavailable",
-                    "message": "Codes by SMS aren't available yet. We can send one to your registered email."},
-        )
+    from services.delivery import sms_available
 
-    email = security.get_contact(payload.user_id).get("email")
-    if not email:
+    contact = security.get_contact(payload.user_id)
+    if payload.channel == "sms":
+        if not sms_available(request.state.institution_id):
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "sms_unavailable",
+                        "message": "Codes by SMS aren't available yet. We can send one to your registered email."},
+            )
+        if not contact.get("phone"):
+            raise HTTPException(status_code=400, detail="No confirmed phone number for codes. Add one in Security.")
+    elif not contact.get("email"):
         raise HTTPException(
             status_code=400,
             detail="No email registered for codes. Add one in Security, or verify another way.",
         )
     try:
-        return stepup.send_otp(payload.user_id, payload.purpose, payload.reference, email=email)
+        return stepup.send_otp(payload.user_id, payload.purpose, payload.reference,
+                               email=contact.get("email"), phone=contact.get("phone"),
+                               channel="sms" if payload.channel == "sms" else "email")
     except stepup.OtpDeliveryFailed as exc:
         # Undeliverable means the factor was not issued. 502 rather than 400:
         # the caller did nothing wrong, our delivery channel did.
@@ -381,7 +390,7 @@ def otp_verify(payload: OtpVerifyRequest):
     if result["purpose"] == "contact_verify":
         raise HTTPException(status_code=400, detail="Confirm a new email from the Security screen.")
 
-    factors = {"otp": stepup.factor_enrolled_at(payload.user_id, "otp")}
+    factors = {"otp": stepup.factor_enrolled_at(payload.user_id, "otp", channel=result.get("channel") or "email")}
     if payload.passkey_token:
         info = stepup.token_info(payload.passkey_token, payload.user_id, result["purpose"], result["reference"])
         if not info or "passkey" not in info["factors"] or not stepup.consume_token(payload.passkey_token):

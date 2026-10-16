@@ -44,6 +44,7 @@ import {
   type StepUpRequirement,
 } from "@/lib/fable/webauthn";
 import { StepUpDialog } from "@/components/demo/StepUpDialog";
+import { SandboxCode } from "@/components/demo/SandboxCode";
 import { useCopilotBaseline } from "@/lib/fable/useBackend";
 
 const CHANNEL_NAMES: Record<string, string> = {
@@ -516,8 +517,10 @@ function ContactRow({
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
   const [token, setToken] = useState<string | null>(null);
-  const [verification, setVerification] = useState<ContactVerification | null>(null);
+  const [verifications, setVerifications] = useState<ContactVerification[]>([]);
+  const [sentAt, setSentAt] = useState(0);
   const [code, setCode] = useState("");
+  const verification = verifications[0] ?? null;
   const { busy, error, ok, run } = useAction();
   const gate = gateKind(status);
   const pinLength = pinLengthOf(status);
@@ -530,11 +533,12 @@ function ContactRow({
     setPin("");
     setToken(null);
     setCode("");
-    setVerification(null);
+    setVerifications([]);
   }
 
   function save() {
     void run(async () => {
+      const askedAt = Date.now();
       const res = await apiSetContact(
         userId,
         { email: email.trim() || null, phone: phone.trim() || null, currentPin: gate === "pin" ? pin : null, stepupToken: token },
@@ -543,31 +547,41 @@ function ContactRow({
       setPin("");
       setToken(null);
       onDone();
-      if (res.verification) {
-        // The new email only takes effect once its own code is entered.
-        setVerification(res.verification);
+      const pending = res.verifications ?? (res.verification ? [res.verification] : []);
+      if (pending.length) {
+        // A new email or phone only takes effect once its own code is entered.
+        setVerifications(pending);
+        setSentAt(askedAt);
         return;
       }
       reset();
       setOpen(false);
-    }, email ? "We sent a code to the new address. Enter it to finish." : "Saved.");
+    }, email || phone ? "We sent a code. Enter it to finish." : "Saved.");
   }
 
   function confirmCode(entered: string) {
     if (!verification || entered.length < 6) return;
     void run(async () => {
       await confirmContact(userId, verification.challenge_id, entered);
+      setCode("");
+      const rest = verifications.slice(1);
+      onDone();
+      if (rest.length) {
+        // Both an email and a phone were changed: confirm the next one.
+        setVerifications(rest);
+        return;
+      }
       reset();
       setOpen(false);
-      onDone();
-    }, "Email confirmed. Your previous address, if any, has been told about the change.");
+    }, "Confirmed. Whoever had the previous contact has been told about the change.");
   }
 
-  const description = status?.pending_email
-    ? `Waiting for you to confirm ${status.pending_email}`
-    : status?.email_set
-      ? (status.contact_email ?? "")
-      : "Add an email so we can send you codes";
+  const confirmed = [status?.email_set ? status.contact_email : null, status?.phone_set ? status.contact_phone : null]
+    .filter(Boolean)
+    .join(" · ");
+  const description = status?.pending_email || status?.pending_phone
+    ? `Waiting for you to confirm ${status.pending_email ?? status.pending_phone}`
+    : confirmed || "Add an email so we can send you codes";
 
   return (
     <RowShell
@@ -576,7 +590,7 @@ function ContactRow({
       description={description}
       state={
         <div className="flex items-center gap-3">
-          <StatePill ok={!!status?.email_set} okText="Confirmed" offText="None" />
+          <StatePill ok={!!status?.email_set || !!status?.phone_set} okText="Confirmed" offText="None" />
           <LinkButton onClick={() => setOpen((o) => !o)}>{open ? "Close" : "Edit"}</LinkButton>
         </div>
       }
@@ -585,9 +599,15 @@ function ContactRow({
         <div className="flex flex-col gap-4 rounded-2xl bg-d-surface-2/60 p-4">
           <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" inputMode="email" autoComplete="email" placeholder="Email for codes" className={inputClass} aria-label="Email for codes" aria-invalid={!emailValid} />
           {!emailValid && <p className="text-[12px] text-red-500" role="alert">Enter a valid email address.</p>}
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" inputMode="tel" autoComplete="tel" placeholder="Phone (optional, e.g. 0803...)" className={inputClass} aria-label="Phone number" />
+          {status?.sms_available ? (
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" inputMode="tel" autoComplete="tel" placeholder="Phone for codes by SMS (optional, e.g. 0803...)" className={inputClass} aria-label="Phone number" />
+          ) : (
+            <p className="text-[12px] leading-relaxed text-d-faint">
+              Codes are sent by email. SMS codes aren&apos;t available at this bank yet.
+            </p>
+          )}
           <p className="text-[12px] leading-relaxed text-d-faint">
-            Codes are sent by email. SMS codes aren&apos;t available yet, so a phone number is only kept on file.
+            A new email or phone only starts receiving codes after you enter the code we send to it.
           </p>
           {gate === "pin" && <PinField label="Confirm with your PIN" length={pinLength} value={pin} onChange={setPin} />}
           {gate === "token" && <TokenGate userId={userId} institutionId={institutionId} token={token} onToken={setToken} />}
@@ -600,11 +620,13 @@ function ContactRow({
       {open && verification && (
         <div className="flex flex-col items-center gap-3 rounded-2xl bg-d-surface-2/60 p-4">
           <p className="text-center text-[13px] text-d-muted">
-            Enter the code we sent to <span className="font-semibold text-d-text">{verification.destination}</span>.
+            Enter the code we sent {verification.channel === "sms" ? "by SMS " : ""}to{" "}
+            <span className="font-semibold text-d-text">{verification.destination}</span>.
           </p>
+          {verification.sandbox_inbox && <SandboxCode userId={userId} since={sentAt} />}
           {verification.debug_code && (
             <Notice>
-              No mail server is configured, so the code is shown here:{" "}
+              Local development: no mail server is configured, so the code is shown here:{" "}
               <span className="font-mono font-bold">{verification.debug_code}</span>
             </Notice>
           )}

@@ -531,6 +531,24 @@ export async function ghostResolve(
   }
 }
 
+/** A sandbox test customer's inbox: the codes and notices they would have
+ * received. The server refuses this for a live institution. */
+export function sandboxInbox(userId: string): Promise<{
+  items: {
+    id: number;
+    kind: "code" | "notice";
+    channel: string | null;
+    destination: string | null;
+    subject: string | null;
+    body: string | null;
+    code: string | null;
+    purpose: string | null;
+    created_at: string;
+  }[];
+}> {
+  return fetchJson(`/v1/sandbox/inbox/${encodeURIComponent(userId)}`);
+}
+
 /** Ask the bank to verify the customer another way and release the hold.
  * For a customer whose factors cannot reach the release level. */
 export async function ghostRequestRelease(ghostId: string): Promise<{ status: string; expires_at?: string }> {
@@ -1300,14 +1318,18 @@ export interface SecurityStatus {
   phone_set: boolean;
   /** A new email waiting for its confirmation code (masked). */
   pending_email?: string | null;
+  /** A new phone number waiting for its confirmation code (masked). */
+  pending_phone?: string | null;
   /** Codes go by email only; no SMS provider is connected. */
   sms_available?: boolean;
 }
 
-/** A contact change that needs the code sent to the new address. */
+/** A contact change that needs the code sent to the new address or number. */
 export interface ContactVerification {
+  channel?: "email" | "sms";
   challenge_id: string;
   destination: string;
+  sandbox_inbox?: boolean;
   debug_code?: string;
 }
 
@@ -1333,7 +1355,7 @@ export async function setContact(
   userId: string,
   input: { email?: string | null; phone?: string | null; currentPin?: string | null; stepupToken?: string | null },
   institution: string | null,
-): Promise<SecurityStatus & { verification?: ContactVerification }> {
+): Promise<SecurityStatus & { verification?: ContactVerification; verifications?: ContactVerification[] }> {
   const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/contact`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -1349,7 +1371,7 @@ export async function setContact(
     const body = await res.json().catch(() => ({}));
     throw new Error(typeof body?.detail === "string" ? body.detail : "Could not save your contact details.");
   }
-  return (await res.json()) as SecurityStatus & { verification?: ContactVerification };
+  return (await res.json()) as SecurityStatus & { verification?: ContactVerification; verifications?: ContactVerification[] };
 }
 
 /** Confirm a new email with the code that was sent to it. */

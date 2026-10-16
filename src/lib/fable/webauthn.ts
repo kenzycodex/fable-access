@@ -397,19 +397,21 @@ export function stepUpRequirement(input: {
   });
 }
 
-/** Send a one-time code to the customer's registered email. Codes only ever
- * go to that address; SMS is not available. */
+/** Send a one-time code to the customer's own confirmed email, or by SMS to
+ * their confirmed phone where SMS is available. */
 export function sendOtp(input: {
   userId: string;
   institutionId: string | null;
   purpose: string;
   reference: string | null;
+  channel?: "email" | "sms";
 }): Promise<{
   challenge_id: string;
   delivered: boolean;
-  channel: "email";
+  channel: "email" | "sms";
   destination: string;
   email: string;
+  sandbox_inbox?: boolean;
   debug_code?: string;
 }> {
   return post("/v1/stepup/otp/send", {
@@ -417,7 +419,7 @@ export function sendOtp(input: {
     institution_id: input.institutionId,
     purpose: input.purpose,
     reference: input.reference,
-    channel: "email",
+    channel: input.channel ?? "email",
   });
 }
 

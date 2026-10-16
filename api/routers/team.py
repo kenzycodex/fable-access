@@ -18,7 +18,6 @@ import time
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from core import config
 from core.db import cursor, row_to_dict
 from core.tenancy import ROLES, get_institution, require_role
 from core.utils import hash_password
@@ -58,7 +57,9 @@ def members(request: Request):
 
 
 def _invite_link(token: str) -> str:
-    return f"{config.FRONTEND_URL.rstrip('/')}/dashboard/reset-password?token={token}&invite=1"
+    from core import integrations
+
+    return f"{integrations.frontend_url()}/dashboard/reset-password?token={token}&invite=1"
 
 
 def _send_invite(email: str, inviter: str, institution_name: str, role: str, link: str) -> None:
@@ -131,7 +132,9 @@ def issue_invite(
 
     inst = get_institution(institution_id) or {}
     link = _invite_link(token)
-    emailed = bool(config.SMTP_USERNAME and config.SMTP_PASSWORD)
+    from services import mailer
+
+    emailed = mailer.configured()
     background.add_task(_send_invite, email, invited_by, inst.get("name", institution_id), role, link)
     audit.record(audit.TEAM_INVITED, None, institution_id=institution_id, member=email, role=role, by=invited_by)
     return {

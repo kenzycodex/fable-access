@@ -112,6 +112,22 @@ class ResetBody(BaseModel):
     confirm: str
 
 
+@router.get("/inbox/{user_id}", dependencies=[Depends(customer_guard)])
+def inbox(user_id: str, request: Request, limit: int = Query(20, ge=1, le=50)):
+    """What a sandbox test customer would have received: one-time codes and
+    notices, newest first. The demo app shows these in a box labelled
+    "Sandbox code" so testing never depends on a real inbox.
+
+    Refused for a live bank: its customers' codes only ever go to their own
+    email or phone.
+    """
+    from services.delivery import sandbox_inbox
+
+    if request.state.mode == "live":
+        raise HTTPException(status_code=409, detail="The sandbox inbox exists only for sandbox institutions.")
+    return {"items": sandbox_inbox(user_id, request.state.institution_id, limit)}
+
+
 @router.post("/reset")
 def reset(body: ResetBody, request: Request):
     """Remove the institution's test customers and everything they did.

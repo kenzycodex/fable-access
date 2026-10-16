@@ -46,7 +46,6 @@ def client():
 @pytest.fixture
 def sent(monkeypatch):
     """Capture every email instead of sending it."""
-    from agents.shield import stepup
     from services import mailer
 
     outbox: list[tuple[str, str, str]] = []
@@ -56,8 +55,6 @@ def sent(monkeypatch):
         return True
 
     monkeypatch.setattr(mailer, "send", fake_send)
-    monkeypatch.setattr(stepup, "_deliver_otp_email",
-                        lambda email, code: outbox.append((email, "code", code)) or True)
     return outbox
 
 
@@ -109,7 +106,9 @@ def _set_email(user_id: str, email: str, set_at: datetime | None) -> None:
 
 
 def _code_for(outbox, email) -> str:
-    return [c for to, subject, c in outbox if to == email and subject == "code"][-1]
+    """The latest one-time code emailed to this address."""
+    prefix = "Your verification code: "
+    return [subject[len(prefix):] for to, subject, _ in outbox if to == email and subject.startswith(prefix)][-1]
 
 
 # ── Tiers ────────────────────────────────────────────────────────────────────
@@ -150,12 +149,25 @@ def test_the_code_goes_only_to_the_registered_address(client, sent):
     assert any(to == "real@example.ng" for to, _, _ in sent)
 
 
-def test_sms_is_refused_honestly(client):
+def test_sms_is_refused_honestly_for_a_live_bank_without_a_provider(client):
+    from core import apikeys
+    from core.db import cursor
+
     user = _customer("sms")
-    res = client.post("/v1/stepup/otp/send", json={
-        "user_id": user, "purpose": "transfer", "reference": _decision(user), "channel": "sms"})
-    assert res.status_code == 400
-    assert res.json()["detail"]["error"] == "sms_unavailable"
+    txid = _decision(user)
+    raw = apikeys.generate()
+    with cursor() as cur:
+        cur.execute("UPDATE api_keys SET is_active = 0 WHERE institution_id = ?", (BANK,))
+        apikeys.insert(cur, raw, BANK, "Assure Bank", f"owner@{BANK}.ng")
+        cur.execute("UPDATE institutions SET mode = 'live' WHERE institution_id = ?", (BANK,))
+    try:
+        res = client.post("/v1/stepup/otp/send", headers={"X-API-Key": raw, "X-Fable-Session": ""}, json={
+            "user_id": user, "purpose": "transfer", "reference": txid, "channel": "sms"})
+        assert res.status_code == 400
+        assert res.json()["detail"]["error"] == "sms_unavailable"
+    finally:
+        with cursor() as cur:
+            cur.execute("UPDATE institutions SET mode = 'sandbox' WHERE institution_id = ?", (BANK,))
 
 
 def test_requirement_comes_from_the_stored_decision(client):

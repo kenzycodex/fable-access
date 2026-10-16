@@ -25,14 +25,21 @@ logging.getLogger().addFilter(ScrubFilter())
 for _name in ("fable", "uvicorn", "uvicorn.error", "uvicorn.access"):
     logging.getLogger(_name).addFilter(ScrubFilter())
 
-# Optional Sentry error monitoring — only if a DSN is configured.
-if config.SENTRY_DSN:
+# Optional Sentry error monitoring, only if a DSN is configured (environment,
+# or approved in the operator console; a change applies after a restart).
+from core import integrations  # noqa: E402
+
+_SENTRY_DSN = integrations.sentry_dsn()
+if _SENTRY_DSN:
     try:
         import sentry_sdk
-        sentry_sdk.init(dsn=config.SENTRY_DSN, environment=config.ENVIRONMENT, traces_sample_rate=0.1,
+        sentry_sdk.init(dsn=_SENTRY_DSN, environment=config.ENVIRONMENT, traces_sample_rate=0.1,
                         before_send=scrub_event)
     except Exception:
         pass
+
+# Read once at startup, from the environment or the console.
+CORS_ORIGINS = integrations.cors_origins()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -93,8 +100,8 @@ app.add_middleware(APIKeyMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config.CORS_ORIGINS,
-    allow_credentials=config.CORS_ORIGINS != ["*"],
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=CORS_ORIGINS != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -157,7 +164,7 @@ if config.ENVIRONMENT == "production" and not config.PIN_PEPPER:
         "python -c \"import secrets; print(secrets.token_urlsafe(32))\""
     )
 
-if config.ENVIRONMENT == "production" and config.CORS_ORIGINS == ["*"]:
+if config.ENVIRONMENT == "production" and CORS_ORIGINS == ["*"]:
     logger.warning(
         "FABLE_CORS_ORIGINS is '*' in production, so any website can call this "
         "API from a visitor's browser. Set it to your frontend origins, comma-"

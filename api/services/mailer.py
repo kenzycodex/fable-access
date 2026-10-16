@@ -15,7 +15,7 @@ import logging
 import smtplib
 from email.message import EmailMessage
 
-from core import config
+from core import integrations
 
 logger = logging.getLogger("fable.mailer")
 
@@ -26,7 +26,8 @@ TIMEOUT_SECONDS = 10
 
 def configured() -> bool:
     """Whether outgoing mail is set up at all."""
-    return bool(config.SMTP_USERNAME and config.SMTP_PASSWORD)
+    s = integrations.smtp()
+    return bool(s["username"] and s["password"])
 
 
 def _redact(address: str) -> str:
@@ -39,17 +40,18 @@ def send(to: str, subject: str, body: str, html: str | None = None,
     """Send one message. True when the mail server accepted it."""
     if not configured() or not to:
         return False
+    s = integrations.smtp()
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = from_address or config.SMTP_FROM
+    msg["From"] = from_address or s["from"]
     msg["To"] = to
     msg.set_content(body)
     if html:
         msg.add_alternative(html, subtype="html")
     try:
-        with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT, timeout=TIMEOUT_SECONDS) as server:
+        with smtplib.SMTP(s["server"], s["port"], timeout=TIMEOUT_SECONDS) as server:
             server.starttls()
-            server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
+            server.login(s["username"], s["password"])
             server.send_message(msg)
         return True
     except Exception as exc:  # noqa: BLE001 - the caller decides what a failed send means

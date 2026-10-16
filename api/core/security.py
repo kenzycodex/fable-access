@@ -96,7 +96,10 @@ def status(user_id: str) -> dict:
     locked = _locked_until(row)
     passkeys = list_credentials(user_id)
     email = (row or {}).get("contact_email")
-    phone = (row or {}).get("contact_phone")
+    # A phone counts only once confirmed; one stored before confirmation
+    # existed stays on file but is not a channel for codes.
+    phone = (row or {}).get("contact_phone") if (row or {}).get("contact_phone_verified_at") else None
+    from services.delivery import sms_available
 
     return {
         "user_id": user_id,
@@ -122,19 +125,28 @@ def status(user_id: str) -> dict:
         "contact_email_set_at": (row or {}).get("contact_email_set_at"),
         # An address waiting for the customer to enter the code sent to it.
         "pending_email": _mask_email(row["pending_email"]) if row and row.get("pending_email") else None,
-        # No SMS provider is connected, so codes go by email only. A phone
-        # number can be stored, but nothing is sent to it.
-        "sms_available": False,
+        "pending_phone": _mask_phone(row["pending_phone"]) if row and row.get("pending_phone") else None,
+        "contact_phone_verified_at": (row or {}).get("contact_phone_verified_at"),
+        # Whether codes can go by SMS: a provider is configured (or, for a
+        # sandbox bank, the sandbox inbox stands in). Otherwise email only.
+        "sms_available": sms_available((row or {}).get("institution_id") or _institution_of(user_id)),
     }
 
 
 def get_contact(user_id: str) -> dict:
-    """Raw registered channels, for the code sender only."""
-    row = _record(user_id)
+    """Raw confirmed channels, for the code sender only."""
+    row = _record(user_id) or {}
     return {
-        "email": (row or {}).get("contact_email"),
-        "phone": (row or {}).get("contact_phone"),
+        "email": row.get("contact_email"),
+        "phone": row.get("contact_phone") if row.get("contact_phone_verified_at") else None,
     }
+
+
+def _institution_of(user_id: str) -> str | None:
+    with cursor() as cur:
+        cur.execute("SELECT institution_id FROM customers WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+    return row["institution_id"] if row else None
 
 
 def _mask_email(email: str) -> str:
@@ -160,7 +172,8 @@ def has_any_factor(user_id: str) -> bool:
     from agents.shield.stepup import has_passkey
 
     row = _record(user_id) or {}
-    return bool(row.get("pin_hash") or row.get("contact_email") or has_passkey(user_id))
+    return bool(row.get("pin_hash") or row.get("contact_email") or row.get("contact_phone_verified_at")
+                or has_passkey(user_id))
 
 
 def require_existing_factor(user_id: str, current_pin: str | None = None,
@@ -224,12 +237,15 @@ def set_contact(user_id: str, email: str | None, phone: str | None,
     """Start changing where the customer's codes go.
 
     Gated by an existing factor, so an attacker holding the session cannot
-    reroute codes. A new email does not take effect until the customer enters
-    the code sent to it (confirm_contact), so nobody can register an address
-    they do not receive mail at. A phone number is stored as given: no SMS
-    provider is connected, so nothing is ever sent to it and it is never a
-    factor.
+    reroute codes. A new email or phone does not take effect until the customer
+    enters the code sent to it (confirm_contact), so nobody can register an
+    address or number they do not control. A phone needs SMS: a configured
+    provider, or for a sandbox bank the sandbox inbox. Without either the
+    request is refused and says so.
     """
+    from agents.shield import stepup
+    from services.delivery import sms_available
+
     email = (email or "").strip() or None
     phone = (phone or "").strip() or None
     if not email and not phone:
@@ -238,11 +254,15 @@ def set_contact(user_id: str, email: str | None, phone: str | None,
         email = _validate_email(email)
     if phone:
         phone = _validate_phone(phone)
+    institution_id = institution_id or _institution_of(user_id)
+    if phone and not sms_available(institution_id):
+        raise SecurityError("Codes by SMS aren't available yet, so a phone number can't be confirmed. "
+                            "Use an email instead.")
 
     require_existing_factor(user_id, current_pin, stepup_token)
     previous = _record(user_id) or {}
-    now = _now().isoformat()
-    phone_changed = bool(phone and phone != previous.get("contact_phone"))
+    confirmed_phone = previous.get("contact_phone") if previous.get("contact_phone_verified_at") else None
+    phone_changed = bool(phone and phone != confirmed_phone)
     email_changed = bool(email and email != previous.get("contact_email"))
 
     with cursor() as cur:
@@ -252,65 +272,83 @@ def set_contact(user_id: str, email: str | None, phone: str | None,
             (user_id, institution_id),
         )
         if phone_changed:
-            cur.execute(
-                "UPDATE user_security SET contact_phone = ?, contact_phone_set_at = ?, "
-                "updated_at = datetime('now') WHERE user_id = ?",
-                (phone, now, user_id),
-            )
+            cur.execute("UPDATE user_security SET pending_phone = ?, updated_at = datetime('now') WHERE user_id = ?",
+                        (phone, user_id))
         if email_changed:
-            cur.execute(
-                "UPDATE user_security SET pending_email = ?, updated_at = datetime('now') WHERE user_id = ?",
-                (email, user_id),
-            )
+            cur.execute("UPDATE user_security SET pending_email = ?, updated_at = datetime('now') WHERE user_id = ?",
+                        (email, user_id))
 
-    if phone_changed:
-        from services import notifications
+    verifications = []
+    for channel, changed, value, column in (("email", email_changed, email, "pending_email"),
+                                            ("sms", phone_changed, phone, "pending_phone")):
+        if not changed:
+            continue
+        try:
+            sent = stepup.send_otp(user_id, "contact_verify", None,
+                                   email=value if channel == "email" else None,
+                                   phone=value if channel == "sms" else None, channel=channel)
+        except stepup.OtpDeliveryFailed as exc:
+            with cursor() as cur:
+                cur.execute(f"UPDATE user_security SET {column} = NULL WHERE user_id = ?", (user_id,))
+            raise SecurityError(
+                "We couldn't send a code to that " + ("address" if channel == "email" else "number")
+                + ". Check it and try again."
+            ) from exc
+        item = {"channel": channel, "challenge_id": sent["challenge_id"], "destination": sent["destination"],
+                "sandbox_inbox": sent.get("sandbox_inbox", False)}
+        if "debug_code" in sent:
+            item["debug_code"] = sent["debug_code"]
+        verifications.append(item)
 
-        notifications.notify_security_change(user_id, institution_id, "phone_changed")
-
-    if not email_changed:
-        return status(user_id)
-
-    from agents.shield import stepup
-
-    try:
-        sent = stepup.send_otp(user_id, "contact_verify", None, email=email)
-    except stepup.OtpDeliveryFailed as exc:
-        with cursor() as cur:
-            cur.execute("UPDATE user_security SET pending_email = NULL WHERE user_id = ?", (user_id,))
-        raise SecurityError("We couldn't send a code to that address. Check it and try again.") from exc
-    verification = {"challenge_id": sent["challenge_id"], "destination": sent["destination"]}
-    if "debug_code" in sent:
-        verification["debug_code"] = sent["debug_code"]
-    return {**status(user_id), "verification": verification}
+    result = status(user_id)
+    if verifications:
+        result["verifications"] = verifications
+        # The first one, under the field older clients read.
+        result["verification"] = verifications[0]
+    return result
 
 
 def confirm_contact(user_id: str, challenge_id: str, code: str,
                     institution_id: str | None = None) -> dict:
-    """Make a pending email the customer's verification address, once they
-    have entered the code sent to it. The previous address is told."""
+    """Make a pending email or phone the customer's own, once they have entered
+    the code sent to it. Whoever owned the previous one is told."""
     from agents.shield import stepup
 
     row = _record(user_id) or {}
-    pending = row.get("pending_email")
-    if not pending:
-        raise SecurityError("There is no email waiting to be confirmed.")
     try:
         result = stepup.verify_otp(user_id, challenge_id, code)
     except ValueError as exc:
         raise SecurityError(str(exc)) from exc
     if result.get("purpose") != "contact_verify":
-        raise SecurityError("That code was not sent to confirm an email address.")
+        raise SecurityError("That code was not sent to confirm a contact.")
 
+    from services import notifications
+
+    now = _now().isoformat()
+    if result.get("channel") == "sms":
+        pending = row.get("pending_phone")
+        if not pending:
+            raise SecurityError("There is no phone number waiting to be confirmed.")
+        with cursor() as cur:
+            cur.execute(
+                """UPDATE user_security SET contact_phone = ?, contact_phone_set_at = ?,
+                          contact_phone_verified_at = ?, pending_phone = NULL, updated_at = datetime('now')
+                   WHERE user_id = ? AND pending_phone = ?""",
+                (pending, now, now, user_id, pending),
+            )
+        notifications.notify_security_change(user_id, institution_id, "phone_changed")
+        return status(user_id)
+
+    pending = row.get("pending_email")
+    if not pending:
+        raise SecurityError("There is no email waiting to be confirmed.")
     previous = row.get("contact_email")
     with cursor() as cur:
         cur.execute(
             """UPDATE user_security SET contact_email = ?, contact_email_set_at = ?, pending_email = NULL,
                       updated_at = datetime('now') WHERE user_id = ? AND pending_email = ?""",
-            (pending, _now().isoformat(), user_id, pending),
+            (pending, now, user_id, pending),
         )
-    from services import notifications
-
     notifications.notify_security_change(user_id, institution_id, "email_changed",
                                          also_email=previous if previous != pending else None)
     return status(user_id)
