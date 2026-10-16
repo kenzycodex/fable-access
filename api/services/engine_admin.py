@@ -185,7 +185,28 @@ def overview() -> dict:
         "catalogue": catalogue(),
         "owners": len(approvals.owners()),
         "detection": detection_settings(),
+        "cold_start": cold_start_status(active, rows),
     }
+
+
+def cold_start_status(active: dict, rows: list[dict]) -> dict:
+    """Whether the live version prices a first transfer when a customer has no
+    history, and if not, which waiting version would.
+
+    Shown as a banner on the Engine page: a deployment upgraded from before
+    these weights keeps scoring a first NGN 900m at 0.47 until a version with
+    them is approved and promoted.
+    """
+    keys = list(engine_config.LEGACY_FILL)
+    live = engine_config.normalise(active["params"])["weights"]
+    live_on = any(live.get(k, 0) > 0 for k in keys)
+    waiting = [
+        {"version": r["version"], "status": r["status"]}
+        for r in rows
+        if r["status"] in ("draft", "proposed", "cooling", "approved", "shadow")
+        and any(engine_config.normalise(r["params"])["weights"].get(k, 0) > 0 for k in keys)
+    ]
+    return {"live": live_on, "waiting": waiting}
 
 
 def detection_settings() -> list[dict]:

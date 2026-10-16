@@ -149,3 +149,18 @@ def test_an_upgraded_deployment_gets_a_draft_once_and_nothing_goes_live():
         with cursor() as cur:
             cur.execute("UPDATE engine_versions SET params = ? WHERE version = ?", (original, active["version"]))
             cur.execute("DELETE FROM engine_versions WHERE status = 'draft' AND created_by = 'system'")
+
+
+def test_the_engine_page_says_when_first_transfers_are_not_priced():
+    import json as _json
+
+    from core import engine_config
+    from services import engine_admin
+
+    legacy = _json.loads(engine_config.canonical(engine_config.code_defaults()))
+    for key in engine_config.LEGACY_FILL:
+        legacy["weights"].pop(key)
+    draft = {"version": 9, "status": "draft", "params": engine_config.code_defaults()}
+    status = engine_admin.cold_start_status({"params": legacy}, [draft])
+    assert status == {"live": False, "waiting": [{"version": 9, "status": "draft"}]}
+    assert engine_admin.cold_start_status({"params": engine_config.code_defaults()}, [])["live"] is True

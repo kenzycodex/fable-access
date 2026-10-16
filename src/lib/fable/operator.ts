@@ -633,6 +633,9 @@ export interface EngineOverview {
   /** Detection settings: approved on the Environment page, shown here read-only. */
   detection: { name: string; label: string; value: number; display: string; unit: string; source: "environment" | "console" | "default" }[];
   me: { role: OperatorRole; email: string; can_draft: boolean; can_decide: boolean };
+  /** Whether the live version prices first transfers with no history, and
+   * which waiting versions would. Absent from an older API. */
+  cold_start?: { live: boolean; waiting: { version: number; status: string }[] };
 }
 
 const engine = (path: string) => `/operator/engine${path}`;

@@ -150,6 +150,30 @@ export default function EnginePage() {
 
       <Overview data={data} onOpen={open} />
 
+      {data.cold_start && !data.cold_start.live && (
+        <Notice tone="warning">
+          <span className="font-semibold">The live version does not price first transfers yet.</span> A customer with no
+          history can send a very large first transfer without a flag.{" "}
+          {data.cold_start.waiting.length ? (
+            <>
+              {data.cold_start.waiting.map((w, i) => (
+                <span key={w.version}>
+                  {i > 0 ? ", " : ""}
+                  <button type="button" className="font-semibold text-brand underline" onClick={() => open(w.version)}>
+                    v{w.version}
+                  </button>{" "}
+                  ({w.status})
+                </span>
+              ))}{" "}
+              has the &quot;No history&quot; weights: backtest it, propose it, then promote it once approved (a single
+              owner&apos;s proposal is approved after its cooling-off period).
+            </>
+          ) : (
+            <>Start a draft and set the &quot;No history&quot; weights to turn this on.</>
+          )}
+        </Notice>
+      )}
+
       {data.env_keys.length > 0 && (
         <Notice tone="warning">
           <span className="font-semibold">{data.env_keys.length} value{data.env_keys.length === 1 ? " is" : "s are"} set in the server environment</span> and
