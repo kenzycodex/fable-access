@@ -65,7 +65,7 @@ limited per client (default 180 per 60 seconds), and exceeding it returns `429`.
 | `transaction.channel` | enum | `mobile_app`, `ussd`, `pos`, `internet`, `atm`, `qr`, `branch`, `unknown` |
 | `device` | object | Fingerprint and traits from the SDK. All optional |
 | `context` | object | Location, session and behavioural signals. All optional |
-| `client_reference` | string | Stable id. Makes an offline replay idempotent |
+| `client_reference` | string | Your own transfer id. A retry with the same one returns the first decision instead of scoring twice |
 
 Returns:
 
@@ -100,23 +100,25 @@ institution's transactions. It resolves the matching review case.
 | Endpoint | Purpose |
 |---|---|
 | `POST /v1/transactions/{id}/status` | Record a lifecycle outcome (`completed`, `cancelled`, `released`...). Moves no money. Confirming a transfer teaches Copilot |
-| `POST /v1/transactions/{id}/approve` | Approve a flagged transfer once its factor is proven |
+| `POST /v1/transactions/{id}/approve` | Approve a flagged transfer once its factor is proven. Sends `transaction.approved` |
+| `POST /v1/transactions/{id}/hold` | Hold a blocked transfer in Ghost. The same as `/v1/ghost/create` with this `transaction_id` |
 
 ## Ghost
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/ghost/create` | Open a cooling window. Its length follows the institution's risk policy (15, 10 or 5 minutes by default) |
-| `GET /v1/ghost/{id}` | Container state |
-| `POST /v1/ghost/{id}/cancel` | Return the money. No verification needed |
+| `POST /v1/ghost/create` | `{ user_id, transaction_id }`. Hold a blocked transfer from its stored decision. The window follows the institution's risk policy (15, 10 or 5 minutes by default) |
+| `GET /v1/ghost/{id}` | Hold state: `HELD`, `RELEASE_REQUESTED`, `RELEASED`, `CANCELLED` or `EXPIRED` |
+| `POST /v1/ghost/{id}/cancel` | End the hold; the money stays with the customer. No verification needed |
 | `POST /v1/ghost/{id}/confirm` | Release. **Requires a step-up token** |
+| `POST /v1/ghost/{id}/request-release` | The customer asks the bank to release it. Extends the hold and reopens the case for staff |
 
 | Status | Meaning |
 |---|---|
 | `401` | `step_up_required`, naming the level needed |
-| `403` | The caller is not the container's owner |
-| `409` | Already resolved, or Ghost is switched off for this institution |
-| `410` | The window expired. Cancel is still available |
+| `403` | The caller is not the hold's owner |
+| `409` | Already ended, or Ghost is switched off for this institution |
+| `410` | The window expired and the hold ended; the money stayed with the customer |
 
 ```json
 { "detail": { "error": "step_up_required", "level": "passkey" } }
@@ -126,16 +128,16 @@ institution's transactions. It resolves the matching review case.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/stepup/requirement` | Which level does this decision need? Body: `user_id`, `risk_score`, `signals`, `action`, `purpose` (`transfer` or `ghost_release`) |
+| `POST /v1/stepup/requirement` | Which level does this decision need, and which steps the customer can do? Body: `user_id`, `purpose` (`transfer`, `ghost_release` or `security_change`) and `reference` (the transaction or hold id). The level comes from the stored decision |
 | `POST /v1/stepup/pin/verify` | Verify the transaction PIN |
 | `POST /v1/stepup/passkey/register/begin` | Start passkey enrolment |
 | `POST /v1/stepup/passkey/register/complete` | Finish enrolment |
 | `GET /v1/stepup/passkey/{user_id}` | Registered passkeys |
 | `POST /v1/stepup/passkey/auth/begin` | Start verification |
 | `POST /v1/stepup/passkey/auth/complete` | Finish verification, returns a token |
-| `POST /v1/stepup/otp/send` | Send an out-of-band code by email |
+| `POST /v1/stepup/otp/send` | Send a one-time code. `channel`: `email` (default) or `sms` to a confirmed phone |
 | `POST /v1/stepup/otp/verify` | Verify a code, returns a token |
-| `POST /v1/stepup/identity-check` | Composed tier. Liveness itself returns `501`, a provider contract |
+| `POST /v1/stepup/identity-check` | The top tier, from passkey, code and PIN tokens. A face or liveness check is planned and returns `501` with its provider contract |
 
 Tokens last 10 minutes, are single-use, and are bound to one user, purpose and
 reference.
@@ -150,7 +152,9 @@ reference.
 | `GET /v1/accounts/{user_id}/security` | PIN, 2FA preference and contact status |
 | `POST /v1/accounts/{user_id}/security/pin` | Set or change the PIN. Its length is `FABLE_PIN_LENGTH` (4 by default); changing it needs the current one |
 | `POST /v1/accounts/{user_id}/security/two-factor` | Toggle "always ask" |
-| `POST /v1/accounts/{user_id}/security/contact` | Where the customer's own codes are sent |
+| `POST /v1/accounts/{user_id}/security/contact` | Set the email or phone codes go to. A new one is pending until confirmed, and changing an existing one needs a current factor |
+| `POST /v1/accounts/{user_id}/security/contact/verify` | Confirm a pending email or phone with its code |
+| `GET /v1/sandbox/inbox/{user_id}` | Sandbox only: codes and notices that would have gone to the customer's email or phone. `409` for a live institution |
 
 ## Notifications and Copilot
 
@@ -257,6 +261,8 @@ case; they never move money.
 | `POST /v1/review/{id}/notes` | `{ body }` |
 | `POST /v1/review/{id}/resolve` | `{ outcome: "fraud" \| "legitimate", note? }`. Sends `case.resolved` to webhooks |
 | `POST /v1/review/{id}/reopen` | Withdraw a resolution |
+| `POST /v1/review/{id}/hold/cancel` | Cancel the case's Ghost hold. Analyst or owner |
+| `POST /v1/review/{id}/hold/release` | Release it after verifying the customer another way. Owner, or analysts when the risk policy allows it |
 
 ## Webhooks
 

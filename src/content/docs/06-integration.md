@@ -17,7 +17,7 @@ Your server ──► POST /v1/shield/analyze  (with your API key)
         └─ BLOCK ─► refuse, or hold in Ghost if the customer insists
         │
         ▼
-Fable ──► your webhook endpoint  (blocked, flagged, held, case resolved)
+Fable ──► your webhook endpoint  (every decision, approvals, holds, cases)
         │
         ▼
 Your analysts work the case in the console, or your system posts feedback
@@ -78,10 +78,37 @@ stranger's.
 |---|---|
 | `PASS` | Complete the transfer. No extra step for the customer |
 | `FLAG` | Call `POST /v1/stepup/requirement`, run the factor it names (PIN, passkey or code), then `POST /v1/transactions/{id}/approve` with the step-up token |
-| `BLOCK` | Refuse. If the customer insists, open a Ghost hold with `POST /v1/ghost/create` so the money stays recoverable |
+| `BLOCK` | Refuse. If the customer insists, open a Ghost hold with `POST /v1/ghost/create` and the decision's `transaction_id`, so the money stays recoverable |
 
 Shield never fails open. If anything goes wrong while scoring, it returns a
 conservative `FLAG`, never a `PASS`.
+
+### Customers set up their checks before they need them
+
+A PIN, a trusted device or a confirmed email only counts towards approving a
+transfer if it was in place before Fable made that decision. A factor added
+after the decision cannot approve it; otherwise someone who had just taken over
+an account could add their own device and release the money. Ask customers to
+set a PIN and add their phone as a trusted device when they first sign up,
+not at the moment a transfer is stopped. A customer who has nothing set up can
+still ask your bank to release a held transfer (see below).
+
+### Holding a transfer in live mode
+
+Fable does not hold money. While a transfer is held, your core banking system
+keeps the funds (for example in a hold or suspense position) and does not send
+them over NIP. Fable keeps the hold's state and tells you how it ended:
+
+| Event | What your system does |
+|---|---|
+| `containment.created` | Keep the funds held until `expires_at` |
+| `containment.release_requested` | The customer asked your bank to release it. Your staff decide in the console's review queue; the hold is extended while they do |
+| `containment.released` | Send the transfer |
+| `containment.cancelled` | Return the funds to the customer |
+| `containment.expired` | Return the funds to the customer |
+
+Treat a hold as still held until one of the last three arrives. A transfer
+that passed a `FLAG` check gives `transaction.approved` instead: send it then.
 
 Plan for the 200ms budget: `decision_ms` in the response is the time to the
 verdict. Give the HTTP call a timeout of around 1.5 seconds and treat a timeout
@@ -94,10 +121,16 @@ events. The signing secret is shown once, at creation.
 
 | Event | When |
 |---|---|
+| `transaction.passed` | Shield passed a transfer |
 | `transaction.flagged` | Shield asked a customer to verify |
 | `transaction.blocked` | Shield stopped a transfer |
+| `transaction.approved` | The customer passed the check a `FLAG` asked for; the transfer may go |
 | `containment.created` | Ghost is holding a transfer |
-| `containment.resolved` | A hold was released or cancelled |
+| `containment.release_requested` | The customer asked the bank to release a hold |
+| `containment.released` | A hold ended and the transfer may go |
+| `containment.cancelled` | A hold was cancelled; the money stays with the customer |
+| `containment.expired` | Nobody released a hold in time; the money stays with the customer |
+| `containment.resolved` | Sent with each of the three above, with an `outcome` field, for endpoints set up before they existed |
 | `case.resolved` | An analyst closed a case as fraud or legitimate |
 
 Every delivery is a JSON `POST`:
@@ -158,9 +191,11 @@ def verify_fable(raw_body: bytes, header: str, secret: str, tolerance: int = 300
     return hmac.compare_digest(expected, parts.get("v1", ""))
 ```
 
-Respond with any `2xx` within five seconds. A timeout or a `5xx` is retried up to
-three times with backoff; a `4xx` is not retried. Deliveries can arrive more than
-once, so de-duplicate on the event `id`. The console shows a log of every
+Respond with any `2xx` within five seconds. A timeout, a `5xx`, a `408` or a
+`429` is retried with growing gaps (30 seconds, doubling up to six hours) for
+about a day; any other `4xx` is not retried. Every event is written down before
+it is sent, so a restart on our side does not lose it. Deliveries can arrive
+more than once, with the same event `id` each time, so de-duplicate on it. The console shows a log of every
 attempt, and an owner can send a signed test event at any time.
 
 ## 5. Close the loop
