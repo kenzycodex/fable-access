@@ -59,13 +59,14 @@ export default function GhostPage() {
       if (err instanceof StepUpRequiredError) {
         // The server named the factor it wants; go and collect it.
         try {
+          // The server answers from the hold it stored, including which of the
+          // customer's factors were in place before the money was held.
           const req = await stepUpRequirement({
             userId: customer?.user_id ?? "",
-            riskScore: 0,
-            signals: [],
             purpose: "ghost_release",
+            reference: ghost!.id,
           });
-          setRequirement({ ...req, level: err.level, ...describeFallback(err.level, req) });
+          setRequirement(req);
         } catch {
           setRequirement(null);
         }
@@ -78,27 +79,6 @@ export default function GhostPage() {
     } finally {
       setReleasing(false);
     }
-  }
-
-  /** The requirement endpoint answers for a hypothetical risk; the refusal
-   * carries the real level, so prefer the server's copy for that level. */
-  function describeFallback(level: string, req: StepUpRequirement) {
-    if (level === req.level) return {};
-    const copy: Record<string, { label: string; detail: string; factors: string[] }> = {
-      pin: { label: "Transaction PIN", detail: "Re-enter your transaction PIN to release this transfer.", factors: ["pin"] },
-      passkey: { label: "Device biometric", detail: "Confirm with this device's fingerprint or face unlock.", factors: ["passkey"] },
-      passkey_and_otp: {
-        label: "Biometric + emailed code",
-        detail: "Confirm on this device, then enter the code sent to your registered email.",
-        factors: ["passkey", "otp"],
-      },
-      identity_check: {
-        label: "Identity verification",
-        detail: "This transfer needs a liveness check against your registered ID.",
-        factors: ["identity_check"],
-      },
-    };
-    return copy[level] ?? {};
   }
 
   return (

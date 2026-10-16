@@ -165,6 +165,10 @@ def requirement(payload: RequirementRequest, request: Request):
         if payload.purpose == "ghost_release":
             cutoff = _parse(row.get("created_at"))
         source = "stored_decision"
+    elif payload.purpose == "security_change":
+        # Changing a security setting needs one factor the customer already has.
+        level = "pin"
+        source = "policy"
     else:
         always_ask = bool(security.status(payload.user_id).get("two_factor_enabled"))
         if payload.purpose == "ghost_release":
@@ -174,6 +178,8 @@ def requirement(payload: RequirementRequest, request: Request):
                 payload.risk_score, payload.signals, payload.action, always_ask=always_ask
             )
         source = "caller_supplied"
+    if payload.purpose not in PURPOSES:
+        raise HTTPException(status_code=422, detail=f"Unknown purpose '{payload.purpose}'.")
 
     have = _available_factors(payload.user_id, cutoff)
     steps = steps_for(level, have)

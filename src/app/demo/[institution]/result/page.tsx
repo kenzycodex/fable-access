@@ -202,14 +202,13 @@ function FlagBlockResult() {
     } catch (err) {
       if (err instanceof StepUpRequiredError) {
         try {
+          // The server answers from its own stored decision for this transfer.
           const req = await stepUpRequirement({
             userId: customer?.user_id ?? "",
-            riskScore: pending!.riskScore,
-            signals: pending!.signals.map((s) => s.code),
-            action: "FLAG",
             purpose: "transfer",
+            reference: pending!.id,
           });
-          setRequirement({ ...req, level: err.level });
+          setRequirement(req);
         } catch {
           setRequirement(null);
         }

@@ -1297,6 +1297,17 @@ export interface SecurityStatus {
   contact_phone: string | null;
   email_set: boolean;
   phone_set: boolean;
+  /** A new email waiting for its confirmation code (masked). */
+  pending_email?: string | null;
+  /** Codes go by email only; no SMS provider is connected. */
+  sms_available?: boolean;
+}
+
+/** A contact change that needs the code sent to the new address. */
+export interface ContactVerification {
+  challenge_id: string;
+  destination: string;
+  debug_code?: string;
 }
 
 /** Digits to expect when a customer enters their existing PIN. Falls back to 4
@@ -1319,9 +1330,9 @@ export function securityStatus(userId: string): Promise<SecurityStatus> {
  * `currentPin` is required once a PIN exists (gated so codes can't be rerouted). */
 export async function setContact(
   userId: string,
-  input: { email?: string | null; phone?: string | null; currentPin?: string | null },
+  input: { email?: string | null; phone?: string | null; currentPin?: string | null; stepupToken?: string | null },
   institution: string | null,
-): Promise<SecurityStatus> {
+): Promise<SecurityStatus & { verification?: ContactVerification }> {
   const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/contact`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -1330,11 +1341,26 @@ export async function setContact(
       phone: input.phone ?? null,
       institution_id: institution,
       current_pin: input.currentPin ?? null,
+      stepup_token: input.stepupToken ?? null,
     }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(typeof body?.detail === "string" ? body.detail : "Could not save your contact details.");
+  }
+  return (await res.json()) as SecurityStatus & { verification?: ContactVerification };
+}
+
+/** Confirm a new email with the code that was sent to it. */
+export async function confirmContact(userId: string, challengeId: string, code: string): Promise<SecurityStatus> {
+  const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/contact/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ challenge_id: challengeId, code }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.detail === "string" ? body.detail : "That code didn't work.");
   }
   return (await res.json()) as SecurityStatus;
 }
@@ -1344,11 +1370,12 @@ export async function setPin(
   pin: string,
   currentPin: string | null,
   institution: string | null,
+  stepupToken?: string | null,
 ): Promise<SecurityStatus> {
   const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/pin`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ pin, current_pin: currentPin, institution_id: institution }),
+    body: JSON.stringify({ pin, current_pin: currentPin, institution_id: institution, stepup_token: stepupToken ?? null }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -1357,11 +1384,22 @@ export async function setPin(
   return (await res.json()) as SecurityStatus;
 }
 
-export function setTwoFactor(userId: string, enabled: boolean, currentPin?: string | null): Promise<SecurityStatus> {
-  return fetchJson<SecurityStatus>(`/v1/accounts/${encodeURIComponent(userId)}/security/two-factor`, {
+export async function setTwoFactor(
+  userId: string,
+  enabled: boolean,
+  currentPin?: string | null,
+  stepupToken?: string | null,
+): Promise<SecurityStatus> {
+  const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/two-factor`, {
     method: "POST",
-    body: JSON.stringify({ enabled, current_pin: currentPin ?? null }),
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ enabled, current_pin: currentPin ?? null, stepup_token: stepupToken ?? null }),
   });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.detail === "string" ? body.detail : "Could not change this setting.");
+  }
+  return (await res.json()) as SecurityStatus;
 }
 
 /** Thrown when a transfer exceeds available funds. Carries the shortfall so
