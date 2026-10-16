@@ -80,9 +80,16 @@ MANAGED: dict[str, Spec] = {s.name: s for s in (
          config_attr="SMTP_FROM", help='The From line, for example "Fable <no-reply@fable.ng>".'),
     # SMS: codes and short hold alerts, where a provider is configured.
     Spec("SMS_PROVIDER", "SMS provider", "SMS", "config", None, rotate_days=0, value_type="str",
-         choices=("none", "termii"), config_attr="SMS_PROVIDER",
+         choices=("none", "termii", "africastalking"), config_attr="SMS_PROVIDER",
          help="none keeps SMS off: the product says so and never claims an SMS was sent."),
     Spec("TERMII_API_KEY", "Termii API key", "SMS", "secret", "termii"),
+    Spec("AFRICASTALKING_API_KEY", "Africa's Talking API key", "SMS", "secret", "africastalking"),
+    Spec("AFRICASTALKING_USERNAME", "Africa's Talking username", "SMS", "config", None, rotate_days=0,
+         value_type="str", config_attr="AFRICASTALKING_USERNAME",
+         help='Your app username, or "sandbox" for the free sandbox.'),
+    Spec("AFRICASTALKING_ENV", "Africa's Talking environment", "SMS", "config", None, rotate_days=0,
+         value_type="str", choices=("sandbox", "live"), config_attr="AFRICASTALKING_ENV",
+         help="sandbox sends to the Africa's Talking simulator; live sends real SMS."),
     Spec("SMS_SENDER_ID", "SMS sender ID", "SMS", "config", None, rotate_days=0, value_type="str",
          config_attr="SMS_SENDER_ID", help="The registered sender name customers see, up to 11 characters."),
     # Operations.

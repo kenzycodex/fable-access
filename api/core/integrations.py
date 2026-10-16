@@ -39,6 +39,11 @@ def sms() -> dict:
         "termii_api_key": _safe(lambda: vault.get("TERMII_API_KEY"), ""),
         "sender_id": _safe(lambda: vault.setting("SMS_SENDER_ID"), config.SMS_SENDER_ID),
         "termii_base_url": config.TERMII_BASE_URL,
+        "africastalking_api_key": _safe(lambda: vault.get("AFRICASTALKING_API_KEY"), ""),
+        "africastalking_username": _safe(lambda: vault.setting("AFRICASTALKING_USERNAME"),
+                                         config.AFRICASTALKING_USERNAME),
+        "africastalking_env": str(_safe(lambda: vault.setting("AFRICASTALKING_ENV"),
+                                        config.AFRICASTALKING_ENV)).lower(),
     }
 
 

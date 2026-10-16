@@ -5,14 +5,15 @@ console) and its credentials come from managed settings. With no provider,
 `configured()` is false: codes and alerts go by email (or, for a sandbox bank,
 to the sandbox inbox) and nothing ever claims an SMS was sent.
 
-Adding a provider (Africa's Talking, Twilio) is one class with a `send`
-method, registered in PROVIDERS.
+Termii and Africa's Talking (including its free sandbox) are built in. Adding
+another (Twilio) is one class with `ready` and `send`, registered in PROVIDERS.
 """
 from __future__ import annotations
 
 import json
 import logging
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
@@ -70,7 +71,50 @@ class TermiiProvider:
             return SmsResult(False, type(exc).__name__)
 
 
-PROVIDERS = {"termii": TermiiProvider}
+class AfricasTalkingProvider:
+    """Africa's Talking SMS. Works with the free sandbox (username "sandbox",
+    sandbox base URL; messages land in their simulator) and with a live app."""
+
+    name = "africastalking"
+
+    def __init__(self, settings: dict):
+        from core import config
+
+        self.key = settings.get("africastalking_api_key") or ""
+        self.username = settings.get("africastalking_username") or "sandbox"
+        env = settings.get("africastalking_env") or "sandbox"
+        self.base = config.AFRICASTALKING_URLS.get(env, config.AFRICASTALKING_URLS["sandbox"])
+        self.sender = settings.get("sender_id") or ""
+        self.sandbox = env != "live"
+
+    def ready(self) -> bool:
+        return bool(self.key and self.username)
+
+    def send(self, to: str, text: str) -> SmsResult:
+        fields = {"username": self.username, "to": f"+{to}", "message": text}
+        # A sender ID must be registered with Africa's Talking for live use;
+        # the sandbox ignores it, so it is only sent live.
+        if self.sender and not self.sandbox:
+            fields["from"] = self.sender
+        req = urllib.request.Request(
+            f"{self.base}/version1/messaging", data=urllib.parse.urlencode(fields).encode(), method="POST",
+            headers={"apiKey": self.key, "Accept": "application/json",
+                     "Content-Type": "application/x-www-form-urlencoded"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:  # noqa: S310 - fixed provider URL
+                payload = json.loads(resp.read(8192).decode("utf-8", "ignore") or "{}")
+            recipients = (payload.get("SMSMessageData") or {}).get("Recipients") or []
+            # 100 Processed, 101 Sent, 102 Queued: accepted for delivery.
+            ok = any(int(r.get("statusCode", 0)) in (100, 101, 102) for r in recipients)
+            return SmsResult(ok, "accepted" if ok else (recipients[0].get("status") if recipients else "not accepted"))
+        except urllib.error.HTTPError as exc:
+            return SmsResult(False, f"HTTP {exc.code}")
+        except Exception as exc:  # noqa: BLE001 - never echo provider text, which can hold the key
+            return SmsResult(False, type(exc).__name__)
+
+
+PROVIDERS = {"termii": TermiiProvider, "africastalking": AfricasTalkingProvider}
 
 
 def _provider():
@@ -80,6 +124,16 @@ def _provider():
         return None
     provider = cls(settings)
     return provider if provider.ready() else None
+
+
+def describe() -> str:
+    """Which provider is in force, for the console ("Africa's Talking (sandbox)")."""
+    provider = _provider()
+    if provider is None:
+        return "none"
+    if isinstance(provider, AfricasTalkingProvider):
+        return "Africa's Talking (sandbox)" if provider.sandbox else "Africa's Talking"
+    return "Termii"
 
 
 def configured() -> bool:

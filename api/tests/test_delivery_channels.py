@@ -215,3 +215,58 @@ def test_text_settings_are_validated():
         vault.parse_setting(vault.MANAGED["SMS_PROVIDER"], "carrier-pigeon")
     assert vault.parse_setting(vault.MANAGED["FABLE_CORS_ORIGINS"], "https://a.ng, https://b.ng") == \
         "https://a.ng, https://b.ng"
+
+
+def test_africas_talking_sandbox_sends_through_its_api(monkeypatch):
+    from core import integrations
+    from services import sms
+
+    monkeypatch.setattr(integrations, "sms", lambda: {
+        "provider": "africastalking", "africastalking_api_key": "atsk_test", "africastalking_username": "sandbox",
+        "africastalking_env": "sandbox", "sender_id": "Fable"})
+    calls = []
+
+    class Resp:
+        def read(self, n):
+            return b'{"SMSMessageData": {"Recipients": [{"statusCode": 101, "status": "Success"}]}}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout):
+        calls.append((req.full_url, dict(req.header_items()), req.data.decode()))
+        return Resp()
+
+    monkeypatch.setattr(sms.urllib.request, "urlopen", fake_urlopen)
+    assert sms.describe() == "Africa's Talking (sandbox)"
+    assert sms.send("08031234567", "code 123456").sent is True
+    url, headers, body = calls[0]
+    assert url == "https://api.sandbox.africastalking.com/version1/messaging"
+    assert headers.get("Apikey") == "atsk_test"
+    assert "username=sandbox" in body and "to=%2B2348031234567" in body and "from=" not in body
+
+
+def test_africas_talking_reports_a_refused_message(monkeypatch):
+    from core import integrations
+    from services import sms
+
+    monkeypatch.setattr(integrations, "sms", lambda: {
+        "provider": "africastalking", "africastalking_api_key": "k", "africastalking_username": "app",
+        "africastalking_env": "live", "sender_id": "Fable"})
+
+    class Resp:
+        def read(self, n):
+            return b'{"SMSMessageData": {"Recipients": [{"statusCode": 403, "status": "InvalidPhoneNumber"}]}}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(sms.urllib.request, "urlopen", lambda req, timeout: Resp())
+    result = sms.send("08031234567", "x")
+    assert result.sent is False and result.detail == "InvalidPhoneNumber"

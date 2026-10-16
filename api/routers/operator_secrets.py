@@ -188,8 +188,11 @@ def test_sms(body: TestSend, request: Request):
         return {"sent": False, "message": "SMS isn't set up: choose a provider and add its API key first."}
     result = sms.send(body.to, "This is a test SMS from the Fable operator console.")
     audit.record("platform.test_sms", None, operator=op["email"], sent=result.sent)
-    return {"sent": result.sent,
-            "message": "Sent. Check the phone." if result.sent else f"The provider did not accept it ({result.detail})."}
+    via = sms.describe()
+    sandbox_note = " It appears in the Africa's Talking sandbox simulator, not on a real phone." if "sandbox" in via else ""
+    return {"sent": result.sent, "provider": via,
+            "message": (f"Sent through {via}.{sandbox_note}" if result.sent
+                        else f"{via} did not accept it ({result.detail}).")}
 
 
 # ── Operator passkeys ────────────────────────────────────────────────────────

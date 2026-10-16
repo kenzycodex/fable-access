@@ -37,6 +37,15 @@ SMTP_FROM = os.getenv("SMTP_FROM", "Fable Provisioning <no-reply@fable.ng>")
 SMS_PROVIDER = os.getenv("SMS_PROVIDER", "none").strip().lower() or "none"
 SMS_SENDER_ID = os.getenv("SMS_SENDER_ID", "Fable")
 TERMII_BASE_URL = os.getenv("TERMII_BASE_URL", "https://api.ng.termii.com")
+# Africa's Talking. Its free sandbox uses the username "sandbox" and its own
+# base URL; messages sent there appear in the Africa's Talking simulator, not
+# on a real phone. "live" uses the production API.
+AFRICASTALKING_USERNAME = os.getenv("AFRICASTALKING_USERNAME", "sandbox")
+AFRICASTALKING_ENV = os.getenv("AFRICASTALKING_ENV", "sandbox").strip().lower() or "sandbox"
+AFRICASTALKING_URLS = {
+    "sandbox": "https://api.sandbox.africastalking.com",
+    "live": "https://api.africastalking.com",
+}
 
 # --- Security / ops (all optional; safe demo defaults) ---
 # Comma-separated API keys. If set, protected endpoints require

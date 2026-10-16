@@ -156,10 +156,26 @@ PROBES = {
         f"https://api.geoapify.com/v1/geocode/reverse?{urllib.parse.urlencode({'apiKey': v, 'lat': _LAT, 'lon': _LON})}"),
     "termii": lambda v: _http_ok(
         f"{config.TERMII_BASE_URL}/api/get-balance?{urllib.parse.urlencode({'api_key': v})}"),
+    "africastalking": lambda v: _http_ok(
+        f"{_at_base()}/version1/user?{urllib.parse.urlencode({'username': _at_username()})}",
+        {"apiKey": v, "Accept": "application/json"}),
     "google": lambda v: _http_ok(
         f"https://maps.googleapis.com/maps/api/geocode/json?{urllib.parse.urlencode({'key': v, 'latlng': f'{_LAT},{_LON}'})}",
         ok=lambda status, body: status == 200 and '"status" : "OK"' in body.replace('"status":"OK"', '"status" : "OK"')),
 }
+
+
+def _at_base() -> str:
+    from core import integrations
+
+    return config.AFRICASTALKING_URLS.get(integrations.sms()["africastalking_env"],
+                                          config.AFRICASTALKING_URLS["sandbox"])
+
+
+def _at_username() -> str:
+    from core import integrations
+
+    return integrations.sms()["africastalking_username"] or "sandbox"
 
 
 def test_value(name: str, value: str) -> tuple[bool, str]:
