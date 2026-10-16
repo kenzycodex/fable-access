@@ -55,7 +55,10 @@ EVENTS = (
 )
 
 ATTEMPTS = 3            # for a direct delivery (the console's test send)
-MAX_ATTEMPTS = 8        # for an outbox delivery, spread over about a day
+# For an outbox delivery: the gaps double from 30 s up to a 6-hour cap, so 14
+# tries span about a day. A bank that sends money on containment.released can
+# be down overnight without losing the instruction.
+MAX_ATTEMPTS = 14
 TIMEOUT_SECONDS = 5
 STALE_CLAIM_SECONDS = 300
 

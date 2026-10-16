@@ -342,6 +342,15 @@ def test_a_failed_delivery_is_retried_from_the_outbox(client, monkeypatch):
         assert cur.fetchone()["status"] == "delivered"
 
 
+def test_retries_span_about_a_day_before_giving_up():
+    from services import webhooks
+
+    # The wait before try n+1 follows try n; the last try has no wait after it.
+    span = sum(webhooks._backoff(n) for n in range(1, webhooks.MAX_ATTEMPTS))
+    assert 20 * 3600 <= span <= 30 * 3600, span / 3600
+    assert webhooks._backoff(1) == 30 and webhooks._backoff(30) == 6 * 3600
+
+
 def test_a_delivery_stuck_mid_flight_is_picked_up_again(client, posts):
     from core.db import cursor
     from services import webhooks
