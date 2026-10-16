@@ -423,22 +423,26 @@ export function setTransparency(patch: Partial<TransparencyState>): void {
 
 /** Sign the console in, holding the signed token /auth/login issued.
  *
- * The cookie used to be the literal string "1", and Next's middleware checked
- * only that it existed — so `document.cookie = "fable_auth=1"` in any console
- * granted access. It now holds the real token, which the middleware can
- * actually inspect, and which every API call presents so the server derives
- * the tenant from a verified identity.
+ * The token itself lives in this store and is sent as a header on every API
+ * call; the server derives the bank from it. The `fable_auth` cookie exists
+ * only so the Next route guard (src/proxy.ts) can send a signed-out visitor to
+ * the login page before rendering. It used to hold the whole session token,
+ * readable by any script on the page; it now holds only the token's public
+ * part (bank and expiry) with no signature, so reading it gives nothing that
+ * can call the API. The guard is a convenience, not a security boundary: the
+ * API checks the real token on every request.
  *
- * It is not httpOnly, deliberately: the console and the API are on different
- * origins, so this is read by JS to set an Authorization header rather than
- * being sent as ambient authority. That is also why there is no CSRF surface
- * here — a cross-site request cannot attach a header it cannot read.
+ * It cannot be httpOnly because it is written by this script; SameSite=Strict
+ * keeps it off cross-site navigations.
  */
 export function login(institutionId?: string | null, token?: string | null, expiresAt?: number | null): void {
   if (canUseDom() && token) {
     const maxAge = expiresAt ? Math.max(expiresAt - Math.floor(Date.now() / 1000), 0) : 43200;
     const secure = window.location.protocol === "https:" ? "; Secure" : "";
-    document.cookie = `fable_auth=${encodeURIComponent(token)}; path=/; max-age=${maxAge}; SameSite=Lax${secure}`;
+    // "<payload>.ui": the same two-part shape the guard reads, without the
+    // signature that makes a token usable.
+    const marker = `${token.split(".")[0]}.ui`;
+    document.cookie = `fable_auth=${encodeURIComponent(marker)}; path=/; max-age=${maxAge}; SameSite=Strict${secure}`;
   }
   mutate((s) => ({
     ...s,

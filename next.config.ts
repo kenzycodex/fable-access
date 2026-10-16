@@ -43,7 +43,9 @@ const CSP = [
   // The single most valuable line here: nothing may frame this app.
   "frame-ancestors 'none'",
   "object-src 'none'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  // 'unsafe-eval' only while developing: Next's dev server needs it for fast
+  // refresh, and a production build does not.
+  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "production" ? "" : " 'unsafe-eval'"}`,
   "style-src 'self' 'unsafe-inline'",
   // data: covers institution logos, which are stored and served as data URIs.
   "img-src 'self' data: blob: https:",

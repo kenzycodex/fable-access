@@ -214,7 +214,7 @@ export const privacyNotice: LegalDocument = {
         p("We use a small amount of browser storage, all of it to make the product work. We use no advertising or third-party marketing trackers."),
         table(
           ["Name", "Type", "Purpose", "Lifetime"],
-          ["fable_auth", "Cookie", "Holds the signed console session so the dashboard can tell you are signed in. It is set when you sign in and is strictly necessary", "Until the session expires or you sign out"],
+          ["fable_auth", "Cookie", "Says which institution you are signed in to and when the session ends, so the dashboard can send a signed-out visitor to the login page. It holds no credential. It is set when you sign in and is strictly necessary", "Until the session expires or you sign out"],
           ["fable-cookie-consent", "Local storage", "Remembers whether you accepted or rejected cookies", "Until you clear it"],
           ["Console and demo state", "Local and session storage", "Your signed-in session, saved preferences and the demo's recent transfers, shown back to you", "Until you clear it or sign out"],
           ["Dismissed banners", "Local storage", "Remembers that you closed an announcement", "Until you clear it"],
