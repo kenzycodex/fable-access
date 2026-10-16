@@ -1,9 +1,7 @@
 import hashlib
 import logging
 import secrets
-import smtplib
 import time
-from email.message import EmailMessage
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel
@@ -140,15 +138,12 @@ class ForgotPasswordRequest(BaseModel):
     email: str
 
 def send_reset_email(email: str, token: str):
-    if not config.SMTP_USERNAME or not config.SMTP_PASSWORD:
+    from services import mailer
+
+    if not mailer.configured():
         logger.info("Skipping reset email: SMTP is not configured.")
         return
     reset_url = f"{config.FRONTEND_URL.rstrip('/')}/dashboard/reset-password?token={token}"
-    msg = EmailMessage()
-    msg['Subject'] = "Reset your Fable Dashboard Password"
-    msg['From'] = config.SMTP_FROM
-    msg['To'] = email
-    
     html_content = f"""
     <html>
       <body style="font-family: Arial, sans-serif; color: #333;">
@@ -160,16 +155,11 @@ def send_reset_email(email: str, token: str):
       </body>
     </html>
     """
-    msg.set_content("Please view this email in an HTML compatible client.")
-    msg.add_alternative(html_content, subtype='html')
-
-    try:
-        with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT) as server:
-            server.starttls()
-            server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
-            server.send_message(msg)
-    except Exception as e:
-        logger.warning("Failed to send reset email: %s", e)
+    mailer.send(
+        email, "Reset your Fable Dashboard Password",
+        f"Reset your Fable Dashboard password here: {reset_url}\n\nIf you did not request this, ignore this email.",
+        html=html_content,
+    )
 
 @router.post("/forgot-password")
 def forgot_password(req: ForgotPasswordRequest, bg_tasks: BackgroundTasks):

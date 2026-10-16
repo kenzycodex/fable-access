@@ -13,9 +13,7 @@ Roles:
 import logging
 import re
 import secrets
-import smtplib
 import time
-from email.message import EmailMessage
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -64,23 +62,14 @@ def _invite_link(token: str) -> str:
 
 
 def _send_invite(email: str, inviter: str, institution_name: str, role: str, link: str) -> None:
-    if not config.SMTP_USERNAME or not config.SMTP_PASSWORD:
-        return
-    msg = EmailMessage()
-    msg["Subject"] = f"You've been invited to {institution_name} on Fable"
-    msg["From"] = config.SMTP_FROM
-    msg["To"] = email
-    msg.set_content(
+    from services import mailer
+
+    # The invite still exists if this fails; the link can be re-sent.
+    mailer.send(
+        email, f"You've been invited to {institution_name} on Fable",
         f"{inviter} invited you to the {institution_name} console on Fable as {role}.\n\n"
-        f"Set your password to accept: {link}\n\nThis link expires in 7 days."
+        f"Set your password to accept: {link}\n\nThis link expires in 7 days.",
     )
-    try:
-        with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT, timeout=10) as server:
-            server.starttls()
-            server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
-            server.send_message(msg)
-    except Exception as exc:  # noqa: BLE001 - the invite still exists; the link can be re-sent
-        logger.warning("Failed to send invite email to %s: %s", email, exc)
 
 
 class InviteBody(BaseModel):

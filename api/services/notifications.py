@@ -16,10 +16,7 @@ send is recorded so the console can show that the customer was not reachable,
 which is itself worth knowing.
 """
 import logging
-import smtplib
-from email.message import EmailMessage
 
-from core import config
 from core.db import cursor
 
 logger = logging.getLogger("fable.notifications")
@@ -43,22 +40,9 @@ def record(user_id: str, institution_id: str | None, kind: str, title: str,
 
 
 def _send_email(to: str, subject: str, body: str) -> bool:
-    if not (config.SMTP_USERNAME and config.SMTP_PASSWORD):
-        return False
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = config.SMTP_FROM
-    msg["To"] = to
-    msg.set_content(body)
-    try:
-        with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT, timeout=10) as server:
-            server.starttls()
-            server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
-            server.send_message(msg)
-        return True
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Notification email to %s failed: %s", to, exc)
-        return False
+    from services import mailer
+
+    return mailer.send(to, subject, body)
 
 
 def notify_decision(user_id: str, institution_id: str | None, transaction_id: str,

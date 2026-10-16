@@ -8,9 +8,7 @@ invites its owner, who then sets everything else up in their own console.
 import logging
 import re
 import secrets
-import smtplib
 import time
-from email.message import EmailMessage
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -544,24 +542,15 @@ class NewOperator(BaseModel):
 
 
 def _send_operator_invite(email: str, inviter: str, link: str) -> None:
-    if not config.SMTP_USERNAME or not config.SMTP_PASSWORD:
-        return
-    msg = EmailMessage()
-    msg["Subject"] = "You've been invited to operate Fable"
-    msg["From"] = config.SMTP_FROM
-    msg["To"] = email
-    msg.set_content(
+    from services import mailer
+
+    # The invite stays valid if this fails; it can be re-sent.
+    mailer.send(
+        email, "You've been invited to operate Fable",
         f"{inviter} invited you to the Fable operator platform.\n\n"
         f"Set your password to accept: {link}\n\n"
-        "You will set up an authenticator app the first time you sign in. This link expires in 3 days."
+        "You will set up an authenticator app the first time you sign in. This link expires in 3 days.",
     )
-    try:
-        with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT, timeout=10) as server:
-            server.starttls()
-            server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
-            server.send_message(msg)
-    except Exception as exc:  # noqa: BLE001 - the invite stays valid; it can be re-sent
-        logger.warning("Failed to send operator invite to %s: %s", email, exc)
 
 
 def invite_operator(email: str, name: str | None, role: str, invited_by: str) -> tuple[str, str]:

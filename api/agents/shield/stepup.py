@@ -469,28 +469,14 @@ def _mask_email(email: str) -> str:
 
 
 def _deliver_otp_email(email: str, code: str) -> bool:
-    if not config.SMTP_USERNAME or not config.SMTP_PASSWORD:
-        return False
-    import smtplib
-    from email.message import EmailMessage
+    from services import mailer
 
-    msg = EmailMessage()
-    msg["Subject"] = f"Your Fable verification code: {code}"
-    msg["From"] = config.SMTP_FROM
-    msg["To"] = email
-    msg.set_content(
+    return mailer.send(
+        email, f"Your Fable verification code: {code}",
         f"Your verification code is {code}. It expires in 10 minutes.\n\n"
         "If you did not request this, someone may be trying to move money from your account. "
-        "Do not share this code with anyone, including staff."
+        "Do not share this code with anyone, including staff.",
     )
-    try:
-        with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT) as server:
-            server.starttls()
-            server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
-            server.send_message(msg)
-        return True
-    except Exception:
-        return False
 
 
 def verify_otp(user_id: str, challenge_id: str, code: str) -> dict:

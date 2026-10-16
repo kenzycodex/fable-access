@@ -24,12 +24,10 @@ import hashlib
 import json
 import logging
 import secrets as pysecrets
-import smtplib
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
-from email.message import EmailMessage
 
 from fastapi import HTTPException
 
@@ -118,24 +116,18 @@ def alert_owners(subject: str, body: str, exclude: str | None = None, path: str 
                  closing: str = "If you did not expect this, cancel it there and rotate the key.") -> None:
     """Email every platform owner. Best effort: a missing mail server never
     blocks the action, which is already in the audit trail."""
-    if not (config.SMTP_USERNAME and config.SMTP_PASSWORD):
+    from services import mailer
+
+    if not mailer.configured():
         return
     with cursor() as cur:
         cur.execute("SELECT email FROM operators WHERE role = 'platform_owner' AND active = 1")
         owners = [r["email"] for r in cur.fetchall() if r["email"] != exclude and not _reserved(r["email"])]
     for email in owners:
-        msg = EmailMessage()
-        msg["Subject"] = f"[Fable security] {subject}"
-        msg["From"] = config.SMTP_FROM
-        msg["To"] = email
-        msg.set_content(f"{body}\n\nReview it in the operator console: {config.FRONTEND_URL.rstrip('/')}{path}\n{closing}")
-        try:
-            with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT, timeout=10) as server:
-                server.starttls()
-                server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
-                server.send_message(msg)
-        except Exception as exc:  # noqa: BLE001
-            logging.getLogger("fable.secrets").warning("Could not email %s about a key change: %s", email, type(exc).__name__)
+        mailer.send(
+            email, f"[Fable security] {subject}",
+            f"{body}\n\nReview it in the operator console: {config.FRONTEND_URL.rstrip('/')}{path}\n{closing}",
+        )
 
 
 # ── Provider tests ───────────────────────────────────────────────────────────
