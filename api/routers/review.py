@@ -27,6 +27,8 @@ router = APIRouter(prefix="/v1/review", tags=["review"])
 
 STATES = ("open", "in_review", "escalated", "resolved")
 _STATE_SQL = "COALESCE(review_state, 'open')"
+_HOLD_STATUS_SQL = ("(SELECT g.status FROM ghost_containers g WHERE g.transaction_id = transactions.id "
+                    "ORDER BY g.created_at DESC LIMIT 1)")
 
 
 def _now() -> str:
@@ -82,9 +84,12 @@ def queue(
         total = cur.fetchone()["n"]
         # Escalated first, then the riskiest, then the newest: the order an
         # analyst should work them in.
+        # A customer waiting for the bank to verify them and release a hold
+        # comes first: their money is held until someone acts.
         cur.execute(
-            f"""SELECT {TXN_COLUMNS} FROM transactions {where}
-                ORDER BY CASE {_STATE_SQL} WHEN 'escalated' THEN 0 WHEN 'in_review' THEN 1
+            f"""SELECT {TXN_COLUMNS}, {_HOLD_STATUS_SQL} AS hold_status FROM transactions {where}
+                ORDER BY CASE WHEN {_HOLD_STATUS_SQL} = 'RELEASE_REQUESTED' THEN 0 ELSE 1 END,
+                         CASE {_STATE_SQL} WHEN 'escalated' THEN 0 WHEN 'in_review' THEN 1
                                            WHEN 'open' THEN 2 ELSE 3 END,
                          CASE WHEN {_STATE_SQL} = 'resolved' THEN reviewed_at END DESC,
                          risk_score DESC, created_at DESC
@@ -112,6 +117,9 @@ def counts(request: Request):
             (institution,),
         )
         by_outcome = {r["o"]: r["n"] for r in cur.fetchall()}
+        cur.execute("SELECT COUNT(*) AS n FROM ghost_containers WHERE institution_id = ? "
+                    "AND status = 'RELEASE_REQUESTED'", (institution,))
+        release_requested = cur.fetchone()["n"]
     active = sum(n for s, n in by_state.items() if s != "resolved")
     return {
         "open": by_state.get("open", 0),
@@ -121,6 +129,7 @@ def counts(request: Request):
         "active": active,
         "confirmed_fraud": by_outcome.get("fraud", 0),
         "confirmed_legitimate": by_outcome.get("legitimate", 0),
+        "release_requested": release_requested,
     }
 
 
@@ -384,10 +393,14 @@ def cancel_hold(txid: str, body: HoldActionBody, request: Request):
 @router.post("/{txid}/hold/release")
 def release_hold(txid: str, body: HoldActionBody, request: Request):
     """Release a held transfer after the bank confirmed it with the customer by
-    its own means. Owners only, with a note; audited under the owner's name."""
+    its own means. Owners, or analysts where the bank's policy allows it
+    (analysts_can_release). Always with a note, audited under the person's name."""
     from agents.ghost.account import HoldError, staff_resolve
+    from services.policy import effective
 
-    who = require_role(request, "owner")
+    who = require_role(request, "analyst")
+    if who["role"] != "owner" and not (who["role"] == "analyst" and effective(who["inst"]).get("analysts_can_release")):
+        raise HTTPException(status_code=403, detail="Only an owner can release a held transfer at this bank.")
     row = _case_hold(who["inst"], txid)
     try:
         return staff_resolve(row["ghost_id"], who["inst"], "release", who["email"], body.note)

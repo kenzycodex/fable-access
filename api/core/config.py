@@ -147,6 +147,12 @@ CONTACT_SETTLE_HOURS = _env_int("FABLE_CONTACT_SETTLE_HOURS", 24)
 # hold still never releases it.
 SANDBOX_CONTACT_SETTLE_MINUTES = _env_int("FABLE_SANDBOX_CONTACT_SETTLE_MINUTES", 0, minimum=0)
 
+# Ghost: how far back an older client's /v1/ghost/create (no transaction_id) is
+# matched to the customer's own recent block, and how long a hold waits once
+# the customer has asked their bank to verify them and release it.
+GHOST_LEGACY_MATCH_MINUTES = _env_int("GHOST_LEGACY_MATCH_MINUTES", 60)
+GHOST_RELEASE_REQUEST_HOURS = _env_int("GHOST_RELEASE_REQUEST_HOURS", 24)
+
 # --- KYC / liveness provider ---
 # Unset here. With no provider the identity_check tier resolves to the
 # strongest combination actually available (passkey + PIN + emailed code)

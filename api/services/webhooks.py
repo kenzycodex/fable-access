@@ -47,6 +47,7 @@ EVENTS = (
     "containment.released",
     "containment.cancelled",
     "containment.expired",
+    "containment.release_requested",
     # Kept for endpoints subscribed before the three events above existed;
     # still sent alongside them, with an "outcome" field.
     "containment.resolved",

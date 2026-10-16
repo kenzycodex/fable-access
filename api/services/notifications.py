@@ -207,3 +207,21 @@ def notify_hold_ended(user_id: str, institution_id: str | None, ghost_id: str, a
     delivered = _send_email(email, title, body) if email else True
     record(user_id, institution_id, "containment", title, body, reference=ghost_id,
            channel="email" if email else "in_app", delivered=delivered)
+
+
+def notify_release_requested(user_id: str, institution_id: str | None, ghost_id: str, amount: float,
+                             hours: int) -> None:
+    """Confirm to the customer that their bank has been asked to verify them."""
+    from core import security
+
+    title = "We've asked your bank to verify you"
+    body = (
+        f"You asked your bank to release the NGN {amount:,.0f} transfer we are holding. Someone from the bank "
+        f"may contact you on the number they have on file. The money stays held for up to {hours} hours and "
+        "is returned to you if nobody releases it.\n\n"
+        "Nobody from your bank or from Fable will ever ask you for your PIN or a one-time code."
+    )
+    email = security.get_contact(user_id).get("email")
+    delivered = _send_email(email, title, body) if email else True
+    record(user_id, institution_id, "containment", title, body, reference=ghost_id,
+           channel="email" if email else "in_app", delivered=delivered)

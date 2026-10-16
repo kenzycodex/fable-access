@@ -11,9 +11,11 @@ values decide how long the hold lasts and how strong the release proof must
 be, so a caller who could set them could shorten the window and weaken the
 check.
 
-States: HELD, then exactly one of RELEASED, CANCELLED or EXPIRED. Every move is
-a single guarded UPDATE, so of two racing actions exactly one wins, and every
-move is audited, sent as a webhook and told to the customer.
+States: HELD, optionally RELEASE_REQUESTED (the customer cannot produce the
+proof a release needs and has asked their bank to verify them instead), then
+exactly one of RELEASED, CANCELLED or EXPIRED. Every move is a single guarded
+UPDATE, so of two racing actions exactly one wins, and every move is audited,
+sent as a webhook and told to the customer.
 
 Where the money is: in the sandbox, Fable's simulated ledger reserves the
 amount while it is held and debits it only on release. A live bank keeps the
@@ -31,6 +33,15 @@ from core.secrets import setting
 logger = logging.getLogger("fable.ghost")
 
 HELD, RELEASED, CANCELLED, EXPIRED = "HELD", "RELEASED", "CANCELLED", "EXPIRED"
+RELEASE_REQUESTED = "RELEASE_REQUESTED"
+# Still holding the money.
+ACTIVE = (HELD, RELEASE_REQUESTED)
+_ACTIVE_SQL = "('HELD', 'RELEASE_REQUESTED')"
+
+# A hold that expired longer ago than this (because the API was down when its
+# window closed) is expired quietly: an alert about a transfer from hours ago
+# helps nobody and alarms the customer.
+ANNOUNCE_EXPIRY_WITHIN = timedelta(hours=1)
 
 
 class HoldError(ValueError):
@@ -145,10 +156,12 @@ def _decision(transaction_id: str, user_id: str, institution_id: str) -> dict | 
 
 
 def find_decision(user_id: str, institution_id: str, amount: float, recipient_account: str | None,
-                  within_minutes: int = 60) -> str | None:
+                  within_minutes: int | None = None) -> str | None:
     """The stored decision an older client means when it opens a hold without
     naming one: this customer's latest unresolved block (or flag) for the same
-    amount and recipient, made recently."""
+    amount and recipient, made recently (GHOST_LEGACY_MATCH_MINUTES)."""
+    if within_minutes is None:
+        within_minutes = int(setting("GHOST_LEGACY_MATCH_MINUTES"))
     with cursor() as cur:
         cur.execute(
             """SELECT id FROM transactions
@@ -226,7 +239,7 @@ def get_ghost_container(ghost_id: str) -> dict | None:
     with cursor() as cur:
         cur.execute("SELECT * FROM ghost_containers WHERE ghost_id = ?", (ghost_id,))
         row = row_to_dict(cur.fetchone())
-    if row and row["status"] == HELD and has_expired(row):
+    if row and row["status"] in ACTIVE and has_expired(row):
         expire_hold(ghost_id)
         with cursor() as cur:
             cur.execute("SELECT * FROM ghost_containers WHERE ghost_id = ?", (ghost_id,))
@@ -260,7 +273,7 @@ def _resolve(ghost_id: str, status: str, by: str, note: str | None = None, only_
     with cursor() as cur:
         cur.execute(
             "UPDATE ghost_containers SET status = ?, resolved_at = ?, resolved_by = ?, resolution_note = ? "
-            f"WHERE ghost_id = ? AND status = 'HELD'{expiry}",
+            f"WHERE ghost_id = ? AND status IN {_ACTIVE_SQL}{expiry}",
             (status, _now().isoformat(), by, (note or "")[:500] or None, ghost_id),
         )
         return cur.rowcount > 0
@@ -270,9 +283,10 @@ _TXN_STATUS = {RELEASED: "released", CANCELLED: "cancelled", EXPIRED: "expired"}
 _EVENT = {RELEASED: "containment.released", CANCELLED: "containment.cancelled", EXPIRED: "containment.expired"}
 
 
-def _settled(container: dict, status: str, by: str, note: str | None = None) -> None:
+def _settled(container: dict, status: str, by: str, note: str | None = None, announce: bool = True) -> None:
     """Everything that follows a hold ending: the transfer's status, the audit
-    trail, the bank's webhook and the customer's notification."""
+    trail, the bank's webhook and the customer's notification. With announce
+    off (a long-stale expiry) only the status and the audit row are written."""
     from services import audit, notifications, webhooks
 
     txid = container.get("transaction_id")
@@ -285,7 +299,10 @@ def _settled(container: dict, status: str, by: str, note: str | None = None) -> 
     event = {RELEASED: audit.CONTAINMENT_RELEASED, CANCELLED: audit.CONTAINMENT_CANCELLED,
              EXPIRED: audit.CONTAINMENT_EXPIRED}[status]
     audit.record(event, container.get("user_id"), ghost_id=container.get("ghost_id"), transaction_id=txid,
-                 amount=container.get("amount"), by=by, note=note, institution_id=container.get("institution_id"))
+                 amount=container.get("amount"), by=by, note=note, institution_id=container.get("institution_id"),
+                 announced=announce)
+    if not announce:
+        return
     data = {
         "ghost_id": container.get("ghost_id"),
         "transaction_id": txid,
@@ -307,13 +324,24 @@ def _settled(container: dict, status: str, by: str, note: str | None = None) -> 
 def expire_hold(ghost_id: str) -> bool:
     """End a hold whose window has closed. The money stays with the customer:
     if they never came back to confirm, the safe reading of their silence is
-    that they did not want the transfer."""
+    that they did not want the transfer.
+
+    A hold whose window closed more than ANNOUNCE_EXPIRY_WITHIN ago (the API was
+    down) is expired quietly: state and audit only, no webhook or alert."""
     with cursor() as cur:
         cur.execute("SELECT * FROM ghost_containers WHERE ghost_id = ?", (ghost_id,))
         container = row_to_dict(cur.fetchone())
     if not container or not _resolve(ghost_id, EXPIRED, "expiry", only_if_expired=True):
         return False
-    _settled(container, EXPIRED, "expiry")
+    expired_at = None
+    try:
+        expired_at = datetime.fromisoformat(str(container.get("expires_at")).replace(" ", "T"))
+        if expired_at.tzinfo is None:
+            expired_at = expired_at.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        pass
+    announce = expired_at is None or _now() - expired_at <= ANNOUNCE_EXPIRY_WITHIN
+    _settled(container, EXPIRED, "expiry", announce=announce)
     return True
 
 
@@ -322,11 +350,63 @@ def sweep_expired() -> int:
     scheduler every half minute and once at startup."""
     with cursor() as cur:
         cur.execute(
-            "SELECT ghost_id FROM ghost_containers WHERE status = 'HELD' AND expires_at IS NOT NULL "
+            f"SELECT ghost_id FROM ghost_containers WHERE status IN {_ACTIVE_SQL} AND expires_at IS NOT NULL "
             "AND datetime(expires_at) <= datetime('now') LIMIT 500"
         )
         ids = [r["ghost_id"] for r in cur.fetchall()]
     return sum(1 for gid in ids if expire_hold(gid))
+
+
+def request_release(ghost_id: str, user_id: str) -> dict:
+    """The customer cannot produce the proof a release needs, and asks their
+    bank to verify them another way (a call to the number on file, a branch).
+
+    The hold stays in place, its window is extended so staff have time to act
+    (GHOST_RELEASE_REQUEST_HOURS), and the case reopens in the console review
+    queue. Only bank staff can then release it, with a note.
+    """
+    container = get_ghost_container(ghost_id)
+    if not container:
+        raise HoldError("Hold not found.", status=404, code="not_found")
+    if container["user_id"] != user_id:
+        raise HoldError("Hold not found.", status=404, code="not_found")
+    if container["status"] == RELEASE_REQUESTED:
+        return container
+    if container["status"] != HELD:
+        raise HoldError(f"This hold has already ended: {container['status'].lower()}.", code="resolved")
+    hours = int(setting("GHOST_RELEASE_REQUEST_HOURS"))
+    until = (_now() + timedelta(hours=hours)).isoformat()
+    with cursor() as cur:
+        cur.execute(
+            "UPDATE ghost_containers SET status = 'RELEASE_REQUESTED', "
+            "expires_at = CASE WHEN datetime(expires_at) > datetime(?) THEN expires_at ELSE ? END "
+            "WHERE ghost_id = ? AND status = 'HELD'",
+            (until, until, ghost_id),
+        )
+        moved = cur.rowcount > 0
+        if moved and container.get("transaction_id"):
+            # Back to the top of the bank's review queue.
+            cur.execute("UPDATE transactions SET review_state = 'open', review_outcome = NULL WHERE id = ?",
+                        (container["transaction_id"],))
+    if not moved:
+        current = (get_ghost_container(ghost_id) or {}).get("status")
+        raise HoldError(f"This hold has already ended: {str(current).lower()}.", code="resolved")
+
+    from services import audit, notifications, webhooks
+
+    audit.record(audit.CONTAINMENT_RELEASE_REQUESTED, user_id, ghost_id=ghost_id,
+                 transaction_id=container.get("transaction_id"), amount=container.get("amount"),
+                 institution_id=container.get("institution_id"))
+    webhooks.emit(container.get("institution_id"), "containment.release_requested", {
+        "ghost_id": ghost_id, "transaction_id": container.get("transaction_id"), "user_id": user_id,
+        "amount": container.get("amount"), "expires_at": until,
+    })
+    try:
+        notifications.notify_release_requested(user_id, container.get("institution_id"), ghost_id,
+                                               container.get("amount") or 0, hours)
+    except Exception as exc:  # noqa: BLE001 - a notification must never undo the request
+        logger.warning("Could not notify the customer about release request %s: %s", ghost_id, exc)
+    return get_ghost_container(ghost_id) or {}
 
 
 def cancel_ghost(ghost_id: str, user_id: str, by: str = "customer", note: str | None = None) -> dict:
@@ -391,7 +471,7 @@ def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) 
         raise PermissionError("Unauthorized")
     if container["status"] == EXPIRED:
         raise ExpiredContainer("This hold has expired, so the money stayed with you. Start the transfer again.")
-    if container["status"] != HELD:
+    if container["status"] not in ACTIVE:
         raise ValueError(f"Container already resolved: {container['status']}")
     if has_expired(container):
         raise ExpiredContainer("This hold has expired. Start the transfer again.")
@@ -448,8 +528,9 @@ def staff_resolve(ghost_id: str, institution_id: str, action: str, actor: str, n
 
     Cancelling returns the money and is always allowed. Releasing sends it and
     is for when the bank has confirmed with the customer by its own means (a
-    call to the number on file, a visit to a branch); it needs an owner and a
-    written note, and is audited under the staff member's name.
+    call to the number on file, a visit to a branch); it needs an owner (or an
+    analyst, where the bank's policy allows) and a written note, and is audited
+    under the staff member's name. The router checks the role.
     """
     container = get_ghost_container(ghost_id)
     if not container or container.get("institution_id") != institution_id:
@@ -458,7 +539,7 @@ def staff_resolve(ghost_id: str, institution_id: str, action: str, actor: str, n
     if action == "release" and len(note) < 10:
         raise HoldError("Say how the customer confirmed this transfer (at least 10 characters).", status=422,
                         code="note_required")
-    if container["status"] != HELD:
+    if container["status"] not in ACTIVE:
         raise HoldError(f"This hold has already ended: {container['status'].lower()}.", code="resolved")
     status = RELEASED if action == "release" else CANCELLED
     if not _resolve(ghost_id, status, f"staff:{actor}", note):

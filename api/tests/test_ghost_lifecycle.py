@@ -391,3 +391,91 @@ def test_health_reports_the_background_work(client):
     for key in ("database", "scheduler", "webhook_outbox", "explainer", "warnings"):
         assert key in body
     assert body["database"]["healthy"] is True
+
+
+# ── Asking the bank to release ───────────────────────────────────────────────
+
+def test_a_customer_without_the_factors_can_ask_the_bank_to_release(client, posts):
+    from core.db import cursor
+
+    user = _customer("ask-bank")
+    hold = _hold(client, user, signals=["device_anomaly: new", "location_anomaly: new"])
+    req = client.post("/v1/stepup/requirement", headers=_session(), json={
+        "user_id": user, "purpose": "ghost_release", "reference": hold["ghost_id"]}).json()
+    assert req["steps"] is None and req["can_request_release"] is True
+
+    res = client.post(f"/v1/ghost/{hold['ghost_id']}/request-release", headers=_session(), json={"user_id": user})
+    assert res.status_code == 200, res.text
+    assert res.json()["status"] == "RELEASE_REQUESTED"
+    # The window is extended so staff have time to verify the customer.
+    assert res.json()["expires_at"] > hold["expires_at"]
+    with cursor() as cur:
+        cur.execute("SELECT review_state FROM transactions WHERE id = ?", (hold["transaction_id"],))
+        assert cur.fetchone()["review_state"] == "open"
+    _drain()
+    assert any(p["type"] == "containment.release_requested" for p in posts)
+
+    analyst = _session(BANK, f"analyst@{BANK}.ng")
+    queue = client.get("/v1/review/queue?state=active", headers=analyst).json()["cases"]
+    assert queue[0]["id"] == hold["transaction_id"] and queue[0]["hold_status"] == "RELEASE_REQUESTED"
+    assert client.get("/v1/review/counts", headers=analyst).json()["release_requested"] >= 1
+
+    owner = _session(BANK, f"owner@{BANK}.ng")
+    done = client.post(f"/v1/review/{hold['transaction_id']}/hold/release", headers=owner,
+                       json={"note": "Called the customer on the number on file; confirmed."})
+    assert done.status_code == 200 and done.json()["status"] == "RELEASED"
+
+
+def test_analysts_release_only_where_the_bank_allows_it(client):
+    from services import policy
+
+    analyst = _session(BANK, f"analyst@{BANK}.ng")
+    user = _customer("analyst-release")
+    hold = _hold(client, user)
+    path = f"/v1/review/{hold['transaction_id']}/hold/release"
+    note = {"note": "Customer confirmed at the branch with ID"}
+    assert client.post(path, headers=analyst, json=note).status_code == 403
+    policy.update(BANK, {"analysts_can_release": True}, "test")
+    try:
+        assert client.post(path, headers=analyst, json=note).json()["status"] == "RELEASED"
+    finally:
+        policy.update(BANK, {"analysts_can_release": False}, "test")
+
+
+def test_a_long_stale_hold_expires_quietly(client, posts):
+    from agents.ghost.account import sweep_expired
+    from core.db import cursor
+
+    user = _customer("stale")
+    recent, stale = _hold(client, user), _hold(client, user)
+    _age(recent["ghost_id"], minutes=10)
+    _age(stale["ghost_id"], minutes=180)
+    sweep_expired()
+    _drain()
+    ids = {p["data"].get("ghost_id") for p in posts if p["type"] == "containment.expired"}
+    assert recent["ghost_id"] in ids and stale["ghost_id"] not in ids
+    with cursor() as cur:
+        cur.execute("SELECT status FROM ghost_containers WHERE ghost_id = ?", (stale["ghost_id"],))
+        assert cur.fetchone()["status"] == "EXPIRED"
+        cur.execute("SELECT COUNT(*) AS n FROM notifications WHERE reference = ? AND title LIKE '%not sent%'",
+                    (stale["ghost_id"],))
+        assert cur.fetchone()["n"] == 0
+        cur.execute("SELECT COUNT(*) AS n FROM audit_log WHERE event_type = 'containment.expired' "
+                    "AND payload LIKE ?", (f"%{stale['ghost_id']}%",))
+        assert cur.fetchone()["n"] == 1
+
+
+def test_the_legacy_match_window_is_a_setting(client, monkeypatch):
+    from core import config
+    from core.db import cursor
+
+    user = _customer("match-window")
+    txid = _decision(user, amount=77_000)
+    old = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    with cursor() as cur:
+        cur.execute("UPDATE transactions SET created_at = ? WHERE id = ?", (old, txid))
+    body = {"user_id": user, "transaction": {"amount": 77_000, "recipient_account": "0123456789"}}
+    monkeypatch.setattr(config, "GHOST_LEGACY_MATCH_MINUTES", 10)
+    assert client.post("/v1/ghost/create", headers=_session(), json=body).status_code == 422
+    monkeypatch.setattr(config, "GHOST_LEGACY_MATCH_MINUTES", 60)
+    assert client.post("/v1/ghost/create", headers=_session(), json=body).json()["transaction_id"] == txid

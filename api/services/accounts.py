@@ -89,7 +89,7 @@ def held_amount(user_id: str) -> float:
     with cursor() as cur:
         cur.execute(
             "SELECT COALESCE(SUM(amount), 0) AS held FROM ghost_containers "
-            "WHERE user_id = ? AND status = 'HELD' "
+            "WHERE user_id = ? AND status IN ('HELD', 'RELEASE_REQUESTED') "
             "  AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))",
             (user_id,),
         )

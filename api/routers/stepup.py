@@ -188,6 +188,9 @@ def requirement(payload: RequirementRequest, request: Request):
         "level": level,
         **info,
         "source": source,
+        # Nothing the customer has reaches the level. For a hold they can then
+        # cancel, or ask their bank to verify them another way and release it.
+        "can_request_release": steps is None and payload.purpose == "ghost_release",
         # The factors to collect, in order, worked out from what this customer
         # actually has. Empty when nothing is needed; null when no combination
         # they have reaches the tier, in which case only cancelling is open.

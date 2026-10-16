@@ -815,6 +815,9 @@ MIGRATIONS = {
         # 1 lets a customer route a flagged transfer into a hold as well as a
         # blocked one (services/policy.py). NULL or 0: blocks only.
         "hold_on_flag": "INTEGER",
+        # 1 lets analysts (not only owners) release a held transfer from the
+        # console, with a note. NULL or 0: owners only.
+        "analysts_can_release": "INTEGER",
     },
     "stepup_tokens": {
         # Which factors the token proves, and when each was enrolled (JSON), so

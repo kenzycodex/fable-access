@@ -19,6 +19,7 @@ from agents.ghost.account import (
     get_ghost_container,
     open_hold,
     release_ghost,
+    request_release,
 )
 from core.tenancy import customer_guard, disabled_agents
 from models.schemas import GhostActionRequest, GhostCreateRequest
@@ -103,6 +104,17 @@ def cancel(ghost_id: str, payload: GhostActionRequest):
         raise HTTPException(status_code=409, detail=str(e))
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
+
+
+@router.post("/{ghost_id}/request-release")
+def ask_bank_to_release(ghost_id: str, payload: GhostActionRequest):
+    """The customer cannot produce the proof a release needs (for example they
+    have no passkey) and asks their bank to verify them another way. The hold
+    stays, its window is extended, and it goes to the bank's review queue."""
+    try:
+        return request_release(ghost_id, payload.user_id)
+    except HoldError as exc:
+        raise HTTPException(status_code=exc.status, detail={"error": exc.code, "message": str(exc)})
 
 
 @router.post("/{ghost_id}/confirm")

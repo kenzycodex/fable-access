@@ -32,6 +32,27 @@ IDENTITY_SIGNALS = ("device_anomaly", "location_anomaly", "timezone_mismatch")
 IDENTITY_SIGNAL_ESCALATION = 2
 
 
+# The factors a customer can prove, and whether each exists today. A new one
+# (a provider's face match, say) is added here and to level_for_factors; the
+# tokens, the composed check and the release rules carry any factor name.
+FACTORS = {
+    "pin": {"label": "Transaction PIN", "status": "live"},
+    "passkey": {"label": "Device unlock (passkey)", "status": "live"},
+    # A one-time code by email, or by SMS where a provider is configured. The
+    # channel does not change its weight; an SMS code alone never reaches the
+    # top tier, because the top tier also needs a passkey and a PIN.
+    "otp": {"label": "One-time code (email or SMS)", "status": "live"},
+    # Planned: a liveness or face-match check through a KYC provider (Smile ID,
+    # Youverify, Dojah, Prembly). Not built. Nothing can produce this factor
+    # today, so no level can be reached with it.
+    "liveness": {"label": "Face and liveness check", "status": "planned"},
+}
+
+
+def factor_available(name: str) -> bool:
+    return FACTORS.get(name, {}).get("status") == "live"
+
+
 # A one-time code on its own is one factor, the same weight as a PIN. It is
 # named for what it is rather than recorded as "pin", so a token always says
 # which factor was actually proved.
@@ -61,8 +82,13 @@ def level_for_factors(factors: set[str] | list[str], has_passkey: bool) -> str:
       passkey (+ PIN)       passkey
       PIN or code alone     pin
     """
-    have = set(factors)
+    have = {f for f in factors if factor_available(f)}
     if {"passkey", "otp", "pin"} <= have:
+        return "identity_check"
+    # When a liveness provider exists: a face match plus a device factor will
+    # reach the top tier as well. "liveness" is never available yet, so this
+    # line cannot fire.
+    if {"liveness", "passkey"} <= have:
         return "identity_check"
     if {"passkey", "otp"} <= have:
         return "passkey_and_otp"
@@ -170,7 +196,8 @@ def describe(level: str) -> dict:
             # Fable has no liveness or ID-document check. This tier is every
             # factor the customer has, verified together, and says so.
             "label": "Full verification",
-            "detail": "Confirm on this device, enter your PIN, then enter the code sent to your registered email.",
+            "detail": ("Confirm on this device, enter your PIN, then enter the one-time code we send you. "
+                       "This combines the security you already set up. It is not a face or ID check."),
             "factors": ["passkey", "pin", "otp"],
         },
     }.get(level, {"label": level, "detail": "", "factors": []})
