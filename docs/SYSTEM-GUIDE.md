@@ -34,9 +34,9 @@ Two runtimes back them:
 - **FastAPI** (`api/`) — the intelligence layer: Shield, Copilot, Ghost, the
   dashboard aggregations, provisioning, and auth. SQLite (`api/fable.db`).
 
-The frontend degrades gracefully: if the FastAPI service is down, the demo falls
-back to a local scoring engine (`src/lib/fable/scoring.ts`) so it never breaks
-mid-pitch. The dashboard shows an offline notice instead of blank panels.
+Every decision is made by the FastAPI service. If it is down, the sandbox app
+says so and sends nothing (it never invents a verdict on the device), and the
+dashboard shows an offline notice instead of blank panels.
 
 ---
 
@@ -107,7 +107,7 @@ This is the core loop. Every numbered step is real, not simulated.
    └─ everything collected is bundled and POSTed to /v1/shield/analyze
       along with user_id (the picked customer) and institution_id
 
-5. Shield scores it through 12 signal layers (see §5)
+5. Shield scores it against the customer's baseline (see §5)
    └─ writes the transaction, tagged with institution_id, plus the device
       profile and location trail
 
@@ -116,8 +116,11 @@ This is the core loop. Every numbered step is real, not simulated.
    FLAG  → user is asked to confirm
    BLOCK → user can override into Ghost
 
-7. Ghost (if used) holds the money in a cooling window sized by risk
-   (30 min high / 15 med / 5 low). Cancel = money back. Confirm = released.
+7. Ghost (if used) holds the transfer in a cooling window sized by risk
+   (15 min high / 10 med / 5 low by default, set per institution). Cancel =
+   the money stays. Release = sent, with stronger proof. Nobody acts = it
+   expires and the money stays. Live, the bank keeps the funds during the hold
+   and acts on the containment.* webhooks.
 
 8. The bank's dashboard shows it within ~4 seconds (SWR polling),
    and ONLY that bank's dashboard.
@@ -290,15 +293,18 @@ again, an owner can reset the sandbox under **Settings > Data**.
   required under the NDPA 2023 and GAID 2025 has to cover.
 - **Paystack's IP allowlist rotates.** Dynamic ISP addresses change, so
   `/api/paystack-status` exists to diagnose it in one call.
-- **Ghost is simulated containment.** It models the cooling window in SQLite;
-  production would wire it to a real Open Banking holds endpoint.
+- **Ghost does not hold money itself.** It keeps the hold's state and tells
+  the bank, by webhook, when to send or return the funds. In the sandbox the
+  sandbox ledger stands in for the bank; live, the bank's core banking system
+  keeps the funds during the hold.
 - **API keys are shown once.** Only a SHA-256 hash of each key is stored, with
   its first and last characters for display, so a copy of the database holds no
   usable key. The full key appears once, when it is issued (provisioning email or
   rotation). A lost key is replaced by rotating it in Settings.
 - **Analyst actions label, they do not move money.** Resolving a case as
   legitimate does not release a blocked transfer. Money moves only through the
-  customer's own verification or a Ghost release.
+  customer's own verification, a Ghost release, or a staff release of a hold
+  the customer asked the bank to release.
 - **There is no cross-institution intelligence.** Each institution's data is
   strictly its own. Sharing hashed signals between banks is on the roadmap, not
   built.
@@ -318,8 +324,8 @@ containment hold: *who must prove they are here, and with what?*
 Ghost's release path checked only that the caller claimed to be the account
 holder — and the client supplies that id about itself. So containment was
 defeated by the exact session compromise that triggered it: an attacker holding
-the tab could press "release" and Fable would hand over the money, with all
-twelve behavioural layers having correctly fired.
+the tab could press "release" and Fable would hand over the money, with every
+behavioural signal having correctly fired.
 
 **Releasing now costs proof. Cancelling stays free**, because returning money is
 always safe.
@@ -332,7 +338,7 @@ prompt too. Only two kinds of factor cost an attacker anything:
 | Kind | Example | Why it holds |
 |---|---|---|
 | **Device-bound** | Passkey / platform biometric | Private key is generated in the secure element and never leaves it. Holding the session ≠ holding the key. |
-| **Out-of-band** | Code to the registered address | Arrives on a channel the session doesn't control. |
+| **Out-of-band** | Code to the confirmed email or phone | Arrives on a channel the session doesn't control. |
 
 ### The tiers, and the escalation rule
 
@@ -350,11 +356,17 @@ already has. Release is always at least one tier above the transfer itself.
 
 - **Passkeys** — genuine WebAuthn, signatures verified with `py_webauthn`. Real
   Face ID / Touch ID / Windows Hello.
-- **Email OTP** — real, over the configured SMTP. Codes are stored hashed and
-  compared in constant time.
-- **Face / liveness** — deliberately **not** implemented. Returns `501` with the
-  provider contract (Smile ID / Dojah / Prembly). Faking it would make the
-  strongest tier the least trustworthy.
+- **One-time codes** — real, by email over the configured SMTP, or by SMS
+  through Termii or Africa's Talking when configured. A phone is used only
+  once the customer confirms it. Codes are stored hashed and compared in
+  constant time. Sandbox codes go to the sandbox inbox, never to a real address.
+- **The top tier** (`identity_check`) is passkey, code and PIN together, while
+  there is no liveness provider.
+- **Face / liveness** — planned, **not** implemented. Returns `501` with the
+  provider contract (Smile ID / Youverify / Dojah / Prembly). Faking it would
+  make the strongest tier the least trustworthy.
+- **Only factors set up before the decision count**, so someone who has just
+  taken over an account cannot add their own device and release a hold.
 
 Challenges and tokens are single-use, expiring, and bound to a user, a purpose
 and a reference — proof minted for a small transfer cannot be replayed against
@@ -364,7 +376,8 @@ tokens are all refused.
 ### The feedback loop
 
 `previous_failed_attempts` had sat unused in the schema since it was added.
-Failed factor attempts are now recorded and read back as scoring signal #13 —
+Failed factor attempts are now recorded and read back as the
+`failed_verification` scoring signal —
 three failed biometrics before a large transfer is about the clearest evidence
 available.
 
