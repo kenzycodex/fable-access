@@ -77,11 +77,13 @@ class Context(BaseModel):
     country: Optional[str] = None
     country_code: Optional[str] = None
     location_source: Optional[str] = None  # "gps" | "ip" | "unavailable"
-    # Behavioral biometrics
+    # Behavioural signals. Paste and time to submit are scored; typing speed is
+    # stored as context for analysts and not scored.
     typing_speed_ms: Optional[float] = None
-    keypress_count: Optional[int] = None
     paste_detected: Optional[bool] = None
     pasted_fields: Optional[list[str]] = None
+    # Accepted from older clients and ignored: never stored or scored.
+    keypress_count: Optional[int] = None
     pointer_avg_velocity: Optional[float] = None
     scroll_direction_changes: Optional[int] = None
     time_to_first_input_seconds: Optional[float] = None
