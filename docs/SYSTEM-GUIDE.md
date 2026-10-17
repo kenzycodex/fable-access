@@ -128,32 +128,46 @@ This is the core loop. Every numbered step is real, not simulated.
 
 ---
 
-## 5. Shield's 14 signal layers
+## 5. Shield's signals
 
 Signals are additive. The default cutoffs are `FLAG` at 0.50 and `BLOCK` at 0.80,
 adjusted per channel (see the scoring doc), and an institution can move them in
 Settings, Risk policy.
 
-| # | Signal | Fires when | Max |
+| # | Signal | Fires when | Max (default) |
 |---|---|---|---|
-| 1 | `amount_anomaly` | Amount far above the customer's own average | 0.40 |
-| 2 | `new_recipient` | First transfer to this account | 0.20 |
-| 3 | `time_anomaly` | Outside typical hours (**device clock**, not server UTC) | 0.12 |
-| 4 | `channel_risk` | NIBSS channel weights (USSD highest) | 0.25 |
-| 5 | `nip_code` | NIBSS instant-payment risk codes (34 = auto-block) | 0.95 |
-| 6 | `scam_pattern` | Narration matches a scam script — **halved on purpose** | 0.25 |
-| 7 | `ml_anomaly` | Isolation Forest deviation from own history | 0.15 |
-| 8 | `device_anomaly` | Unrecognised fingerprint (scales with amount) | 0.18 |
-| 9 | `location_anomaly` | New city, or outside home country | 0.22 |
-| 10 | `session_freshness` | Large transfer within 30s of login | 0.12 |
-| 11 | `behavioral_anomaly` | Pasted account number + near-zero hesitation | 0.15 |
-| 12 | `timezone_mismatch` | Device timezone ≠ usual timezone | 0.08 |
-| 13 | `failed_verification` | Recent failed identity checks | 0.25 |
-| 14 | `velocity` | A burst of transfers in a short window | 0.20 |
+| 1 | `amount_anomaly` | Far above the customer's own normal, in tiers from 3x to 50x | 0.40 |
+| 2 | `cold_start` | Fewer than three past transfers: judged against the institution's customers as a whole | 0.15 |
+| 3 | `first_transfer_amount` | No history to compare: the amount itself, in tiers from NGN 100k to NGN 20m | 0.45 |
+| 4 | `new_recipient` | First transfer to this account | 0.20 |
+| 5 | `time_anomaly` | Outside typical hours, on the **device clock** | 0.12 |
+| 6 | `channel_risk` | Channel weights from NIBSS fraud data (internet banking highest, branch lowest) | 0.22 |
+| 7 | `nip_code` | NIBSS risk codes from the bank's rail; code 34 always blocks | 0.95 |
+| 8 | `scam_pattern` | Narration matches a scam script (halved on purpose) | 0.25 |
+| 9 | `ml_anomaly` | The amount and hour together sit far from the customer's own past transfers | 0.10 |
+| 10 | `device_anomaly` | Unrecognised device fingerprint, more for a large transfer | 0.18 |
+| 11 | `location_anomaly` | New city, or outside home country | 0.22 |
+| 12 | `session_freshness` | Large transfer seconds after sign-in | 0.12 |
+| 13 | `behavioral_anomaly` | Pasted account number and near-zero hesitation on a large amount | 0.15 |
+| 14 | `timezone_mismatch` | Device timezone differs from usual | 0.08 |
+| 15 | `failed_verification` | Recent failed PIN, passkey or code attempts | 0.25 |
+| 16 | `velocity` | Several live transfers in a few minutes | 0.20 |
 
-**Why narration is deliberately weak (layer 6):** most people leave it blank.
-Basing fraud detection on it would be theatre. It contributes when present, but
-layers 8–12 carry the weight because the customer cannot opt out of them.
+A long, confirmed-clean record then subtracts a small `tenure` discount (at most
+0.08 by default).
+
+Weights live in governed engine versions. Fable operators change them on the
+operator platform's Engine page: a change is drafted, backtested against past
+decisions, approved by a second person (or after a cooling-off period when
+there is only one owner), can run in shadow, and is then promoted. Every
+decision records the version that made it. A value set in the server
+environment (`FABLE_W_*`) still overrides the version, and the Engine page says
+so.
+
+**Why narration is deliberately weak (`scam_pattern`):** most people leave it
+blank. Basing fraud detection on it would be theatre. It contributes when
+present, but the device, location, session and behaviour signals carry the
+weight because the customer cannot opt out of them.
 
 **The amount scale runs past 10x on purpose.** It used to cap there, which meant
 a student sending 45× her normal amount scored *lower* than someone at 8× who
@@ -167,14 +181,14 @@ tiers.
 | Agent | Job | Where its data lives |
 |---|---|---|
 | **Copilot** | Learns each customer's normal: amounts, hours, recipients, devices, cities, session habits | Derived live from `transactions` (90-day window) |
-| **Shield** | Scores every transfer through the 14 layers | Writes `transactions` with signals |
+| **Shield** | Scores every transfer against the sixteen signals | Writes `transactions` with signals, score parts and the engine version |
 | **Ghost** | Holds risky transfers in a recoverable cooling window | `ghost_containers` |
 | **Watch** | Continuous monitoring between transactions | Not built — honestly marked "coming soon" |
 
 Each has a dashboard deep-dive at `/dashboard/agents/{agent}`:
 
 - **Copilot** — per-customer baselines, searchable. What Fable knows about whom.
-- **Shield** — the 14-layer pipeline with weights, plus recent decisions you can
+- **Shield** — the signals with their weights in force, plus recent decisions you can
   expand to see every signal and the device/location/session context behind it.
 - **Ghost** — active and historical containers, cancellation rate, money saved.
 

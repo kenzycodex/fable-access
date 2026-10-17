@@ -117,7 +117,7 @@ Shield adds up its signals into a risk score from 0.0 to 1.0, then softens it sl
 - **Social engineering:** narration matched against the Nigerian scam-pattern library (deliberately a weak signal).
 - **Device, location and session:** unrecognised device, new city or country, a large transfer right after login.
 - **Behavioural biometrics:** pasted account numbers, near-zero hesitation.
-- **History and velocity:** Isolation Forest deviation, bursts of transfers, recent failed verifications.
+- **History and velocity:** how far the amount and hour together sit from the customer's own past transfers, bursts of transfers, recent failed verifications.
 
 Decisions are `PASS`, `FLAG` or `BLOCK`. The cutoffs default to 0.5 and 0.8 and are tuned per channel. Shield never fails open: if scoring throws, it returns a conservative `FLAG`. Weights live in governed engine versions: a change is proposed, approved by a second person (or after a cooling-off period for a single owner), can run in shadow first, and every decision records the version that made it. Full weights are in the [scoring docs](src/content/docs/03-scoring.md) and [docs/ENGINE-GOVERNANCE.md](docs/ENGINE-GOVERNANCE.md).
 
@@ -186,7 +186,7 @@ fable/
 
 ### The Technology Stack
 - **Backend API:** Python 3.12, FastAPI, SQLite
-- **AI Integration:** Anthropic Claude then OpenAI GPT-4o for plain-language explanations and the analyst assistant, both optional with a deterministic fallback; scikit-learn Isolation Forest for anomaly scoring
+- **AI Integration:** Anthropic Claude then OpenAI GPT-4o for plain-language explanations and the analyst assistant, both optional with a deterministic fallback; a nearest-neighbour anomaly model on each customer's own history (the retiring Isolation Forest uses scikit-learn)
 - **Identity:** WebAuthn passkeys (`py_webauthn`), hashed PINs, one-time codes by email or SMS
 - **Frontend App:** Next.js 16 (App Router), React 19, Tailwind CSS v4
 - **UI Components:** Phosphor Icons, Sonner, react-markdown
