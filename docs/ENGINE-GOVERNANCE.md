@@ -36,7 +36,11 @@ A weight introduced by a release is read, for any version stored before it exist
 - **First transfers (no history):** amount tiers from NGN 100k to NGN 20m. Old versions read them as 0.
 - **Anomaly model:** `ml_anomaly` (the nearest-neighbour model, 0.10 by default) and `ml_anomaly_previous` (the retiring Isolation Forest). Old versions read them as 0 and 0.10, which is exactly how they scored.
 
-Past decisions did not record the new terms, so a backtest under-reports their effect; shadow mode measures it on new traffic.
+Decisions made before a release did not record its terms. The backtest rebuilds them for those rows and counts them as "rebuilt": the first-transfer term from the stored amount and the cold-start signal, the previous anomaly model's fixed points as its weighted term, and the current anomaly model from the customer's confirmed history before the decision (as it stands now, so a transfer confirmed later counts as confirmed). Under the live values a rebuilt term adds exactly what the decision had, so replay fidelity is unchanged.
+
+### What each change does
+
+A draft can carry several changes, like the release draft's first-transfer weights and anomaly model. The backtest and the shadow comparison both replay each group of changes (as the Engine page groups weights; all thresholds are one group) on its own against the live values, and show how many decisions it moves, in which direction, with up to five examples. Changes can interact, so the groups need not add up to the draft's total.
 
 On first boot, version 1 is seeded from the values in force at that moment (the environment over the code defaults), so shipping the Engine page changed no decision. Backtests, shadow and live scoring all use the effective values: the environment first, then the version. Every backtest report lists which keys came from the environment.
 

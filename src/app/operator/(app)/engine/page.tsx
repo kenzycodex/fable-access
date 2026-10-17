@@ -34,7 +34,7 @@ import {
   TextInput,
   inputClass,
 } from "@/components/dashboard/primitives";
-import { BacktestView } from "@/components/operator/EngineReport";
+import { BacktestView, ShadowView } from "@/components/operator/EngineReport";
 import { StepUpDialog } from "@/components/operator/StepUpDialog";
 import { ago, fullDate } from "@/components/operator/ui";
 import {
@@ -722,6 +722,8 @@ function VersionPanel({ version, data, onChanged, onDialog }: {
         <p className="mt-3 truncate font-mono text-[11px] text-d-faint" title="SHA-256 of the parameters">{detail.params_hash}</p>
       </Card>
 
+      {detail.status === "shadow" && <ShadowPanel />}
+
       {shown ? (
         <BacktestView report={shown} stale={!report && !detail.backtest_summary?.fresh && detail.status === "draft"} />
       ) : (
@@ -732,6 +734,12 @@ function VersionPanel({ version, data, onChanged, onDialog }: {
       )}
     </div>
   );
+}
+
+function ShadowPanel() {
+  const { data: diff } = useShadowDiff(true);
+  if (!diff) return <Skeleton className="h-40 w-full rounded-[20px]" />;
+  return <ShadowView diff={diff} />;
 }
 
 // ── History ──────────────────────────────────────────────────────────────────

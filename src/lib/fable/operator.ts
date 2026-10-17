@@ -538,12 +538,29 @@ export interface Metrics {
   low_sample: boolean;
 }
 
+/** One group of changes (as the Engine page groups weights), replayed on its own. */
+export interface ChangeEffect {
+  group: string;
+  changes: { path: string; label: string; from: number; to: number }[];
+  changed: number;
+  moves: Record<string, number>;
+  examples: {
+    id: string; institution_id: string; channel: string; amount: number | null;
+    before: DecisionAction; after: DecisionAction; score_before: number; score_after: number;
+  }[];
+}
+
 export interface BacktestReport {
   days: number;
   since: string;
   run_at: string;
   params_hash: string;
-  rows: { replayed: number; exact: number; approximate: number; skipped: number; fidelity: number; truncated: boolean };
+  rows: {
+    replayed: number; exact: number; approximate: number; skipped: number; fidelity: number; truncated: boolean;
+    /** Rows scored before a release, with that release's terms rebuilt. */
+    rebuilt?: number;
+  };
+  by_change?: ChangeEffect[];
   matrix: DecisionMatrix;
   overall: BacktestGroup;
   by_channel: (BacktestGroup & { channel: string })[];
@@ -610,6 +627,7 @@ export interface ShadowDiff {
     id: string; institution_id: string; channel: string; amount: number; risk_score: number;
     action_taken: DecisionAction; shadow_score: number; shadow_action: DecisionAction; created_at: string;
   }[];
+  by_change?: ChangeEffect[];
 }
 
 export interface EngineOverview {

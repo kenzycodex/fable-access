@@ -3,7 +3,8 @@
 import { CheckCircle, ShieldCheck, Warning, XCircle } from "@phosphor-icons/react";
 import { Card, CardHeader, Notice, StatCard, table } from "@/components/dashboard/primitives";
 import { ago } from "@/components/operator/ui";
-import type { BacktestGroup, BacktestReport, DecisionAction, DecisionMatrix } from "@/lib/fable/operator";
+import { formatNaira } from "@/lib/fable/format";
+import type { BacktestGroup, BacktestReport, ChangeEffect, DecisionAction, DecisionMatrix, ShadowDiff } from "@/lib/fable/operator";
 
 const ACTIONS: DecisionAction[] = ["PASS", "FLAG", "BLOCK"];
 const ACTION_TONE: Record<DecisionAction, string> = {
@@ -27,6 +28,98 @@ function Move({ before, after, worseIfUp, digits = 0 }: { before: number; after:
         {show(after)}
       </span>
     </>
+  );
+}
+
+/** Each group of changes on its own: how many decisions it moves, which way, and examples. */
+export function ChangeEffects({ items, against }: { items: ChangeEffect[]; against: string }) {
+  if (items.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader title="What each change does" subtitle={`Each group replayed on its own against ${against}`} />
+      <div className="flex flex-col gap-4">
+        {items.map((g) => (
+          <div key={g.group} className="rounded-xl border border-d-border p-3.5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-[13px] font-semibold text-d-text">{g.group}</p>
+              <p className="text-[12px] text-d-muted">
+                <span className="font-semibold tabular-nums text-d-text">{g.changed.toLocaleString("en-NG")}</span> decisions change
+                {Object.entries(g.moves).length > 0 && `: ${Object.entries(g.moves).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(", ")}`}
+              </p>
+            </div>
+            <p className="mt-1 text-[12px] text-d-faint">
+              {g.changes.map((c) => `${c.label} ${c.from} → ${c.to}`).join("; ")}
+            </p>
+            {g.examples.length > 0 && (
+              <ul className="mt-2.5 flex flex-col gap-1.5">
+                {g.examples.map((e) => (
+                  <li key={e.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-[12px]">
+                    <span className="min-w-0 truncate font-mono text-d-faint">{e.id}</span>
+                    <span className="text-d-muted">
+                      {e.amount != null ? formatNaira(e.amount) : "-"} · {e.channel.replace(/_/g, " ")} · {e.institution_id}
+                    </span>
+                    <span className="tabular-nums">
+                      <span className={ACTION_TONE[e.before]}>{ACTION_LABEL[e.before]} {e.score_before}</span>
+                      <span className="text-d-faint"> → </span>
+                      <span className={ACTION_TONE[e.after]}>{ACTION_LABEL[e.after]} {e.score_after}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-[11px] text-d-faint">Changes can interact, so these need not add up to the total.</p>
+    </Card>
+  );
+}
+
+/** The version in shadow against live: what disagreed, and which change caused it. */
+export function ShadowView({ diff }: { diff: ShadowDiff }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-[12px] text-d-muted">
+        Since {diff.since ? ago(diff.since) : "it started"}: {diff.scored.toLocaleString("en-NG")} live decisions also scored
+        in shadow, {diff.disagreements.toLocaleString("en-NG")} disagree. Live decisions are never changed by shadow.
+      </p>
+      {diff.matrix && (
+        <Card>
+          <CardHeader title="Live and shadow" subtitle="Rows: what was decided. Columns: what the shadow version would have decided" />
+          <Matrix matrix={diff.matrix} />
+        </Card>
+      )}
+      <ChangeEffects items={diff.by_change ?? []} against="the live values" />
+      {(diff.recent ?? []).length > 0 && (
+        <Card padded={false}>
+          <div className="px-5 pt-5"><CardHeader title="Recent disagreements" /></div>
+          <div className={table.wrap}>
+            <table className="w-full min-w-[440px] text-left text-[13px]">
+              <thead className={table.head}>
+                <tr>
+                  <th className={table.th}>Transfer</th>
+                  <th className={table.th}>Amount</th>
+                  <th className={`${table.th} text-right`}>Live → shadow</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(diff.recent ?? []).map((r) => (
+                  <tr key={r.id} className={table.row}>
+                    <td className={`${table.td} font-mono text-[12px] text-d-faint`}>{r.id}</td>
+                    <td className={`${table.td} tabular-nums text-d-muted`}>{formatNaira(r.amount)} · {r.channel.replace(/_/g, " ")}</td>
+                    <td className={`${table.td} whitespace-nowrap text-right tabular-nums`}>
+                      <span className={ACTION_TONE[r.action_taken]}>{ACTION_LABEL[r.action_taken]}</span>
+                      <span className="text-d-faint"> → </span>
+                      <span className={ACTION_TONE[r.shadow_action]}>{ACTION_LABEL[r.shadow_action]}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
   );
 }
 
@@ -111,6 +204,7 @@ export function BacktestView({ report, stale }: { report: BacktestReport; stale:
         Last {report.days} days, run {ago(report.run_at)}. {r.replayed.toLocaleString("en-NG")} decisions replayed:{" "}
         {r.exact.toLocaleString("en-NG")} exact, {r.approximate.toLocaleString("en-NG")} approximate
         {r.skipped ? `, ${r.skipped} skipped` : ""}.{r.truncated && " The window was cut to the newest rows."}
+        {r.rebuilt ? ` ${r.rebuilt.toLocaleString("en-NG")} were scored before this release's terms existed; those terms were rebuilt from the stored amount, cold-start signal and the customer's history.` : ""}
       </p>
       {stale && <Notice tone="warning">This backtest is out of date. Run it again before proposing.</Notice>}
       {report.warnings.length > 0 ? (
@@ -132,6 +226,8 @@ export function BacktestView({ report, stale }: { report: BacktestReport; stale:
         <StatCard label="Genuine, blocked" value={`${o.legitimate.blocked_before ?? 0} → ${o.legitimate.blocked_after ?? 0}`}
           sub={sample(o.legitimate.n, o.legitimate.low_sample)} tone="warning" icon={<Warning size={17} weight="fill" />} />
       </div>
+
+      <ChangeEffects items={report.by_change ?? []} against="the live values" />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
