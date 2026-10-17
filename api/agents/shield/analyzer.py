@@ -318,25 +318,22 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         signals.append(f"scam_pattern: {pattern['name']} (+{boost})")
         score += add(term(const=boost))
 
-    # Step 7 (auxiliary): anomaly against the customer's own history. Both
-    # models' anomaly-ness is recorded, and the engine version's two weights
-    # decide which counts, so a backtest can replay either.
+    # Step 7 (auxiliary): anomaly against the customer's own history. The
+    # engine version's two weights decide which model counts. The current
+    # model's value is always recorded (even 0), so a backtest or a shadow
+    # version can weigh it whatever the live version does; the previous
+    # model's only while a live or shadow version still weighs it.
     if baseline:
         history_amounts, history_hours = get_user_history_arrays(user_id)
-        coefs = {}
+        coefs = {"ml_anomaly": current_anomaly(history_amounts, history_hours, amount, now_hour, cache_key=user_id)}
         if w.get("ml_anomaly_previous", 0) > 0 or shadow_wants("ml_anomaly_previous"):
             coefs["ml_anomaly_previous"] = previous_anomaly(history_amounts, history_hours, amount, now_hour,
                                                             cache_key=user_id)
-        if w.get("ml_anomaly", 0) > 0 or shadow_wants("ml_anomaly"):
-            coefs["ml_anomaly"] = current_anomaly(history_amounts, history_hours, amount, now_hour,
-                                                  cache_key=user_id)
-        coefs = {k: v for k, v in coefs.items() if v > 0}
-        if coefs:
-            ml_term = term(coefs, gate=ML_GATE)
-            ml_boost = round(term_value(ml_term, w), 4)
-            if ml_boost > 0:
-                signals.append(f"ml_anomaly: unusual amount and hour for this customer (+{ml_boost})")
-            score += add(ml_term)
+        ml_term = term(coefs, gate=ML_GATE)
+        ml_boost = round(term_value(ml_term, w), 4)
+        if ml_boost > 0:
+            signals.append(f"ml_anomaly: unusual amount and hour for this customer (+{ml_boost})")
+        score += add(ml_term)
 
     # Step 8: Device anomaly — unrecognized fingerprint (weight scales with amount)
     fingerprint = device.get("fingerprint_id")

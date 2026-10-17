@@ -570,7 +570,32 @@ def shadow_diff(summary_only: bool = False, limit: int = 50) -> dict | None:
                 (version, row["shadow_started_at"], limit),
             )
             out["recent"] = [row_to_dict(r) for r in cur.fetchall()]
+            out["by_change"] = _shadow_attribution(cur, version, row["shadow_started_at"])
     return out
+
+
+SHADOW_ATTRIBUTION_ROWS = 20_000
+
+
+def _shadow_attribution(cur, version: int, since: str) -> list[dict]:
+    """Which of the shadow version's changes moves which decisions, each on its
+    own against the live values, from the decisions scored while it ran."""
+    shadow = engine_config.shadow()
+    if not shadow or shadow["version"] != version:
+        return []
+    cur.execute(
+        f"""SELECT id, institution_id, channel, amount, score_parts FROM transactions
+           WHERE shadow_version = ? AND datetime(created_at) >= datetime(?) AND score_parts IS NOT NULL
+           ORDER BY created_at DESC LIMIT {SHADOW_ATTRIBUTION_ROWS}""",
+        (version, since),
+    )
+    rows = []
+    for r in cur.fetchall():
+        try:
+            rows.append({**row_to_dict(r), "parts": json.loads(r["score_parts"])})
+        except (TypeError, ValueError):
+            continue
+    return backtest.attribute(rows, engine_config.active()["params"], shadow["params"])
 
 
 # ── Housekeeping ─────────────────────────────────────────────────────────────
