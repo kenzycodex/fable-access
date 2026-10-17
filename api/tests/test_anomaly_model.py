@@ -113,3 +113,33 @@ def test_baseline_windows_read_every_timestamp_form():
                         "created_at) VALUES (?, ?, 1000, 10, 1, ?)", (f"txn_ts_{user}_{i}", user, ts))
     amounts, _ = get_user_history_arrays(user)
     assert len(amounts) == 3
+
+
+def test_below_the_minimum_history_the_model_adds_nothing():
+    from agents.shield.anomaly import MIN_SAMPLES_CURRENT, current_anomaly
+
+    assert MIN_SAMPLES_CURRENT == 8
+    for n in range(MIN_SAMPLES_CURRENT):
+        # Even a wildly different transfer: too little history to call it unusual.
+        assert current_anomaly([10_000.0] * n, [12] * n, 10_000_000, 3) == 0.0
+
+
+def test_at_the_minimum_a_regular_customer_is_not_oversensitive():
+    from agents.shield.anomaly import GATE, current_anomaly
+
+    amounts, hours = [10_000.0] * 8, [12] * 8
+    assert current_anomaly(amounts, hours, 10_000, 12) == 0.0
+    # 20% more, or two hours later, stays under the engine's gate at the default weight.
+    assert current_anomaly(amounts, hours, 12_000, 12) * 0.10 <= GATE
+    assert current_anomaly(amounts, hours, 10_000, 14) * 0.10 <= GATE
+    # Ten times the amount, or 3 a.m., is plainly unusual.
+    assert current_anomaly(amounts, hours, 100_000, 12) == 1.0
+    assert current_anomaly(amounts, hours, 10_000, 3) == 1.0
+
+
+def test_the_simulation_is_reproducible_and_says_it_is_simulated():
+    from eval import anomaly_sim
+
+    assert "Not real-world data" in anomaly_sim.__doc__
+    small = anomaly_sim.run(customers=10)
+    assert small == anomaly_sim.run(customers=10)

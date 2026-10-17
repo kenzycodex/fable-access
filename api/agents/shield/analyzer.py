@@ -17,6 +17,7 @@ from agents.copilot.baseline import (
     get_user_baseline,
     get_user_history_arrays,
 )
+from agents.shield.anomaly import GATE as ML_GATE
 from agents.shield.anomaly import current_anomaly, previous_anomaly
 from agents.shield.channel_risk import get_channel_risk
 from agents.shield.explainer import explain_now
@@ -37,9 +38,6 @@ from agents.shield.weights import (
 )
 from core import engine_config
 from core.utils import utcnow
-
-# The anomaly term counts only above this many points, as it always has.
-ML_GATE = 0.02
 
 PCI_FIELDS = ("card_number", "cvv", "pin", "track_data")
 

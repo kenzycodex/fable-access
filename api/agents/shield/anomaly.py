@@ -18,6 +18,16 @@ weights (see engine_config, "Anomaly model"):
             within their usual spread it scores 0, and it reaches 1 at three
             times that spread.
 
+How much history it needs: MIN_SAMPLES_CURRENT (8) confirmed transfers in the
+last 90 days. Below that it returns 0 and adds nothing: with so few points
+there is no usual spread to measure against, and the customer is already
+covered elsewhere (under 3 transfers by the cold-start and first-transfer
+pricing, from 3 by the amount rule against their own baseline). At 8, a very
+regular customer is never treated as having no spread at all (MIN_SPREAD), so
+eight identical transfers do not make the ninth, slightly different one look
+anomalous. On simulated customers (eval/anomaly_sim.py) 2.6% of typical
+transfers add points at 8 past transfers, falling to 0.5% at 40 or more.
+
 Why not a reworked Isolation Forest: a forest only splits inside the range it
 was fitted on, so it cannot isolate an amount or hour outside that range, and
 its axis-aligned splits missed the combination that matters (an amount the
@@ -47,12 +57,14 @@ from sklearn.ensemble import IsolationForest
 # still ask for a boost rather than an anomaly-ness.
 MAX_ML_CONTRIBUTION = 0.10
 MIN_SAMPLES = 5                  # previous model
-MIN_SAMPLES_CURRENT = 8          # current model: fewer points have no usual spread
+MIN_SAMPLES_CURRENT = 8          # current model: below this it adds nothing (see above)
 NEIGHBOUR = 3                    # distance to the 3rd-nearest past transfer
 AMOUNT_SCALE = 0.5               # log-amount units per distance unit (about 1.65x)
 HOUR_SCALE = 3.0                 # hours per distance unit
 OWN_QUANTILE = 0.95              # "usual spread" = the customer's own 95th percentile
 MIN_SPREAD = 0.5                 # never treat a very regular customer as having no spread
+# The engine counts this term only above this many points (analyzer.ML_GATE).
+GATE = 0.02
 MAX_HISTORY = 500                # an even sample of a longer history; bounds the cost
 
 CACHE_MAX_USERS = 512
