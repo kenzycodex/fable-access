@@ -54,14 +54,21 @@ COLD_START_PREMIUM = 0.15
 POPULATION_MIN_TRANSACTIONS = 20
 
 
+# Timestamps in customer_history come in more than one text form: decisions
+# are written as Python isoformat ("2026-10-16T12:00:00.123"), imports as UTC
+# with an offset ("...+00:00"), and anything defaulted by SQLite with a space
+# ("2026-10-16 12:00:00"). Compared as raw strings, a space sorts before "T",
+# so rows on the cutoff day fell on the wrong side of the window. Every cutoff
+# below is compared through SQLite's datetime(), which reads all three.
+
 def get_user_baseline(user_id: str) -> dict | None:
     ninety_days_ago = (utcnow() - timedelta(days=90)).isoformat()
 
     with cursor() as cur:
         cur.execute(
             """SELECT * FROM customer_history
-               WHERE user_id = ? AND created_at >= ? AND confirmed_legitimate = 1
-               ORDER BY created_at ASC""",
+               WHERE user_id = ? AND datetime(created_at) >= datetime(?) AND confirmed_legitimate = 1
+               ORDER BY datetime(created_at) ASC, created_at ASC""",
             (user_id, ninety_days_ago),
         )
         rows = [row_to_dict(r) for r in cur.fetchall()]
@@ -80,7 +87,7 @@ def get_user_baseline(user_id: str) -> dict | None:
     with cursor() as cur:
         cur.execute(
             """SELECT DISTINCT recipient_account FROM customer_history
-               WHERE user_id = ? AND created_at >= ? AND confirmed_legitimate = 1
+               WHERE user_id = ? AND datetime(created_at) >= datetime(?) AND confirmed_legitimate = 1
                  AND recipient_account IS NOT NULL AND recipient_account != ''""",
             (user_id, recipient_cutoff),
         )
@@ -183,7 +190,7 @@ def get_population_baseline(institution_id: str | None) -> dict | None:
     judging it against nothing: without this, six of the twelve layers
     silently skipped and a new account could move almost any amount.
     """
-    where = "WHERE confirmed_legitimate = 1 AND created_at >= ?"
+    where = "WHERE confirmed_legitimate = 1 AND datetime(created_at) >= datetime(?)"
     params: list = [(utcnow() - timedelta(days=90)).isoformat()]
     if institution_id:
         where += " AND institution_id = ?"
@@ -236,7 +243,7 @@ def get_user_history_arrays(user_id: str) -> tuple[list[float], list[int]]:
     with cursor() as cur:
         cur.execute(
             """SELECT amount, hour_of_day FROM customer_history
-               WHERE user_id = ? AND created_at >= ? AND confirmed_legitimate = 1""",
+               WHERE user_id = ? AND datetime(created_at) >= datetime(?) AND confirmed_legitimate = 1""",
             (user_id, ninety_days_ago),
         )
         rows = cur.fetchall()

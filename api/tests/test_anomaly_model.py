@@ -92,3 +92,24 @@ def test_the_previous_model_boost_replays_exactly():
     t = term({"ml_anomaly_previous": previous_anomaly(amounts, hours, 20_000, 13)}, gate=0.02)
     assert abs(term_value(t, {"ml_anomaly_previous": 0.10}) - boost) < 1e-9
     assert term_value(t, {"ml_anomaly_previous": 0.0}) == 0.0
+
+
+def test_baseline_windows_read_every_timestamp_form():
+    """A row written by SQLite with a space ("2026-10-16 12:00:00") on the
+    cutoff day used to compare as older than the cutoff ("2026-10-16T...")."""
+    import secrets
+    from datetime import timedelta
+
+    from agents.copilot.baseline import get_user_history_arrays
+    from core.db import cursor
+    from core.utils import utcnow
+
+    user = f"ts_{secrets.token_hex(4)}"
+    inside = utcnow() - timedelta(days=90) + timedelta(hours=1)   # just inside the window
+    with cursor() as cur:
+        for i, ts in enumerate((inside.strftime("%Y-%m-%d %H:%M:%S"), inside.isoformat(),
+                                inside.isoformat() + "+00:00")):
+            cur.execute("INSERT INTO transactions (id, user_id, amount, hour_of_day, confirmed_legitimate, "
+                        "created_at) VALUES (?, ?, 1000, 10, 1, ?)", (f"txn_ts_{user}_{i}", user, ts))
+    amounts, _ = get_user_history_arrays(user)
+    assert len(amounts) == 3

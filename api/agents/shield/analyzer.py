@@ -69,6 +69,11 @@ def _recent_transfer_count(user_id: str, institution_id: str | None, window_minu
     midnight, the previous day too). datetime() on both sides normalises the
     formats so the window is the window.
 
+    Only live decisions count, not imported history, on purpose: velocity is
+    about a burst happening now, and imported rows describe the past. Counting
+    them would also make every customer look like a burst right after a bank
+    imports a batch dated "now".
+
     Any failure returns 0 — a missing velocity signal must never take down a
     decision.
     """
