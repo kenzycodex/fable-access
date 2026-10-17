@@ -29,6 +29,15 @@ Each bank's own risk policy (its base thresholds and hold windows, set in its co
 2. Otherwise, the live version approved on the Engine page.
 3. Otherwise, the built-in defaults.
 
+### Weights added after a version was approved
+
+A weight introduced by a release is read, for any version stored before it existed, as the value that reproduces the old behaviour (`LEGACY_FILL` in `core/engine_config.py`), so shipping code never changes a decision. Introducing a weight is exempt from the one-version step limit; moving it afterwards is not. The release offers the new values once as a system draft, for an owner to backtest, propose, shadow and promote:
+
+- **First transfers (no history):** amount tiers from NGN 100k to NGN 20m. Old versions read them as 0.
+- **Anomaly model:** `ml_anomaly` (the nearest-neighbour model, 0.10 by default) and `ml_anomaly_previous` (the retiring Isolation Forest). Old versions read them as 0 and 0.10, which is exactly how they scored.
+
+Past decisions did not record the new terms, so a backtest under-reports their effect; shadow mode measures it on new traffic.
+
 On first boot, version 1 is seeded from the values in force at that moment (the environment over the code defaults), so shipping the Engine page changed no decision. Backtests, shadow and live scoring all use the effective values: the environment first, then the version. Every backtest report lists which keys came from the environment.
 
 ## The procedure
@@ -56,7 +65,7 @@ Shadow and promotion refuse any version whose stored parameters no longer match 
 
 ## The backtest
 
-Shield's score is additive. Since the Engine page shipped, every decision stores *how* its score was built (`transactions.score_parts`): which weight each signal used and by what coefficient, plus the fixed contributions (cold start, channel risk, scam pattern, ML anomaly, NIP code), the tenure discount and the NIP-34 override. The live engine and the backtest add those parts with the same function (`agents/shield/weights.py`), so re-scoring a stored decision under other weights is exact by construction.
+Shield's score is additive. Since the Engine page shipped, every decision stores *how* its score was built (`transactions.score_parts`): which weight each signal used and by what coefficient, plus the fixed contributions (cold start, channel risk, scam pattern, NIP code), the tenure discount and the NIP-34 override. The anomaly signal is stored as each model's 0..1 value against its weight (`ml_anomaly`, `ml_anomaly_previous`), so either model replays; decisions made before that stored it as a fixed contribution. The live engine and the backtest add those parts with the same function (`agents/shield/weights.py`), so re-scoring a stored decision under other weights is exact by construction.
 
 Each report compares two replays of the same rows: under the live parameters ("now") and under the draft. That isolates the draft's own effect: an unchanged draft reports zero changed decisions. How faithfully "now" reproduces what was actually decided is reported separately.
 
