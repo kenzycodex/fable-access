@@ -1,10 +1,10 @@
 """Fable Shield — core risk scoring pipeline.
 
-Twelve signal layers: the original six from the build brief (amount anomaly,
-new recipient, time anomaly, channel risk, NIP response code, scam pattern),
-the Isolation Forest anomaly boost, and five new context layers driven by the
-real SDK data (device anomaly, location anomaly, session freshness, behavioral
-anomaly, timezone mismatch).
+Sixteen signals, added in order: amount, cold start and first-transfer amount,
+new recipient, time, channel, NIP code, scam pattern, the anomaly model, device,
+location, session freshness, behaviour, timezone, failed checks and velocity.
+Then a small tenure discount. routers/agents.py lists them for the console with
+the weights in force.
 
 Narration scanning is deliberately de-prioritized (most users skip the field);
 the behavioral/device/location layers carry the weight users can't opt out of.
@@ -320,7 +320,7 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         signals.append(f"scam_pattern: {pattern['name']} (+{boost})")
         score += add(term(const=boost))
 
-    # Step 7 (auxiliary): Isolation Forest anomaly from own history. Both
+    # Step 7 (auxiliary): anomaly against the customer's own history. Both
     # models' anomaly-ness is recorded, and the engine version's two weights
     # decide which counts, so a backtest can replay either.
     if baseline:

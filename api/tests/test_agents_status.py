@@ -73,3 +73,16 @@ def test_the_transparency_panel_claims_only_controls_that_exist():
     controls = body["your_controls"]
     assert not any(v for k, v in controls.items() if k.startswith("can_")), "no control is built yet"
     assert not any("GPS" in line for line in body["what_we_dont_store"]), "device location is stored"
+
+
+def test_the_shield_pipeline_follows_the_engine_version_in_force(monkeypatch):
+    from core import engine_config
+    from routers.agents import shield_pipeline
+
+    params = engine_config.code_defaults()
+    params["weights"]["channel_internet"] = 0.31
+    monkeypatch.setattr(engine_config, "active", lambda: {"version": 7, "params": params, "hash": "x"})
+    steps = {s["code"]: s for s in shield_pipeline()}
+    assert len(steps) == 16
+    assert steps["channel_risk"]["max_weight"] == 0.31
+    assert "internet banking highest" in steps["channel_risk"]["description"]
