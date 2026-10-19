@@ -484,6 +484,12 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         # Covers the weights and thresholds AND the detection settings, so a
         # decision always records everything that shaped it.
         "engine_params_hash": engine_config.decision_hash(engine["hash"], rules),
+        # What scoring saw, for the decision's feature snapshot (features.py).
+        # Internal: the router builds the snapshot and never returns this.
+        "_seen": {
+            "baseline": baseline, "cold_start": cold_start, "now_hour": now_hour, "client_hour": client_hour,
+            "known_cities": known_cities, "device_tz": device_tz, "pattern": pattern, "failed": failed,
+        },
     }
 
 

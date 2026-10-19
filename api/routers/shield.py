@@ -180,6 +180,21 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     decision_ms = round((time.perf_counter() - start) * 1000, 2)
     transaction_id = f"txn_{uuid.uuid4().hex[:12]}"
 
+    # The feature snapshot, from what scoring saw. Built before this decision
+    # is written, so the velocity counts in it exclude the transfer itself, as
+    # scoring's did. Never able to change the decision.
+    snapshot = None
+    seen = result.pop("_seen", None)
+    if seen is not None:
+        try:
+            from agents.shield import features
+
+            snapshot = features.build(payload.user_id, institution_id, transaction, device, context, seen, result)
+        except Exception as exc:  # noqa: BLE001
+            import logging
+
+            logging.getLogger("fable.features").warning("Feature snapshot failed: %s", exc)
+
     # A template explanation means no cached prose existed for this decision
     # shape, so a proper write-up is queued off the request path below. It has
     # to be queued *after* the row exists: the worker updates the transaction
@@ -217,6 +232,11 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         if already:
             return already
         raise
+
+    if snapshot is not None:
+        from agents.shield import features
+
+        features.store(transaction_id, payload.user_id, institution_id, snapshot)
 
     # The live decision is committed. Only now, and never able to change it,
     # the shadow version (if one is running) scores the same signals.

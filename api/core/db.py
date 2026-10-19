@@ -422,6 +422,19 @@ CREATE TABLE IF NOT EXISTS sandbox_inbox (
 
 -- When each background job last ran, and the lease that keeps two workers
 -- from running the same job at once (services/scheduler.py).
+-- What each decision was scored on, for training and backtesting a richer
+-- per-customer model later (agents/shield/features.py). No names, account
+-- numbers, narration, exact GPS or IP addresses. Follows the decision's
+-- retention and the customer's erasure.
+CREATE TABLE IF NOT EXISTS decision_features (
+    transaction_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    institution_id TEXT,
+    feature_version INTEGER NOT NULL,
+    features TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS job_runs (
     name TEXT PRIMARY KEY,
     holder TEXT,
@@ -943,6 +956,7 @@ def _migrate(conn):
 
     _backfill_customers(conn)
     _create_history_view(conn)
+    _create_dataset_view(conn)
     _backfill_customer_devices(conn)
     _seal_webhook_secrets(conn)
 
@@ -978,6 +992,20 @@ def _create_history_view(conn) -> None:
             UNION ALL
             SELECT {HISTORY_COLUMNS}, NULL, NULL, NULL, 'import' AS origin
               FROM transaction_history"""
+    )
+    conn.commit()
+
+
+def _create_dataset_view(conn) -> None:
+    """Each decision's feature snapshot with its outcome and the analyst's label
+    as they stand now. The label changes after the decision, so it is joined,
+    never copied into the snapshot."""
+    conn.execute("DROP VIEW IF EXISTS decision_dataset")
+    conn.execute(
+        """CREATE VIEW decision_dataset AS
+           SELECT f.transaction_id, f.user_id, f.institution_id, f.feature_version, f.features, f.created_at,
+                  t.action_taken, t.risk_score, t.score_parts, t.engine_version, t.review_outcome, t.status
+             FROM decision_features f JOIN transactions t ON t.id = f.transaction_id"""
     )
     conn.commit()
 
@@ -1139,6 +1167,7 @@ def slugify_institution(name: str) -> str:
 # on its own — see _create_indexes.
 INDEXES = """
 CREATE INDEX IF NOT EXISTS ix_txn_user_created   ON transactions(user_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_features_user      ON decision_features(user_id);
 CREATE INDEX IF NOT EXISTS ix_txn_inst_created   ON transactions(institution_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_txn_user_conf      ON transactions(user_id, confirmed_legitimate, created_at);
 CREATE INDEX IF NOT EXISTS ix_txn_action         ON transactions(action_taken);
