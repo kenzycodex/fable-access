@@ -129,9 +129,9 @@ When a flagged transfer needs proof, the step-up engine picks the lightest facto
 
 | Status | What |
 |---|---|
-| **Live** | Per-customer scoring with Copilot and Shield; step-up with PIN, passkeys and one-time codes; Ghost holds with release, cancel, expiry and "ask my bank to release"; signed webhooks with a durable outbox; the institution console (review queue, customers, risk policy, roles, imports, audit, Ask Fable); the operator platform with two-person approval for keys and engine changes; the sandbox app and sandbox inbox |
+| **Live** | Per-customer scoring with Copilot and Shield; per-customer data export and erasure, scheduled retention, coarse location and a customer location switch; step-up with PIN, passkeys and one-time codes; Ghost holds with release, cancel, expiry and "ask my bank to release"; signed webhooks with a durable outbox; the institution console (review queue, customers, risk policy, roles, imports, audit, Ask Fable); the operator platform with two-person approval for keys and engine changes; the sandbox app and sandbox inbox |
 | **Live when configured** | SMS codes and alerts through Termii or Africa's Talking (including its free sandbox); AI-written explanations through Anthropic or OpenAI; email through your mail server |
-| **In progress** | First-transfer amount weights ship as a draft engine version for an owner to propose, shadow and promote; reworking the anomaly model; per-customer data export and erasure, and retention jobs |
+| **In progress** | First-transfer amount weights and the new anomaly model ship as a draft engine version for an owner to propose, shadow and promote |
 | **Planned** | Watch (monitoring between transfers); cross-institution intelligence (each institution's data is strictly its own today); a face or liveness check through a KYC provider; published SDK packages on npm and PyPI |
 
 <br />

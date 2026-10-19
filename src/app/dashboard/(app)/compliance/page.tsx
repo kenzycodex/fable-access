@@ -33,8 +33,9 @@ const FABLE_CONTROLS: { name: string; status: ControlStatus; note: string }[] = 
   { name: "No credentials in logs", status: "Live", note: "PINs, codes, passwords and keys are never written to the audit log" },
   { name: "AI provider redaction", status: "Live", note: "Names and account numbers are removed before any AI provider sees text" },
   { name: "Tenant isolation", status: "Live", note: "Your customers and decisions are never visible to another institution" },
-  { name: "Customer data export and erasure", status: "In progress", note: "Per-customer requests under the NDPA" },
-  { name: "Automatic retention", status: "In progress", note: "Old records deleted on a schedule you set" },
+  { name: "Customer data export and erasure", status: "Live", note: "From a customer's page: download a copy, or erase" },
+  { name: "Automatic retention", status: "Live", note: "Decisions kept 5 years, device and location detail 2 years" },
+  { name: "Location kept coarse", status: "Live", note: "About 1 km; IP addresses without the last part" },
 ];
 const OWN_STEPS = ["agreements", "api_key", "webhook", "policy", "team"];
 
