@@ -86,4 +86,4 @@ def test_the_shield_pipeline_follows_the_engine_version_in_force(monkeypatch):
     steps = {s["code"]: s for s in shield_pipeline()}
     assert len(steps) == 16
     assert steps["channel_risk"]["max_weight"] == 0.31
-    assert "internet banking highest" in steps["channel_risk"]["description"]
+    assert "informed by NIBSS" in steps["channel_risk"]["description"]

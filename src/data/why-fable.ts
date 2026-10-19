@@ -139,7 +139,7 @@ export const ecosystemBlocks = [
   {
     id: "moat",
     title: "Built Around How Nigerians Move Money",
-    body: "Pidgin and English scam narrations, NIP response codes, and channel risk for USSD, POS, mobile app and internet banking drawn from NIBSS fraud data. Fable starts from the scams Nigerian customers actually meet: someone on WhatsApp or the phone talking them into sending the money themselves.",
+    body: "Pidgin and English scam narrations, NIP response codes, and channel risk weights for USSD, POS, mobile app and internet banking informed by NIBSS fraud data. Fable starts from the scams Nigerian customers actually meet: someone on WhatsApp or the phone talking them into sending the money themselves.",
     image: { src: "/images/why-fable/shield-hero.png", alt: "A customer sending ₦85,000 on her phone, with Shield, Copilot and Ghost labelled around her and the transfer marked protected", width: 1254, height: 1124 },
     imageSide: "right" as const,
     cta: { label: "Get in touch", href: dashboardCta.href },

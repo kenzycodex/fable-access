@@ -77,7 +77,7 @@ _PIPELINE = [
     ("time_anomaly", "Unusual time", lambda w: w["time_anomaly"],
      "Device-local hour outside the customer's usual hours."),
     ("channel_risk", "Channel risk", lambda w: max(v for k, v in w.items() if k.startswith("channel_")),
-     "Weights from NIBSS fraud data per channel: internet banking highest, branch lowest."),
+     "Weights per channel informed by NIBSS fraud data: internet banking highest, branch lowest."),
     ("nip_code", "NIP response code", lambda w: 0.95,
      "NIBSS instant-payment risk codes from the bank's own rail; code 34 always blocks."),
     ("scam_pattern", "Scam script (narration)", lambda w: _scam_max(),

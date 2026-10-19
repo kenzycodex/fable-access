@@ -160,7 +160,7 @@ The snapshot also records the Copilot and Ghost code versions and the
 institution's hold windows in force. Ghost's hold windows and the flag and
 block lines per institution are the bank's risk policy (owner-only, audited);
 detection settings such as the velocity window and recipient memory are
-operator settings changed through two-person approval (docs/SECRETS.md).
+operator settings changed through approval with a cooling-off period, two-person when there are two owners (docs/SECRETS.md).
 
 Labels are kept apart and never mixed: an analyst's outcome
 (`review_outcome`: fraud or legitimate), a customer cancelling a hold

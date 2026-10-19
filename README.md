@@ -113,13 +113,13 @@ Three parts, each with one job, deciding inside a `200ms` budget before the tran
 Shield adds up its signals into a risk score from 0.0 to 1.0, then softens it slightly for customers with a long clean record:
 - **Amount anomaly:** how far above the customer's own baseline, with tiers past 10x, 25x and 50x. With no history, the amount itself is priced in tiers from NGN 100k to NGN 20m.
 - **Recipient and timing:** new recipient, time of day on the device clock, timezone mismatch.
-- **Channel and rail:** channel weights drawn from NIBSS fraud data (internet banking highest, branch lowest) and NIP response codes.
+- **Channel and rail:** channel risk weights informed by NIBSS fraud data (internet banking highest, branch lowest) and NIP response codes.
 - **Social engineering:** narration matched against the Nigerian scam-pattern library (deliberately a weak signal).
 - **Device, location and session:** unrecognised device, new city or country, a large transfer right after login.
 - **Behavioural biometrics:** pasted account numbers, near-zero hesitation.
 - **History and velocity:** how far the amount and hour together sit from the customer's own past transfers, bursts of transfers, recent failed verifications.
 
-Decisions are `PASS`, `FLAG` or `BLOCK`. The cutoffs default to 0.5 and 0.8 and are tuned per channel. Shield never fails open: if scoring throws, it returns a conservative `FLAG`. Weights live in governed engine versions: a change is proposed, approved by a second person (or after a cooling-off period for a single owner), can run in shadow first, and every decision records the version that made it. Full weights are in the [scoring docs](src/content/docs/03-scoring.md) and [docs/ENGINE-GOVERNANCE.md](docs/ENGINE-GOVERNANCE.md).
+Decisions are `PASS`, `FLAG` or `BLOCK`. The cutoffs default to 0.5 and 0.8 and are tuned per channel. Shield never fails open: if scoring throws, it returns a conservative `FLAG`. Weights live in governed engine versions: every scoring change goes through approval with a cooling-off period, a backtest and a shadow run (two-person approval when there are two owners), and every decision records the version that made it. Full weights are in the [scoring docs](src/content/docs/03-scoring.md) and [docs/ENGINE-GOVERNANCE.md](docs/ENGINE-GOVERNANCE.md).
 
 When a flagged transfer needs proof, the step-up engine picks the lightest factor that holds: PIN, device passkey, passkey plus a one-time code (email or SMS), or passkey, code and PIN together. Releasing a Ghost hold always costs one tier more than the transfer itself, and only factors set up before the decision count.
 
@@ -129,7 +129,7 @@ When a flagged transfer needs proof, the step-up engine picks the lightest facto
 
 | Status | What |
 |---|---|
-| **Live** | Per-customer scoring with Copilot and Shield; per-customer data export and erasure, scheduled retention, coarse location and a customer location switch; step-up with PIN, passkeys and one-time codes; Ghost holds with release, cancel, expiry and "ask my bank to release"; signed webhooks with a durable outbox; the institution console (review queue, customers, risk policy, roles, imports, audit, Ask Fable); the operator platform with two-person approval for keys and engine changes; the sandbox app and sandbox inbox |
+| **Live** | Per-customer scoring with Copilot and Shield; per-customer data export and erasure, scheduled retention, coarse location and a customer location switch; step-up with PIN, passkeys and one-time codes; Ghost holds with release, cancel, expiry and "ask my bank to release"; signed webhooks with a durable outbox; the institution console (review queue, customers, risk policy, roles, imports, audit, Ask Fable); the operator platform with approval with a cooling-off period for keys and engine changes (two-person approval when there are two owners); the sandbox app and sandbox inbox |
 | **Live when configured** | SMS codes and alerts through Termii or Africa's Talking (including its free sandbox); AI-written explanations through Anthropic or OpenAI; email through your mail server |
 | **In progress** | First-transfer amount weights and the new anomaly model ship as a draft engine version for an owner to propose, shadow and promote |
 | **Planned** | Watch (monitoring between transfers); cross-institution intelligence (each institution's data is strictly its own today); a face or liveness check through a KYC provider; published SDK packages on npm and PyPI |

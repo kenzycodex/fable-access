@@ -141,7 +141,7 @@ Settings, Risk policy.
 | 3 | `first_transfer_amount` | No history to compare: the amount itself, in tiers from NGN 100k to NGN 20m | 0.45 |
 | 4 | `new_recipient` | First transfer to this account | 0.20 |
 | 5 | `time_anomaly` | Outside typical hours, on the **device clock** | 0.12 |
-| 6 | `channel_risk` | Channel weights from NIBSS fraud data (internet banking highest, branch lowest) | 0.22 |
+| 6 | `channel_risk` | Channel risk weights informed by NIBSS fraud data (internet banking highest, branch lowest) | 0.22 |
 | 7 | `nip_code` | NIBSS risk codes from the bank's rail; code 34 always blocks | 0.95 |
 | 8 | `scam_pattern` | Narration matches a scam script (halved on purpose) | 0.25 |
 | 9 | `ml_anomaly` | The amount and hour together sit far from the customer's own past transfers | 0.10 |
@@ -156,10 +156,8 @@ Settings, Risk policy.
 A long, confirmed-clean record then subtracts a small `tenure` discount (at most
 0.08 by default).
 
-Weights live in governed engine versions. Fable operators change them on the
-operator platform's Engine page: a change is drafted, backtested against past
-decisions, approved by a second person (or after a cooling-off period when
-there is only one owner), can run in shadow, and is then promoted. Every
+Weights live in governed engine versions, changed on the operator platform's
+Engine page: every scoring change goes through approval with a cooling-off period, a backtest and a shadow run (two-person approval when there are two owners), and is then promoted. Every
 decision records the version that made it. A value set in the server
 environment (`FABLE_W_*`) still overrides the version, and the Engine page says
 so.
