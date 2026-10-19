@@ -25,6 +25,10 @@ logging.getLogger().addFilter(ScrubFilter())
 for _name in ("fable", "uvicorn", "uvicorn.error", "uvicorn.access"):
     logging.getLogger(_name).addFilter(ScrubFilter())
 
+from core import logs  # noqa: E402
+
+logs.configure(config.ENVIRONMENT)
+
 # Optional Sentry error monitoring, only if a DSN is configured (environment,
 # or approved in the operator console; a change applies after a restart).
 from core import integrations  # noqa: E402
