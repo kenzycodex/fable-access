@@ -122,7 +122,7 @@ class ShieldAnalyzeResponse(BaseModel):
     # Total time spent in the handler. Kept for continuity with earlier
     # responses; it is NOT the number the latency budget is written against.
     latency_ms: float
-    # Time to reach the verdict: funds check, twelve signal layers, scoring.
+    # Time to reach the verdict: funds check, every signal, scoring.
     # This is the figure the sub-200ms budget governs, because it is the only
     # part a payment rail has to wait for.
     decision_ms: float

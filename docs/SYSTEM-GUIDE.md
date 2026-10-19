@@ -183,7 +183,7 @@ tiers.
 | **Copilot** | Learns each customer's normal: amounts, hours, recipients, devices, cities, session habits | Derived live from `transactions` (90-day window) |
 | **Shield** | Scores every transfer against the sixteen signals | Writes `transactions` with signals, score parts and the engine version |
 | **Ghost** | Holds risky transfers in a recoverable cooling window | `ghost_containers` |
-| **Watch** | Continuous monitoring between transactions | Not built — honestly marked "coming soon" |
+| **Watch** | Continuous monitoring between transactions | Not built — marked "Planned" |
 
 Each has a dashboard deep-dive at `/dashboard/agents/{agent}`:
 
@@ -298,7 +298,7 @@ again, an owner can reset the sandbox under **Settings > Data**.
 
 ## 10. Known limits (stated honestly)
 
-- **Watch is not built.** The dashboard marks it "coming soon" rather than
+- **Watch is not built.** The dashboard marks it "Planned" rather than
   faking it.
 - **Reverse geocoding uses third-party map services.** The device's GPS fix is
   named by the API (Google, LocationIQ or Geoapify when keyed, else

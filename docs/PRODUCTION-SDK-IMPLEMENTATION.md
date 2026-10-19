@@ -27,7 +27,7 @@ Next.js API routes (server side)
 FastAPI backend (api/)
  ├─ models/schemas.py     → expanded Device + Context models (all new fields)
  ├─ core/db.py            → migrated transactions table + device_profiles + user_locations
- ├─ agents/shield/analyzer.py → 12-signal scoring pipeline
+ ├─ agents/shield/analyzer.py → the scoring pipeline (sixteen signals)
  ├─ agents/copilot/baseline.py → baseline now includes devices, cities, session stats
  └─ routers/agents.py     → agent-level analytics for the institution dashboard
         │
@@ -35,7 +35,7 @@ FastAPI backend (api/)
 Institution dashboard (/dashboard/agents)
  ├─ Overview: all 4 agents as live cards
  ├─ /agents/copilot  → per-customer baselines, data freshness
- ├─ /agents/shield   → 12-signal pipeline, recent decisions, thresholds
+ ├─ /agents/shield   → the signals and their weights in force, recent decisions, thresholds
  └─ /agents/ghost    → containers, cancellation rate, money saved
 ```
 
@@ -172,11 +172,11 @@ time_to_submit_seconds, client_timestamp, client_timezone`. New tables `device_p
 - `GET /v1/agents/copilot/customers` — per-customer baselines (range, hours, recipients,
   devices, cities, data freshness, live vs seed counts).
 - `GET /v1/agents/shield/decisions?limit=` — recent decisions with parsed signal
-  breakdowns + pipeline metadata (all 14 layers with weights) + accuracy proxies.
+  breakdowns + pipeline metadata (all sixteen signals with the weights in force) + accuracy proxies.
 - `GET /v1/agents/ghost/containers` — container history, cancellation rate, money saved,
   cooling-window config.
 
-Frontend: `/dashboard/agents` overview (4 cards, Watch marked "coming soon"), deep-dive
+Frontend: `/dashboard/agents` overview (4 cards, Watch marked "Planned"), deep-dive
 pages for Copilot (per-customer table + search), Shield (12-layer pipeline visualization,
 recent decisions with expandable signals, thresholds), Ghost (active + historical
 containers, money saved). "Agents" added to the sidebar nav. All pages read the live API
