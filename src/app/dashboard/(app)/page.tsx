@@ -24,7 +24,7 @@ import { changeLabel, dailyOutcomes, periodPair } from "@/lib/fable/analytics";
 import { LATENCY_BUDGET_MS, agentStatus } from "@/lib/fable/constants";
 import { formatNaira, formatNairaCompact, formatRelativeTime } from "@/lib/fable/format";
 import type { Transaction } from "@/lib/fable/types";
-import { useAgentsOverview, useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
+import { FEED_LIMIT, useAgentsOverview, useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
 import { useOnboarding, useReviewCounts } from "@/lib/fable/useConsole";
 import { useFableStore } from "@/lib/fable/store";
 import { useSignedInInstitution } from "@/lib/fable/useInstitution";
@@ -90,7 +90,17 @@ export default function OverviewPage() {
   const days = dailyOutcomes(txns, 14);
   const patterns = (intel?.scam_patterns ?? []).slice(0, 4).map((p) => ({ label: p.label, count: p.count }));
 
-  const total = ready ? s.passCount + s.flagCount + s.blockCount : 0;
+  // Headline counts come from the server, which counts every decision. The
+  // feed holds only the newest FEED_LIMIT, so it used to cap "Transactions
+  // scored" at that number; it is the fallback while the counts load.
+  const counts = stats
+    ? { total: stats.transactions_analyzed, pass: stats.passed, flag: stats.flagged, block: stats.threats_blocked }
+    : { total: s.total, pass: s.passCount, flag: s.flagCount, block: s.blockCount };
+  const countsReady = Boolean(stats) || ready;
+  // Week-on-week movement needs both weeks inside the feed; once the feed is
+  // full it may not reach back 14 days, so no movement is shown.
+  const fullFeed = txns.length >= FEED_LIMIT;
+  const total = countsReady ? counts.pass + counts.flag + counts.block : 0;
   const pct = (n: number) => (total ? `${Math.round((n / total) * 100)}%` : "0%");
 
   return (
@@ -115,18 +125,18 @@ export default function OverviewPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Transactions scored"
-          value={ready ? s.total.toLocaleString("en-NG") : "-"}
+          value={countsReady ? counts.total.toLocaleString("en-NG") : "-"}
           sub="vs previous 7 days"
-          delta={ready ? changeLabel(scored.current, scored.previous, true) : null}
+          delta={ready && !fullFeed ? changeLabel(scored.current, scored.previous, true) : null}
           trend={ready ? (daySeries(txns, () => true) ?? undefined) : undefined}
           icon={<ShieldCheck size={17} weight="fill" />}
           featured
         />
         <StatCard
           label="Threats blocked"
-          value={ready ? String(s.blockCount) : "-"}
-          sub={ready ? `${s.flagCount} flagged for review` : "Loading"}
-          delta={ready ? changeLabel(blocked.current, blocked.previous, false) : null}
+          value={countsReady ? counts.block.toLocaleString("en-NG") : "-"}
+          sub={countsReady ? `${counts.flag.toLocaleString("en-NG")} flagged for review` : "Loading"}
+          delta={ready && !fullFeed ? changeLabel(blocked.current, blocked.previous, false) : null}
           trend={ready ? (daySeries(txns, (t) => t.action === "BLOCK") ?? undefined) : undefined}
           tone="danger"
         />
@@ -134,7 +144,7 @@ export default function OverviewPage() {
           label="Amount protected"
           value={ready ? formatNairaCompact(amountProtected) : "-"}
           sub="vs previous 7 days"
-          delta={ready ? changeLabel(protectedPair.current, protectedPair.previous, true) : null}
+          delta={ready && !fullFeed ? changeLabel(protectedPair.current, protectedPair.previous, true) : null}
           tone="success"
         />
         <StatCard
@@ -173,24 +183,24 @@ export default function OverviewPage() {
           <CardHeader title="Risk distribution" subtitle="All decisions" />
           <DonutChart
             segments={[
-              { label: "Passed", value: ready ? s.passCount : 0, color: "#10b981" },
-              { label: "Flagged", value: ready ? s.flagCount : 0, color: "#f59e0b" },
-              { label: "Blocked", value: ready ? s.blockCount : 0, color: "#ef4444" },
+              { label: "Passed", value: countsReady ? counts.pass : 0, color: "#10b981" },
+              { label: "Flagged", value: countsReady ? counts.flag : 0, color: "#f59e0b" },
+              { label: "Blocked", value: countsReady ? counts.block : 0, color: "#ef4444" },
             ]}
             centerValue={ready ? total.toLocaleString("en-NG") : "-"}
             centerLabel="decisions"
           />
           <ul className="mt-5 flex flex-col gap-2.5 text-[13px]">
             {[
-              { label: "Passed", n: s.passCount, color: "#10b981" },
-              { label: "Flagged", n: s.flagCount, color: "#f59e0b" },
-              { label: "Blocked", n: s.blockCount, color: "#ef4444" },
+              { label: "Passed", n: counts.pass, color: "#10b981" },
+              { label: "Flagged", n: counts.flag, color: "#f59e0b" },
+              { label: "Blocked", n: counts.block, color: "#ef4444" },
             ].map((row) => (
               <li key={row.label} className="flex items-center gap-2.5">
                 <span className="size-2.5 rounded-full" style={{ backgroundColor: row.color }} />
                 <span className="text-d-muted">{row.label}</span>
                 <span className="ml-auto font-semibold tabular-nums text-d-text">{ready ? row.n.toLocaleString("en-NG") : "-"}</span>
-                <span className="w-10 text-right text-[12px] tabular-nums text-d-faint">{ready ? pct(row.n) : ""}</span>
+                <span className="w-10 text-right text-[12px] tabular-nums text-d-faint">{countsReady ? pct(row.n) : ""}</span>
               </li>
             ))}
           </ul>

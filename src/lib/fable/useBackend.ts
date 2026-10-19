@@ -59,12 +59,16 @@ function useTenant(): string | null {
   return store?.session.institutionId ?? null;
 }
 
+/** How many of the newest decisions the console feed holds. Totals come from
+ * the server; anything computed from the feed covers at most this many. */
+export const FEED_LIMIT = 300;
+
 export function useDashboardFeed(pollMs = CADENCE.live): DashboardFeed {
   const store = useFableStore();
   const institution = store?.session.institutionId ?? null;
   const { data, isLoading, error } = useSWR<Transaction[]>(
     ["fable:dashboard-transactions", institution],
-    () => dashboardTransactions(300, institution),
+    () => dashboardTransactions(FEED_LIMIT, institution),
     livePolling(pollMs),
   );
 
