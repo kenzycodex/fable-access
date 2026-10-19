@@ -179,6 +179,12 @@ MANAGED: dict[str, Spec] = {s.name: s for s in (
     Spec("FABLE_RECIPIENT_MEMORY_DAYS", "How long a recipient stays known", "Scoring detection", "config", None,
          rotate_days=0, value_type="int", minimum=30, maximum=1095, unit="days", config_attr="RECIPIENT_MEMORY_DAYS",
          help="After this long without a payment, a recipient counts as new again. Not backtested."),
+    Spec("FABLE_RETENTION_DAYS", "Keep decisions for", "Data retention", "config", None, rotate_days=0,
+         value_type="int", minimum=365, maximum=3650, unit="days", config_attr="RETENTION_DAYS",
+         help="Decisions, imported history, holds and notifications older than this are deleted."),
+    Spec("FABLE_RETENTION_DETAIL_DAYS", "Keep device and location detail for", "Data retention", "config", None,
+         rotate_days=0, value_type="int", minimum=120, maximum=3650, unit="days", config_attr="RETENTION_DETAIL_DAYS",
+         help="After this, a decision keeps its amount and outcome but loses device, location, IP and session detail."),
 )}
 
 # Model names an operator may choose. Extend with FABLE_MODEL_ALLOWLIST.

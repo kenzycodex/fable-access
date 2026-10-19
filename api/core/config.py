@@ -259,3 +259,6 @@ TENURE_DISCOUNT_MAX = _env_float("FABLE_TENURE_DISCOUNT_MAX", 0.08)
 TENURE_FULL_AT = _env_int("FABLE_TENURE_FULL_AT", 120)
 # How long a paid recipient stays "known" rather than new.
 RECIPIENT_MEMORY_DAYS = _env_int("FABLE_RECIPIENT_MEMORY_DAYS", 540)
+# How long personal data is kept (services/retention.py).
+RETENTION_DAYS = _env_int("FABLE_RETENTION_DAYS", 1825)
+RETENTION_DETAIL_DAYS = _env_int("FABLE_RETENTION_DETAIL_DAYS", 730)

@@ -61,6 +61,9 @@ OPERATOR_LOGIN = "operator.login"
 OPERATOR_INVITED = "operator.invited"
 OPERATOR_CHANGED = "operator.changed"
 ASSISTANT_SETTINGS_CHANGED = "platform.assistant_changed"
+DATA_EXPORTED = "data.exported"
+DATA_ERASED = "data.erased"
+RETENTION_APPLIED = "data.retention_applied"
 INSTITUTION_ASSISTANT_CHANGED = "institution.assistant_changed"
 
 

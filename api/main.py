@@ -77,11 +77,12 @@ async def lifespan(_app: FastAPI):
 def register_jobs() -> None:
     """The background jobs (services/scheduler.py). Each is idempotent."""
     from agents.ghost.account import sweep_expired
-    from services import engine_admin, scheduler, webhooks
+    from services import engine_admin, retention, scheduler, webhooks
 
     scheduler.register("ghost_expiry", 30, sweep_expired)
     scheduler.register("webhook_outbox", 15, webhooks.drain)
     scheduler.register("engine_sweep", 600, engine_admin.sweep)
+    scheduler.register("retention", 6 * 3600, retention.apply)
 
 
 app = FastAPI(
