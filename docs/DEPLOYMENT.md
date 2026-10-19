@@ -478,3 +478,92 @@ On Windows, Git Bash rewrites `/deps`-style paths: prefix these commands with
 
 WSL2 works the same way: inside an Ubuntu shell, `python3.12 -m venv .venv &&
 .venv/bin/pip install -r requirements-dev.txt` in `api/`, then `pytest`.
+
+## 12. Which settings live where
+
+| Kind | Where it is set | Examples |
+|---|---|---|
+| **Environment only** (read at start, never stored in the database) | `api/.env` on the server | `FABLE_SESSION_SECRET`, `FABLE_PIN_PEPPER` (+ `_ID`, `_PREVIOUS`), `FABLE_SECRETS_KEY` (+ `_ID`, `_PREVIOUS`), `FABLE_SECRETS_WRITE`, `ENVIRONMENT`, `FABLE_DB_PATH`, `WEBAUTHN_RP_ID`, `WEBAUTHN_ORIGINS`, `FABLE_WEBHOOK_ALLOW_PRIVATE`, `FABLE_ALLOW_DEBUG_OTP`, `FABLE_API_KEYS`, `FABLE_SCHEDULER`, `FABLE_LOG_FORMAT`, `FABLE_LOG_LEVEL`, `TERMII_BASE_URL` |
+| **Environment or operator console** (the environment wins; the console change needs two-person approval, or a 12-hour cooling-off with one owner) | Operator console, Secrets and Environment pages | Integration keys (AI, maps, SMTP password, Termii, Africa's Talking, Sentry), `SMTP_*`, `SMS_PROVIDER`, `FRONTEND_URL`, `FABLE_CORS_ORIGINS`, PIN rules, step-up timings, Ghost windows, detection settings (velocity, recipient memory, tenure), retention periods |
+| **Engine versions** | Operator console, Engine page (draft, backtest, approve, shadow, promote) | Every scoring weight and threshold. `FABLE_W_*` and `FABLE_*_THRESHOLD` in the environment still override, and the Engine page shows which |
+| **Each bank's own** | The bank's console, Settings | Risk policy (flag and block lines, hold windows, analysts may release), team, API key, webhooks |
+
+## 13. Updating the lock files
+
+The image installs `api/requirements.lock`. After changing
+`requirements.txt`, resolve on Linux with Python 3.12 (section 11's volume),
+run the tests, then write both locks:
+
+```bash
+docker run --rm -v fable-pydeps:/deps -v "$PWD/api:/app:ro" -w /app python:3.12-slim \
+  sh -c "/deps/venv/bin/pip install -q -r requirements-dev.txt && /deps/venv/bin/pip freeze" > /tmp/freeze.txt
+# requirements-dev.lock: everything. requirements.lock: without pytest, pluggy,
+# iniconfig, Pygments and ruff.
+```
+
+## 14. Deploying the Phase 0 branch: checklist
+
+In this order. Each step was confirmed on the current server where noted.
+
+**1. Refuse-to-start settings.** With `ENVIRONMENT=production` the API will
+not start without these. All were confirmed set on the server on 16 October:
+
+| Setting | Generate with |
+|---|---|
+| `FABLE_SECRETS_KEY` (and `FABLE_SECRETS_KEY_ID=k1`) | `python -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"` |
+| `FABLE_SESSION_SECRET` | `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
+| `FABLE_PIN_PEPPER` (and `FABLE_PIN_PEPPER_ID=1`) | `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `FABLE_CORS_ORIGINS` | the site's origin, never `*` (here `https://fablehq.vercel.app`) |
+| `WEBAUTHN_RP_ID`, `WEBAUTHN_ORIGINS` | the site's domain and origin (here `fablehq.vercel.app`) |
+| `FABLE_WEBHOOK_ALLOW_PRIVATE` | must be unset or false |
+
+Keep a copy of the secrets key and the pepper offline: losing them means
+re-entering integration keys, and every customer setting a new PIN.
+
+**2. Pre-deploy SQL** (on a copy or read-only):
+
+```sql
+-- Holds that will expire on first boot, split by whether they get announced.
+SELECT
+  SUM(CASE WHEN datetime(expires_at) > datetime('now', '-1 hour') THEN 1 ELSE 0 END) AS announced,
+  SUM(CASE WHEN datetime(expires_at) <= datetime('now', '-1 hour') THEN 1 ELSE 0 END) AS quiet
+FROM ghost_containers
+WHERE status = 'HELD' AND expires_at IS NOT NULL AND datetime(expires_at) <= datetime('now');
+
+-- Duplicate client references within one bank (these would block the new index).
+SELECT institution_id, client_reference, COUNT(*) FROM transactions
+WHERE client_reference IS NOT NULL GROUP BY 1, 2 HAVING COUNT(*) > 1;
+```
+
+**3. The data directory belongs to the container's user.** The image now
+runs as uid 10001. The deploy script fixes ownership when it runs as root; by
+hand: `sudo chown -R 10001:10001 /var/www/fable/api/data`.
+
+**4. Back up, deploy, check health.** The deploy script backs up the database,
+rebuilds, and rolls back if `/health` fails. Afterwards `/health` must show
+no `missing_required_routers`, the scheduler running, and the outbox draining.
+
+**5. Privacy notice date.** Set the privacy notice effective date to the
+deploy date before publishing: `PRIVACY_EFFECTIVE` in `src/data/legal.ts` is
+a marked placeholder.
+
+**6. The release engine draft (first-transfer weights and the new anomaly
+model).** On deploy day, on the operator console's Engine page:
+
+1. Open the system draft. Run a 30-day backtest and read "What each change
+   does": the first-transfer weights should move large first transfers from
+   new customers to FLAG or BLOCK; the anomaly model should mostly move
+   decisions from FLAG to PASS (it stops adding points to typical transfers).
+2. Propose it the same day, so the 12-hour cooling-off starts at once (with
+   one owner; a second owner can approve instead).
+3. After approval, run it in shadow for at least 3 days and read the shadow
+   comparison, again per change.
+4. Promote.
+5. Test: a brand-new customer sending ₦900,000,000 on the mobile app must be
+   FLAG or BLOCK. Before promotion it passes at 0.47.
+
+**7. Phones need re-confirming.** Customers' phone numbers become code
+channels only after they confirm them with a code.
+
+**8. Optional: approve deploys.** In the repository settings, add required
+reviewers to the `production` environment so every deploy waits for a person.

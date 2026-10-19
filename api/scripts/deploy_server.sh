@@ -49,6 +49,13 @@ if docker compose ps --status running --services 2>/dev/null | grep -qx api; the
     docker compose exec -T api python -c "import os, sqlite3, time; from core.config import DB_PATH; d = sqlite3.connect(os.path.join(os.path.dirname(DB_PATH), time.strftime('backup-deploy-%Y%m%d-%H%M%S.db'))); sqlite3.connect(DB_PATH).backup(d); d.close(); print('Database backed up.')"
     ls -1t data/backup-deploy-*.db 2>/dev/null | tail -n +11 | xargs -r rm -f
 fi
+# The image runs as uid 10001 (Dockerfile). The SQLite volume must be
+# writable by it; fix ownership once when this runs as root.
+mkdir -p data
+if [ "$(id -u)" = "0" ] && [ "$(stat -c %u data)" != "10001" ]; then
+    chown -R 10001:10001 data
+    echo "Gave data/ to the container's user (10001)."
+fi
 docker compose up -d --build --remove-orphans
 if ! healthy; then
     echo "The new version failed its health check. Rolling back to $before."
