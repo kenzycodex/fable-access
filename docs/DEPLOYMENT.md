@@ -484,7 +484,7 @@ WSL2 works the same way: inside an Ubuntu shell, `python3.12 -m venv .venv &&
 | Kind | Where it is set | Examples |
 |---|---|---|
 | **Environment only** (read at start, never stored in the database) | `api/.env` on the server | `FABLE_SESSION_SECRET`, `FABLE_PIN_PEPPER` (+ `_ID`, `_PREVIOUS`), `FABLE_SECRETS_KEY` (+ `_ID`, `_PREVIOUS`), `FABLE_SECRETS_WRITE`, `ENVIRONMENT`, `FABLE_DB_PATH`, `WEBAUTHN_RP_ID`, `WEBAUTHN_ORIGINS`, `FABLE_WEBHOOK_ALLOW_PRIVATE`, `FABLE_ALLOW_DEBUG_OTP`, `FABLE_API_KEYS`, `FABLE_SCHEDULER`, `FABLE_LOG_FORMAT`, `FABLE_LOG_LEVEL`, `TERMII_BASE_URL` |
-| **Environment or operator console** (the environment wins; the console change needs two-person approval, or a 12-hour cooling-off with one owner) | Operator console, Secrets and Environment pages | Integration keys (AI, maps, SMTP password, Termii, Africa's Talking, Sentry), `SMTP_*`, `SMS_PROVIDER`, `FRONTEND_URL`, `FABLE_CORS_ORIGINS`, PIN rules, step-up timings, Ghost windows, detection settings (velocity, recipient memory, tenure), retention periods |
+| **Environment or operator console** (the environment wins; a console change needs approval with a 12-hour cooling-off, or a second owner's approval when there are two) | Operator console, Secrets and Environment pages | Integration keys (AI, maps, SMTP password, Termii, Africa's Talking, Sentry), `SMTP_*`, `SMS_PROVIDER`, `FRONTEND_URL`, `FABLE_CORS_ORIGINS`, PIN rules, step-up timings, Ghost windows, detection settings (velocity, recipient memory, tenure), retention periods |
 | **Engine versions** | Operator console, Engine page (draft, backtest, approve, shadow, promote) | Every scoring weight and threshold. `FABLE_W_*` and `FABLE_*_THRESHOLD` in the environment still override, and the Engine page shows which |
 | **Each bank's own** | The bank's console, Settings | Risk policy (flag and block lines, hold windows, analysts may release), team, API key, webhooks |
 
@@ -542,6 +542,21 @@ hand: `sudo chown -R 10001:10001 /var/www/fable/api/data`.
 **4. Back up, deploy, check health.** The deploy script backs up the database,
 rebuilds, and rolls back if `/health` fails. Afterwards `/health` must show
 no `missing_required_routers`, the scheduler running, and the outbox draining.
+
+**Delete the pre-deploy backup after a week.** The backup the deploy script
+takes (`api/data/backup-deploy-*.db`) is a copy of the database *before* the
+first boot coarsened it, so it still holds exact GPS coordinates and full IP
+addresses, and none of the retention or erasure applied since. Keep it only
+as long as a rollback might need it, 7 days is suggested, then delete it:
+
+```bash
+# On the server: list, then delete deploy backups older than 7 days.
+find /var/www/fable/api/data -name 'backup-deploy-*.db' -mtime +7 -print
+find /var/www/fable/api/data -name 'backup-deploy-*.db' -mtime +7 -delete
+```
+
+The same applies to any copy taken by hand or by a hosting snapshot before
+this deploy.
 
 **5. Privacy notice date.** Set the privacy notice effective date to the
 deploy date before publishing: `PRIVACY_EFFECTIVE` in `src/data/legal.ts` is
