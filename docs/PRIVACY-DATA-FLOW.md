@@ -55,15 +55,15 @@ A scheduled job (`services/retention.py`, every 6 hours) deletes or clears:
 
 | Data | After |
 |---|---|
-| Decisions, imported history, holds, notifications, decision snapshots, analysts' notes on deleted decisions | `FABLE_RETENTION_DAYS` (default 1,825 days, 5 years) |
+| Decisions, imported history, holds, notifications, decision snapshots, analysts' notes on deleted decisions | `FABLE_RETENTION_DAYS` (default and minimum 1,825 days, 5 years) |
 | Device, location, IP and session detail on decisions; the location history | `FABLE_RETENTION_DETAIL_DAYS` (default 730 days). The decision keeps amount, outcome, recipient and score |
 | Uploaded import rows never applied | 7 days (applied rows are deleted as soon as the import finishes) |
 | Sandbox inbox | 30 days |
 | Spent step-up challenges and tokens | 1 day after expiry |
 | Delivered webhook events | 30 days |
 
-Both periods are operator settings with bounds (1 to 10 years; 120 days to 10
-years). Every pass is recorded in the audit log. The audit log itself is kept
+Both periods are operator settings with bounds (5 to 10 years, never less
+than 5 even from the environment; 120 days to 10 years). Every pass is recorded in the audit log. The audit log itself is kept
 for the life of the agreement.
 
 ## 5. A customer's request
@@ -81,6 +81,8 @@ The institution answers it. In the console, on the customer's page, an owner can
   field cleared. Refused while a hold is in progress. The audit log records the
   erasure with a hash of the reference, so the bank can later prove it, without
   keeping the reference. API: `POST /v1/customers/{id}/erase`.
+
+Before erasing, the bank, as data controller, must check the erasure is allowed, including its record-keeping duties: Nigeria's money laundering rules require transaction records to be kept for at least 5 years. Fable keeps an erased customer's decisions only as anonymous outcomes, so the bank's own core banking records remain the record of the transfers. The console shows this warning before an owner confirms.
 
 A customer can also switch location off themselves on their security page.
 Turning it off needs a factor they already have, because it removes a check.

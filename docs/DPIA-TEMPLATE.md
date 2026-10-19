@@ -42,6 +42,7 @@ Copy section 1 of PRIVACY-DATA-FLOW.md, then record your choices:
 | How long is data kept? | Decisions 5 years; device, location, IP and session detail 2 years (section 4 of the data flow). _[Confirm these match your record-keeping policy or ask Fable to change them.]_ |
 | How are customers told? | _[Where your privacy notice describes fraud screening, location and device checks]_ |
 | How do customers exercise rights? | Your owners export or erase one customer from the console. _[Your process and response time.]_ |
+| Who decides an erasure is allowed? | Your institution, as controller. Check record-keeping duties first: transaction records must be kept at least 5 years under Nigeria's money laundering rules. Fable keeps erased customers' decisions only as anonymous outcomes. _[Who approves erasures, and how you check.]_ |
 | Is there human review of automated decisions? | Flagged and blocked transfers go to your review queue; holds can be released by your staff; every decision has a written reason. _[Who reviews, and how fast.]_ |
 
 ## 4. Risks and measures

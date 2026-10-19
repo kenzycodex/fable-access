@@ -35,6 +35,10 @@ export const legalContact = {
 };
 
 const EFFECTIVE = "8 October 2026";
+// PLACEHOLDER: the privacy notice changed materially (retention periods,
+// location switch, console erasure). Set this to the deploy date before
+// publishing; it is on the deployment checklist.
+const PRIVACY_EFFECTIVE = "[set to the deploy date before publishing]";
 const VERSION = "1.0";
 
 const p = (text: string): LegalBlock => ({ type: "p", text });
@@ -50,7 +54,7 @@ export const privacyNotice: LegalDocument = {
   title: "Privacy Notice",
   summary:
     "How Fable collects, uses, shares and protects personal data, for the people who visit our site, the staff of institutions who use the console, and the customers of those institutions whose transfers we score.",
-  effective: EFFECTIVE,
+  effective: PRIVACY_EFFECTIVE,
   version: VERSION,
   sections: [
     {
@@ -182,7 +186,7 @@ export const privacyNotice: LegalDocument = {
           ["One-time codes and step-up challenges", "Minutes. They expire after 10 minutes and are single-use"],
           ["Password-reset links", "Short-lived and single-use"],
           ["Console session", "Until it expires (hours), or you sign out"],
-          ["Transfer decisions, imported history, holds and notifications", "5 years, then deleted automatically (an operator can set 1 to 10 years for the platform)"],
+          ["Transfer decisions, imported history, holds and notifications", "5 years, then deleted automatically (an operator can set 5 to 10 years for the platform, never less)"],
           ["Device, location, IP and session detail on a decision, and the location history", "2 years, then cleared automatically; the decision keeps its amount and outcome"],
           ["Uploaded import files that were never applied", "7 days"],
           ["Codes shown in the sandbox inbox", "30 days"],

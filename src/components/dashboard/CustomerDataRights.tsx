@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { DownloadSimple, Trash } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/dashboard/Dialog";
-import { Button, Card, CardHeader, Field, TextInput } from "@/components/dashboard/primitives";
+import { Button, Card, CardHeader, Field, Notice, TextInput } from "@/components/dashboard/primitives";
 import { customerRecord, eraseCustomer, exportCustomer } from "@/lib/fable/console";
 import { usePermissions } from "@/lib/fable/useConsole";
 
@@ -72,12 +72,21 @@ export function CustomerDataRights({ userId }: { userId: string }) {
         onClose={() => { setOpen(false); setTyped(""); }}
         onConfirm={erase}
         title="Erase this customer?"
-        description="This cannot be undone. Type their reference to confirm."
+        description="This cannot be undone."
         confirmLabel="Erase"
         tone="danger"
         busy={erasing}
       >
-        <Field label={`Type ${record.reference}`}>
+        <Notice tone="warning" className="mb-4 text-[12px] leading-relaxed">
+          <p className="font-semibold">Your bank decides whether this erasure is allowed.</p>
+          <p className="mt-1">
+            As the data controller, your institution must check it may erase this customer, including its record-keeping
+            duties: Nigeria&apos;s money laundering rules require transaction records to be kept for at least 5 years.
+            Fable keeps this customer&apos;s past decisions only as anonymous outcomes, with nothing that identifies them,
+            so keep your own transaction records in your core banking system.
+          </p>
+        </Notice>
+        <Field label={`Type ${record.reference} to confirm`}>
           <TextInput value={typed} onChange={(e) => setTyped(e.target.value)} aria-label="Customer reference" autoComplete="off" />
         </Field>
       </ConfirmDialog>
