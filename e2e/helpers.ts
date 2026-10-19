@@ -77,3 +77,24 @@ export function ageHold(reference: string) {
     stdio: "inherit",
   });
 }
+
+/** The e2e operator's current authenticator code (api/scripts/e2e_totp.py). */
+export function operatorCode(): string {
+  return execFileSync(python(), ["scripts/e2e_totp.py"], {
+    cwd: path.resolve(__dirname, "..", "api"),
+    env: { ...process.env, FABLE_DB_PATH: process.env.FABLE_E2E_DB },
+  }).toString().trim();
+}
+
+/** Sign in to the operator console as the seeded platform owner. */
+export async function signInOperator(page: Page) {
+  await page.goto("/operator/login");
+  await page.getByLabel("Work email").fill("owner@fable-e2e.test");
+  await page.getByLabel("Password").fill(PASSWORD);
+  await page.getByRole("button", { name: /sign in|continue/i }).first().click();
+  const code = page.getByLabel("6-digit code");
+  await expect(code).toBeVisible();
+  await code.fill(operatorCode());
+  await code.press("Enter");
+  await page.waitForURL(/\/operator(\/(?!login).*)?$/);
+}

@@ -60,7 +60,29 @@ def main() -> None:
                 (long_ago, f"{ref}@e2ebank.test", long_ago, customer["id"]),
             )
             cur.execute("UPDATE customers SET display_name = ? WHERE id = ?", (name, customer["id"]))
-    print(f"seeded {INSTITUTION} with {len(CUSTOMERS)} customers")
+    _operator()
+    print(f"seeded {INSTITUTION} with {len(CUSTOMERS)} customers and an operator")
+
+
+# A platform owner for the operator console, with a fixed authenticator secret
+# so the browser tests can compute its codes (scripts/e2e_totp.py).
+OPERATOR = "owner@fable-e2e.test"
+OPERATOR_TOTP = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+
+
+def _operator() -> None:
+    from core import operators
+    from core.db import cursor
+    from scripts.create_operator import create
+
+    with cursor() as cur:
+        cur.execute("SELECT 1 FROM operators WHERE email = ?", (OPERATOR,))
+        exists = cur.fetchone()
+    if not exists:
+        create(OPERATOR, "E2E Owner", "platform_owner", PASSWORD)
+    with cursor() as cur:
+        cur.execute("UPDATE operators SET totp_enabled = 1, totp_secret = ?, totp_last_step = NULL, active = 1 "
+                    "WHERE email = ?", (operators.seal(OPERATOR_TOTP), OPERATOR))
 
 
 if __name__ == "__main__":
