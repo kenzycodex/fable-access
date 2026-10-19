@@ -17,7 +17,6 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("FABLE_DB_PATH", os.path.join(tempfile.mkdtemp(), "endpoints.db"))
 os.environ.setdefault("FABLE_SESSION_SECRET", "test-secret")
-os.environ.setdefault("FABLE_OPERATOR_KEY", "test-operator-key")
 os.environ.setdefault("SMTP_USERNAME", "")
 
 from helpers import ref as user_id_for  # noqa: E402

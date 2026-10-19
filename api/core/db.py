@@ -26,6 +26,9 @@ _init_lock = threading.Lock()
 _initialized = False
 
 SCHEMA = """
+-- No longer written or read by the app (customers replaced it); kept, empty
+-- on new installs, because migrations only ever add. Read once by the
+-- customers backfill for databases from before the customers table.
 CREATE TABLE IF NOT EXISTS fable_users (
     user_id TEXT PRIMARY KEY,
     -- No default: every customer is created for a named institution. A default
@@ -188,6 +191,7 @@ CREATE TABLE IF NOT EXISTS login_failures (
 );
 
 -- Former ids of renamed customers (see scripts/rename_customers.py).
+-- No longer written by the app; kept because migrations only ever add.
 CREATE TABLE IF NOT EXISTS user_aliases (
     alias TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -1018,12 +1022,6 @@ def _backfill_customers(conn) -> None:
     this were sandbox customers, so they are marked as test customers. Runs on
     every start and only inserts what is missing.
     """
-    try:
-        from agents.copilot.demo_customers import customer_name_for
-    except Exception:  # noqa: BLE001 - names are a nicety, never a blocker
-        def customer_name_for(_user_id):
-            return None
-
     rows = conn.execute(
         """SELECT user_id, institution_id FROM (
                SELECT user_id, institution_id FROM fable_users
@@ -1040,7 +1038,7 @@ def _backfill_customers(conn) -> None:
             """INSERT OR IGNORE INTO customers
                    (id, institution_id, external_ref, display_name, kind, source)
                VALUES (?, ?, ?, ?, 'test', 'console')""",
-            (user_id, institution_id, user_id, customer_name_for(user_id)),
+            (user_id, institution_id, user_id, None),
         )
         added += cur.rowcount
     conn.commit()
