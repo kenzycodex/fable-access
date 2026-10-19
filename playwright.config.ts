@@ -7,6 +7,9 @@ import { defineConfig, devices } from "@playwright/test";
 //
 //   pnpm exec playwright install chromium   # once
 //   pnpm test:e2e
+//
+// FABLE_E2E_DOCKER=1 runs the API on Linux in a container instead (see
+// "Running on Linux" in docs/DEPLOYMENT.md); the browser and Next stay here.
 const API_PORT = process.env.E2E_API_PORT ?? "8766";
 const WEB_PORT = process.env.E2E_WEB_PORT ?? "3101";
 const DB = process.env.FABLE_E2E_DB ?? path.join(os.tmpdir(), "fable-e2e.db");
@@ -31,6 +34,7 @@ const apiEnv = {
 
 export default defineConfig({
   testDir: "./e2e",
+  globalTeardown: "./e2e/teardown.ts",
   timeout: 180_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,

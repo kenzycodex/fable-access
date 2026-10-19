@@ -69,21 +69,26 @@ function python(): string {
   return existsSync(venv) ? venv : "python";
 }
 
-/** Close a customer's hold window in the throwaway database. */
-export function ageHold(reference: string) {
-  execFileSync(python(), ["scripts/e2e_age_hold.py", reference], {
+/** Run one of api/scripts against the throwaway database: on this machine, or
+ * inside the API's container when the tests run it on Linux (FABLE_E2E_DOCKER). */
+function apiScript(args: string[]): string {
+  if (process.env.FABLE_E2E_DOCKER === "1") {
+    return execFileSync("docker", ["exec", "fable-e2e-api", "/deps/venv/bin/python", ...args]).toString();
+  }
+  return execFileSync(python(), args, {
     cwd: path.resolve(__dirname, "..", "api"),
     env: { ...process.env, FABLE_DB_PATH: process.env.FABLE_E2E_DB },
-    stdio: "inherit",
-  });
+  }).toString();
+}
+
+/** Close a customer's hold window in the throwaway database. */
+export function ageHold(reference: string) {
+  apiScript(["scripts/e2e_age_hold.py", reference]);
 }
 
 /** The e2e operator's current authenticator code (api/scripts/e2e_totp.py). */
 export function operatorCode(): string {
-  return execFileSync(python(), ["scripts/e2e_totp.py"], {
-    cwd: path.resolve(__dirname, "..", "api"),
-    env: { ...process.env, FABLE_DB_PATH: process.env.FABLE_E2E_DB },
-  }).toString().trim();
+  return apiScript(["scripts/e2e_totp.py"]).trim().split(/\s+/).pop() ?? "";
 }
 
 /** Sign in to the operator console as the seeded platform owner. */

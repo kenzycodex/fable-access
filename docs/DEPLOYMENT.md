@@ -431,3 +431,50 @@ signature problem rather than config.
 | DigitalOcean VPS | Basic Droplet | ~$4 - $6/mo |
 | Paystack | Test mode | Free |
 | OpenAI | Pay-as-you-go | Cents at demo volume |
+
+## 11. Running on Linux locally (tests and the API, like production)
+
+Production runs the API on Linux in `python:3.12-slim`. On a Windows machine
+where Application Control blocks compiled Python packages (it blocked the
+`cbor2` extension that passkeys need), run the API and its tests in that same
+image instead of the Windows virtualenv. No new image is built or pulled if
+`python:3.12-slim` is already present (`docker images`); the packages live in a
+reusable volume.
+
+Once, install the API's packages into the `fable-pydeps` volume (about 250 MB
+download):
+
+```bash
+docker run --rm -v fable-pydeps:/deps -v "$PWD/api:/app:ro" -w /app python:3.12-slim \
+  sh -c "python -m venv /deps/venv && /deps/venv/bin/pip install -q -r requirements-dev.txt"
+```
+
+Re-run it after `requirements*.txt` change.
+
+Backend lint and tests (read-only on the source):
+
+```bash
+docker run --rm -v fable-pydeps:/deps -v "$PWD/api:/app:ro" -w /app python:3.12-slim sh scripts/linux_check.sh
+```
+
+Browser tests with the API on Linux (the browser and Next dev server stay on
+the host; the e2e database lives in the `fable-e2e-data` volume):
+
+```bash
+FABLE_E2E_DOCKER=1 pnpm test:e2e                 # Git Bash, macOS, Linux
+$env:FABLE_E2E_DOCKER = "1"; pnpm test:e2e       # PowerShell
+```
+
+The API for local development, on http://localhost:8000:
+
+```bash
+docker run --rm -p 8000:8000 -v fable-pydeps:/deps -v "$PWD/api:/app" -v fable-dev-data:/data -w /app \
+  -e FABLE_DB_PATH=/data/fable.db -e FABLE_SESSION_SECRET=dev-only-secret python:3.12-slim \
+  /deps/venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+On Windows, Git Bash rewrites `/deps`-style paths: prefix these commands with
+`MSYS_NO_PATHCONV=1`, or run them from PowerShell with `${PWD}`.
+
+WSL2 works the same way: inside an Ubuntu shell, `python3.12 -m venv .venv &&
+.venv/bin/pip install -r requirements-dev.txt` in `api/`, then `pytest`.

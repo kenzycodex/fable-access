@@ -223,7 +223,7 @@ cp .env.example .env
 
 uvicorn main:app --port 8000 --reload
 ```
-*📚 Interactive API documentation is generated at `http://localhost:8000/docs`. Run the tests with `pytest`, and the browser tests from the repository root with `pnpm test:e2e`.*
+*📚 Interactive API documentation is generated at `http://localhost:8000/docs`. Run the tests with `pytest`, and the browser tests from the repository root with `pnpm test:e2e`. On a machine where Windows blocks compiled Python packages, run both on Linux in Docker instead: see [docs/DEPLOYMENT.md, section 11](docs/DEPLOYMENT.md#11-running-on-linux-locally-tests-and-the-api-like-production).*
 
 ### 2. Start the Fable Platform (Frontend)
 The Next.js frontend runs on port `3000` and hosts the marketing site, the console and the demo bank.
