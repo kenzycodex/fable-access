@@ -11,16 +11,19 @@ WHAT_WE_DONT_STORE = [
 
 
 def your_controls() -> dict:
-    """What a customer can do about their own data today. Every flag is false
-    until the control exists; the keys are kept so existing clients still parse
-    the response. Requests for a copy or erasure go through the customer's bank."""
+    """What a customer can do about their own data today. A flag is true only
+    when the control exists; the keys are kept so existing clients still parse
+    the response. Copies and erasure exist, but go through the customer's bank
+    (an owner exports or erases in the console), so they read false here."""
     return {
         "can_reset_baseline": False,
-        "can_disable_location": False,
+        # Built: the security page has a switch (POST .../security/location).
+        "can_disable_location": True,
         "can_disable_device_tracking": False,
         "can_export_data": False,
         "can_delete_all_data": False,
-        "how_to_request": "Ask your bank for a copy of your data or for it to be deleted.",
+        "how_to_request": "Ask your bank for a copy of your data or for it to be deleted. "
+                          "You can stop your location being used on your security page.",
     }
 
 

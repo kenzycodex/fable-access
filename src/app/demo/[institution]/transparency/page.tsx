@@ -8,6 +8,7 @@ import {
   EnvelopeSimple,
   Fingerprint,
   LockKey,
+  MapPin,
   ShieldCheck,
 } from "@phosphor-icons/react";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
@@ -32,6 +33,7 @@ import {
   securityStatus,
   setPin as apiSetPin,
   setContact as apiSetContact,
+  setLocationSharing as apiSetLocationSharing,
   setTwoFactor as apiSetTwoFactor,
   type ContactVerification,
   type SecurityStatus,
@@ -214,6 +216,7 @@ function VerificationSetup({
           onDone={refresh}
         />
         <TwoFactorRow status={status} userId={userId} institutionId={institutionId} onDone={refresh} />
+        <LocationRow status={status} userId={userId} institutionId={institutionId} onDone={refresh} />
       </div>
     </Card>
   );
@@ -723,6 +726,66 @@ function PasskeyRow({
         </div>
       )}
       <Feedback error={error} ok={ok} note={note} />
+    </RowShell>
+  );
+}
+
+/** Whether the customer's location is used to spot unusual transfers. Off
+ * needs a factor they already have, so a stolen session cannot switch it off
+ * before a transfer from somewhere new; on needs nothing. */
+function LocationRow({
+  status,
+  userId,
+  institutionId,
+  onDone,
+}: {
+  status: SecurityStatus | null;
+  userId: string;
+  institutionId: string | null;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pin, setPin] = useState("");
+  const { busy, error, run } = useAction();
+  const on = status?.location_shared !== false;
+  const gate = gateKind(status);
+  const pinLength = pinLengthOf(status);
+
+  function change(enteredPin?: string, stepupToken?: string | null) {
+    void run(async () => {
+      await apiSetLocationSharing(userId, !on, on && gate === "pin" ? (enteredPin ?? pin) : null, stepupToken ?? null);
+      setPin("");
+      setOpen(false);
+      onDone();
+    }, "");
+  }
+
+  return (
+    <RowShell
+      icon={<MapPin size={18} weight="bold" />}
+      title="Use my location"
+      description={on ? "A transfer from a new city gets an extra check" : "Off: a transfer from somewhere new is not noticed"}
+      state={<Toggle on={on} label="Use my location" onChange={() => (on && gate !== "none" ? setOpen((o) => !o) : change())} />}
+    >
+      {on && gate === "pin" && open && (
+        <div className="flex flex-col gap-4 rounded-2xl bg-d-surface-2/60 p-4">
+          <PinField
+            label="Confirm with your PIN to turn off"
+            length={pinLength}
+            value={pin}
+            onChange={setPin}
+            onComplete={(v) => change(v)}
+            autoFocus
+            disabled={busy}
+          />
+        </div>
+      )}
+      {on && gate === "token" && open && (
+        <div className="flex flex-col gap-4 rounded-2xl bg-d-surface-2/60 p-4">
+          <TokenGate userId={userId} institutionId={institutionId} token={null} onToken={(t) => change(undefined, t)} />
+        </div>
+      )}
+      <Feedback error={error} ok={null} />
     </RowShell>
   );
 }

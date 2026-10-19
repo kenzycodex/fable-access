@@ -167,6 +167,8 @@ _SECURITY_COPY = {
     "passkey_added": ("A device was added", "A new device was added for fingerprint or face confirmation."),
     "two_factor_changed": ("Your verification preference changed",
                            "Your 'always ask me to verify' setting was changed."),
+    "location_off": ("Location checks were turned off",
+                     "Your location is no longer used to spot unusual transfers."),
 }
 
 

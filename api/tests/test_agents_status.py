@@ -71,7 +71,8 @@ def test_the_transparency_panel_claims_only_controls_that_exist():
 
     body = get_transparency_data("nobody-with-history")
     controls = body["your_controls"]
-    assert not any(v for k, v in controls.items() if k.startswith("can_")), "no control is built yet"
+    built = {k for k, v in controls.items() if k.startswith("can_") and v}
+    assert built == {"can_disable_location"}, built
     assert not any("GPS" in line for line in body["what_we_dont_store"]), "device location is stored"
 
 

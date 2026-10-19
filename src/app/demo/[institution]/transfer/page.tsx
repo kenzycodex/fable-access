@@ -32,7 +32,14 @@ import {
   inputClass,
 } from "@/components/app-kit";
 import { BehavioralTracker } from "@/lib/fable/biometrics";
-import { accountBalance, FableUnavailableError, InsufficientFundsError, sandboxRecipients, type SavedRecipient } from "@/lib/fable/api";
+import {
+  accountBalance,
+  FableUnavailableError,
+  InsufficientFundsError,
+  sandboxRecipients,
+  securityStatus,
+  type SavedRecipient,
+} from "@/lib/fable/api";
 import { collectDeviceFingerprint, type DeviceFingerprint } from "@/lib/fable/fingerprint";
 import { formatNaira } from "@/lib/fable/format";
 import { getGeolocationSnapshot, subscribeGeolocation, type GeoLocation } from "@/lib/fable/geolocation";
@@ -118,8 +125,6 @@ export default function TransferPage() {
     tracker = t;
 
     void collectDeviceFingerprint().then(setDevice);
-    // Shown the moment a first reading exists, then updated as it sharpens.
-    const stopLocation = subscribeGeolocation(setLocation);
 
     // Browser-only state (the session clock and the detected channel) is set up
     // from a callback rather than synchronously in the effect body, so the first
@@ -141,12 +146,24 @@ export default function TransferPage() {
 
     return () => {
       clearTimeout(init);
-      stopLocation();
       if (tick) clearInterval(tick);
       t.stop();
       if (tracker === t) tracker = null;
     };
   }, []);
+
+  // Location is read only for a customer who has not turned it off, and only
+  // once that is known, so an opted-out customer is never asked for it.
+  const { data: security } = useSWR(
+    customer ? ["security", customer.user_id] : null,
+    () => securityStatus(customer!.user_id),
+  );
+  const locationShared = security ? security.location_shared !== false : null;
+  useEffect(() => {
+    if (!locationShared) return;
+    // Shown the moment a first reading exists, then updated as it sharpens.
+    return subscribeGeolocation(setLocation);
+  }, [locationShared]);
 
   // Real bank list (Paystack when a key is configured, a built-in list otherwise).
   useEffect(() => {
@@ -259,7 +276,7 @@ export default function TransferPage() {
     // Everything the SDK collected on this page travels with the transfer.
     const sdk = {
       device,
-      location: getGeolocationSnapshot(),
+      location: locationShared ? getGeolocationSnapshot() : null,
       session: getSessionContext(),
       behavior: tracker?.snapshot() ?? null,
     };
@@ -596,7 +613,7 @@ export default function TransferPage() {
                   {device ? `${device.os} · ${device.browser}` : "Reading…"}
                 </Signal>
                 <Signal icon={<MapPin size={16} />} title="Location">
-                  <LocationStatus location={location} />
+                  {locationShared === false ? "Not used: you turned it off" : <LocationStatus location={location} />}
                 </Signal>
                 <Signal icon={<Timer size={16} />} title="Session">
                   {session

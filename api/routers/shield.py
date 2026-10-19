@@ -90,6 +90,15 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
             context["nip_source"] = None
             context["nip_response_code"] = None
 
+    # A customer who chose not to share their location: none of it is scored
+    # or stored, whatever the app sent.
+    from core import security as _security
+
+    if _security.location_opted_out(payload.user_id):
+        for key in ("latitude", "longitude", "accuracy_m", "city", "region", "country", "country_code",
+                    "location_source"):
+            context[key] = None
+
     # Server-observed client IP as a fallback when the SDK didn't send one.
     if not device.get("ip") and request.client:
         device["ip"] = request.client.host

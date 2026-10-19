@@ -222,3 +222,29 @@ def test_retention_clears_detail_then_deletes(client, monkeypatch):
         cur.execute("SELECT COUNT(*) AS n FROM transactions WHERE id = ?", (very_old,))
         assert cur.fetchone()["n"] == 0
     assert retention.apply()["transactions"] == 0, "idempotent"
+
+
+# ── Location opt-out ────────────────────────────────────────────────────────
+
+def test_a_customer_who_opts_out_of_location_has_none_stored_or_scored(client):
+    from core import security
+    from core.db import cursor
+
+    ref = f"opt-{secrets.token_hex(3)}"
+    user = _customer(ref)
+    security.set_pin(user, "1357", institution_id=BANK)
+    # Turning it off needs a factor the customer already has.
+    bare = client.post(f"/v1/accounts/{user}/security/location", headers=_session(), json={"share": False})
+    assert bare.status_code == 400
+    res = client.post(f"/v1/accounts/{user}/security/location", headers=_session(),
+                      json={"share": False, "current_pin": "1357"})
+    assert res.status_code == 200 and res.json()["location_shared"] is False
+    txid = _decide(client, user)
+    with cursor() as cur:
+        cur.execute("SELECT latitude, longitude, city, country FROM transactions WHERE id = ?", (txid,))
+        assert tuple(cur.fetchone()) == (None, None, None, None)
+        cur.execute("SELECT COUNT(*) AS n FROM user_locations WHERE user_id = ?", (user,))
+        assert cur.fetchone()["n"] == 0
+    # Turning it back on needs nothing.
+    on = client.post(f"/v1/accounts/{user}/security/location", headers=_session(), json={"share": True})
+    assert on.status_code == 200 and on.json()["location_shared"] is True

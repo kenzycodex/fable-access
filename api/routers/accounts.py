@@ -128,6 +128,33 @@ def set_two_factor(user_id: str, payload: TwoFactorRequest, request: Request):
     return result
 
 
+class LocationSharingRequest(BaseModel):
+    share: bool
+    current_pin: Optional[str] = None
+    stepup_token: Optional[str] = None
+
+
+@router.post("/{user_id}/security/location")
+def set_location_sharing(user_id: str, payload: LocationSharingRequest, request: Request):
+    """The customer chooses whether their location is used. Turning it off
+    removes a check (a transfer from a new city is no longer noticed), so it
+    needs a factor the customer already has, like the other security settings:
+    someone holding only the session cannot switch it off before a transfer."""
+    from services import notifications
+
+    if not payload.share:
+        try:
+            security.require_existing_factor(user_id, payload.current_pin, payload.stepup_token)
+        except security.SecurityError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    result = security.set_location_sharing(user_id, payload.share)
+    audit.record(audit.SECURITY_CHANGED, user_id, institution_id=request.state.institution_id,
+                 change="location_on" if payload.share else "location_off")
+    if not payload.share:
+        notifications.notify_security_change(user_id, request.state.institution_id, "location_off")
+    return result
+
+
 class SetContactRequest(BaseModel):
     email: Optional[str] = Field(None, max_length=254)
     phone: Optional[str] = Field(None, max_length=32)

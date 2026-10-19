@@ -114,6 +114,7 @@ def status(user_id: str) -> dict:
         "pin_locked_until": locked.isoformat() if locked else None,
         "failed_attempts": (row or {}).get("failed_attempts") or 0,
         "two_factor_enabled": bool((row or {}).get("two_factor_enabled")),
+        "location_shared": not bool((row or {}).get("location_opt_out")),
         "passkeys": passkeys,
         "passkey_count": len(passkeys),
         # Masked for display; the raw values only leave the server as a code
@@ -490,6 +491,25 @@ def check_pin(user_id: str, pin: str) -> bool:
             f"Too many wrong attempts. Locked for {setting("FABLE_PIN_LOCKOUT_MINUTES")} minutes."
         )
     return False
+
+
+def location_opted_out(user_id: str) -> bool:
+    """Whether the customer chose not to share their location."""
+    with cursor() as cur:
+        cur.execute("SELECT location_opt_out FROM user_security WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+    return bool(row and row["location_opt_out"])
+
+
+def set_location_sharing(user_id: str, share: bool) -> dict:
+    with cursor() as cur:
+        cur.execute(
+            """INSERT INTO user_security (user_id, location_opt_out) VALUES (?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET location_opt_out = excluded.location_opt_out,
+                 updated_at = datetime('now')""",
+            (user_id, 0 if share else 1),
+        )
+    return status(user_id)
 
 
 def set_two_factor(user_id: str, enabled: bool) -> dict:

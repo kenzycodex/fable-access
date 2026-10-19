@@ -1310,6 +1310,8 @@ export interface SecurityStatus {
   pin_locked_until: string | null;
   failed_attempts: number;
   two_factor_enabled: boolean;
+  /** False when the customer chose not to share their location. */
+  location_shared?: boolean;
   passkey_count: number;
   passkeys?: { credential_id: string; device_label: string | null; created_at: string; last_used_at: string | null }[];
   contact_email: string | null;
@@ -1417,6 +1419,26 @@ export async function setTwoFactor(
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ enabled, current_pin: currentPin ?? null, stepup_token: stepupToken ?? null }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.detail === "string" ? body.detail : "Could not change this setting.");
+  }
+  return (await res.json()) as SecurityStatus;
+}
+
+/** Whether the customer's location is used. Turning it off needs a factor they
+ * already have; turning it back on needs nothing. */
+export async function setLocationSharing(
+  userId: string,
+  share: boolean,
+  currentPin?: string | null,
+  stepupToken?: string | null,
+): Promise<SecurityStatus> {
+  const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/location`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ share, current_pin: currentPin ?? null, stepup_token: stepupToken ?? null }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

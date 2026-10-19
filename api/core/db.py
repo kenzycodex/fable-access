@@ -836,6 +836,10 @@ MIGRATIONS = {
         "trusted": "INTEGER DEFAULT 0",
     },
     "user_security": {
+        # The customer chose not to share their location: it is neither
+        # collected by the sandbox app nor stored or scored (location_anomaly
+        # cannot fire for them).
+        "location_opt_out": "INTEGER DEFAULT 0",
         # How many digits the stored PIN has, so the entry boxes match it even
         # if the configured length changes later.
         "pin_length": "INTEGER",
