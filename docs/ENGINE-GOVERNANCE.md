@@ -146,3 +146,25 @@ The mapping is to frameworks, not quoted clauses.
 * **CBN Risk-Based Cybersecurity Framework 2024 and CBN guidance on governance and change control.** Separation of duties, change approval, audit trail.
 * **ISO/IEC 27001:2022.** A.8.32 (change management), A.5.3 (segregation of duties), A.8.15 (logging).
 * **Model risk management practice** (for example, the SR 11-7 principles): evidence before a change, independent review, monitoring in parallel before use, and the ability to revert.
+
+## What every decision records
+
+| Recorded | Where | What for |
+|---|---|---|
+| Engine version and a hash of its parameters plus the detection settings | `transactions.engine_version`, `engine_params_hash` | Which rules decided, exactly |
+| How the score was built, term by term | `transactions.score_parts` | Exact replay under any other weights (backtest, shadow) |
+| The shadow version's verdict, when one runs | `transactions.shadow_version`, `shadow_action`, `shadow_score` | The shadow comparison |
+| The feature snapshot | `decision_features` (`agents/shield/features.py`) | Training and backtesting a later per-customer model on what was known at the time |
+
+The snapshot also records the Copilot and Ghost code versions and the
+institution's hold windows in force. Ghost's hold windows and the flag and
+block lines per institution are the bank's risk policy (owner-only, audited);
+detection settings such as the velocity window and recipient memory are
+operator settings changed through two-person approval (docs/SECRETS.md).
+
+Labels are kept apart and never mixed: an analyst's outcome
+(`review_outcome`: fraud or legitimate), a customer cancelling a hold
+(`status = cancelled`, a weaker signal), and no outcome. The
+`decision_dataset` view joins each snapshot to its decision and current label
+for training; the label is never copied into the snapshot because it changes
+afterwards.
