@@ -98,6 +98,10 @@ app = FastAPI(
     version="1.0.0",
 )
 
+from core import errors  # noqa: E402
+
+errors.install(app)
+
 # Middleware runs bottom-to-top on the request path: rate limit -> auth -> latency.
 app.add_middleware(LatencyMiddleware)
 app.add_middleware(APIKeyMiddleware)

@@ -10,6 +10,7 @@ from starlette.responses import JSONResponse
 
 from core.config import API_KEYS
 from core.db import get_conn
+from core.errors import body
 
 PUBLIC_PATHS = ("/", "/health", "/docs", "/redoc", "/openapi.json", "/favicon.ico")
 # Signing in, recovering a password and accepting an invite happen before the
@@ -54,7 +55,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if not key:
             return JSONResponse(
                 status_code=401,
-                content={"detail": "Invalid or missing API key. Send Authorization: Bearer <key>."},
+                content=body(401, "Invalid or missing API key. Send Authorization: Bearer <key>."),
             )
 
         # Check static config keys first (e.g. for hardcoded demo keys)
@@ -71,5 +72,5 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
         return JSONResponse(
             status_code=401,
-            content={"detail": "Invalid or missing API key. Send Authorization: Bearer <key>."},
+            content=body(401, "Invalid or missing API key. Send Authorization: Bearer <key>."),
         )
