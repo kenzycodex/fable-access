@@ -8,6 +8,7 @@ import os
 import statistics
 from datetime import datetime, timedelta
 
+from core import privacy
 from core.db import cursor, require_institution_id, row_to_dict
 from core.utils import utcnow
 
@@ -333,9 +334,9 @@ def log_transaction(
                 1 if confirmed_legitimate else 0,
                 1 if is_seed else 0,
                 ts,
-                device.get("ip"),
-                context.get("latitude"),
-                context.get("longitude"),
+                privacy.truncate_ip(device.get("ip")),
+                privacy.coarse(context.get("latitude")),
+                privacy.coarse(context.get("longitude")),
                 context.get("city"),
                 context.get("country"),
                 context.get("location_source"),
@@ -430,8 +431,8 @@ def record_location(user_id: str, context: dict) -> None:
                VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT institution_id FROM customers WHERE id = ?))""",
             (
                 user_id,
-                context.get("latitude"),
-                context.get("longitude"),
+                privacy.coarse(context.get("latitude")),
+                privacy.coarse(context.get("longitude")),
                 context.get("city"),
                 context.get("region"),
                 context.get("country"),

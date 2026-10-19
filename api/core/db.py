@@ -942,6 +942,12 @@ def _migrate(conn):
     _backfill_customer_devices(conn)
     _seal_webhook_secrets(conn)
 
+    from core import privacy
+
+    coarsened = privacy.backfill_precision(conn)
+    if coarsened:
+        logger.info("Coarsened the stored location or IP address on %d row(s).", coarsened)
+
     # No institution is created here. One used to be inserted into an empty
     # database; institutions now come only from provisioning.
     conn.commit()
