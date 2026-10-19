@@ -39,8 +39,12 @@ export default defineConfig({
   expect: { timeout: 30_000 },
   fullyParallel: false,
   workers: 1,
+  // One retry on CI only, for timing flakes on a loaded runner. A test that
+  // passes only on its retry is still reported: the list output ends with
+  // "N flaky" and names it, and the GitHub reporter annotates it on the run.
+  // Locally a failure is a failure.
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
+  reporter: process.env.CI ? [["list"], ["github"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: `http://localhost:${WEB_PORT}`,
     trace: "retain-on-failure",
