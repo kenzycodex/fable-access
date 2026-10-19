@@ -34,7 +34,7 @@ export function AuthShell({
     <div data-surface="app" className="min-h-dvh w-full bg-black">
       <div className="animate-card-entrance grid min-h-dvh w-full bg-black lg:grid-cols-2">
         <div className="relative hidden h-full w-full overflow-hidden bg-[#1E1145] lg:block">
-          <Image src="/images/brand/login-bg.jpg" alt="" fill priority className="object-cover" />
+          <Image src="/images/brand/login-bg.jpg" alt="" fill priority sizes="50vw" className="object-cover" />
         </div>
 
         <div className={`relative z-10 flex flex-col justify-center bg-black px-6 py-8 sm:px-12 ${wide ? "lg:px-10" : "lg:px-16"}`}>
