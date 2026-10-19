@@ -30,8 +30,13 @@ async function fits(page: Page, name: string) {
   // content clears the bottom navigation once scrolled to the end.
   const end = await page.evaluate(async () => {
     const locked = getComputedStyle(document.body).overflow === "hidden" && !document.querySelector("[role=dialog]");
-    window.scrollTo(0, document.documentElement.scrollHeight);
-    await new Promise((r) => setTimeout(r, 150));
+    // Wait for the page to stop growing (data loading in), then go to the end.
+    let height = -1;
+    for (let i = 0; i < 20 && height !== document.documentElement.scrollHeight; i++) {
+      height = document.documentElement.scrollHeight;
+      window.scrollTo(0, height);
+      await new Promise((r) => setTimeout(r, 250));
+    }
     const nav = [...document.querySelectorAll("nav")].find((el) => getComputedStyle(el).position === "fixed");
     const main = document.querySelector("main");
     // The lowest visible thing on the page, wherever it sits in the markup.
