@@ -119,3 +119,10 @@ def test_raw_keystrokes_are_never_accepted_or_stored():
         cur.execute("PRAGMA table_info(transactions)")
         columns = {r[1] for r in cur.fetchall()}
     assert not {c for c in columns if "keystroke" in c or "typed" in c or "key_event" in c}
+
+
+def test_ask_fable_sees_recent_decisions_only_to_the_hour():
+    from agents.copilot.assistant_facts import _to_hour
+
+    assert _to_hour("2026-10-16T14:37:09.123") == "2026-10-16 14:00"
+    assert _to_hour("2026-10-16 09:05:00") == "2026-10-16 09:00"
