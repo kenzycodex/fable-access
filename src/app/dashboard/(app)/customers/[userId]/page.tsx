@@ -4,8 +4,10 @@ import Link from "next/link";
 import { LinkRow } from "@/components/dashboard/LinkRow";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
+import useSWR from "swr";
 import { ArrowLeft, Brain, Prohibit, Receipt, Tray, Wallet, Warning } from "@phosphor-icons/react";
 import { DonutChart } from "@/components/dashboard/charts";
+import { CustomerDataRights } from "@/components/dashboard/CustomerDataRights";
 import { CustomerSecurity } from "@/components/dashboard/CustomerSecurity";
 import { STATE_LABEL, STATE_TONE } from "@/components/dashboard/CaseDetail";
 import {
@@ -24,6 +26,7 @@ import {
   table,
 } from "@/components/dashboard/primitives";
 import { apiChannelLabel } from "@/lib/fable/api";
+import { ConsoleError, customerRecord } from "@/lib/fable/console";
 import { formatNaira, formatNairaCompact, formatRelativeTime, formatRiskScore } from "@/lib/fable/format";
 import { useFableStore } from "@/lib/fable/store";
 import { useCopilotCustomers } from "@/lib/fable/useBackend";
@@ -38,6 +41,8 @@ export default function CustomerPage() {
   const institutionId = store?.session.institutionId ?? null;
 
   const { data: customers, isLoading, mutate } = useCopilotCustomers();
+  const { data: record, error: recordError } = useSWR(["customer-record", userId], () => customerRecord(userId));
+  const recordMissing = recordError instanceof ConsoleError && recordError.status === 404;
   const customer = customers?.customers.find((c) => c.user_id === userId) ?? null;
   const { data: txnPage, isLoading: txnLoading } = useTransactionRange({ user: userId, limit: 200 });
   const txns = useMemo(() => txnPage?.transactions ?? [], [txnPage]);
@@ -48,9 +53,11 @@ export default function CustomerPage() {
   const cases = txns.filter((t) => t.review);
   const openCases = cases.filter((t) => t.review?.state !== "resolved").length;
   const confirmedFraud = cases.filter((t) => t.review?.outcome === "fraud").length;
-  const name = nameFor(userId);
+  const name = record?.name || nameFor(userId);
 
-  if (!isLoading && customers && !customer && !txnLoading && txns.length === 0) {
+  // A customer with no activity yet has no Copilot row and no transfers, but
+  // is still a customer: only the customers record decides "not found".
+  if (recordMissing || (!isLoading && customers && !customer && !txnLoading && txns.length === 0 && !record)) {
     return (
       <>
         <BackLink />
@@ -219,6 +226,8 @@ export default function CustomerPage() {
           </>
         )}
       </Card>
+
+      <CustomerDataRights userId={userId} />
     </>
   );
 }

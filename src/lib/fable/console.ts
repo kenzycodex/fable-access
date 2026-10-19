@@ -474,3 +474,25 @@ export const confirmAgreements = () =>
 
 export const resetSandbox = (confirm: string) =>
   call<{ customers_removed: number }>("/v1/sandbox/reset", { method: "POST", ...json({ confirm }) });
+
+// ---------------------------------------------------------------------------
+// A customer's rights over their data (owners only)
+// ---------------------------------------------------------------------------
+
+export interface CustomerRecord {
+  id: string;
+  reference: string;
+  name: string | null;
+}
+
+export const customerRecord = (id: string) => call<CustomerRecord>(`/v1/customers/${encodeURIComponent(id)}`);
+
+/** Everything Fable holds about one customer, as JSON. */
+export const exportCustomer = (id: string) => call<Record<string, unknown>>(`/v1/customers/${encodeURIComponent(id)}/export`);
+
+/** Remove what identifies one customer. The bank's reference must be typed to confirm. */
+export const eraseCustomer = (id: string, confirmReference: string) =>
+  call<{ erased: boolean; alias: string; reference_sha256: string; counts: Record<string, number> }>(
+    `/v1/customers/${encodeURIComponent(id)}/erase`,
+    { method: "POST", ...json({ confirm_reference: confirmReference }) },
+  );

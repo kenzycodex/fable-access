@@ -35,3 +35,15 @@ test.describe("on a phone", () => {
     await walk(page, "phone");
   });
 });
+
+test("an owner sees the data-rights card on a customer, and erasing needs the reference", async ({ page }) => {
+  await signIn(page, "owner", "/dashboard/customers");
+  await page.waitForURL(/\/dashboard\/customers/);
+  await page.locator("tr", { hasText: "e2e-mobile" }).first().click();
+  await page.waitForURL(/\/dashboard\/customers\/.+/);
+  await expect(page.getByText("Their data")).toBeVisible();
+  await page.getByRole("button", { name: "Erase this customer" }).click();
+  await page.getByLabel("Customer reference").fill("not-the-reference");
+  await page.getByRole("button", { name: "Erase", exact: true }).click();
+  await expect(page.getByText(/Type the customer's reference exactly/)).toBeVisible();
+});
