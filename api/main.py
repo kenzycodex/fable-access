@@ -88,10 +88,9 @@ def register_jobs() -> None:
 app = FastAPI(
     lifespan=lifespan,
     title="Fable API",
-    description="AI security and intelligence infrastructure layer for African finance. "
-                "Shield stops scams in real time. Ghost contains the blast radius when a "
-                "user overrides a block. Copilot learns each user's genuine habits so safe "
-                "transfers stay frictionless.",
+    description="Behavioural fraud-risk scoring for Nigerian transfers. Copilot learns each "
+                "customer's habits, Shield scores a transfer against them before it is sent, and "
+                "Ghost holds a blocked transfer the customer insists on, where they can still cancel it.",
     version="1.0.0",
 )
 
