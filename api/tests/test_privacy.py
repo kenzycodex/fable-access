@@ -248,3 +248,13 @@ def test_a_customer_who_opts_out_of_location_has_none_stored_or_scored(client):
     # Turning it back on needs nothing.
     on = client.post(f"/v1/accounts/{user}/security/location", headers=_session(), json={"share": True})
     assert on.status_code == 200 and on.json()["location_shared"] is True
+
+
+def test_decision_records_are_never_kept_less_than_five_years(monkeypatch):
+    from core import secrets as vault
+    from services import retention
+
+    with pytest.raises(ValueError):
+        vault.parse_setting(vault.MANAGED["FABLE_RETENTION_DAYS"], "365")
+    monkeypatch.setenv("FABLE_RETENTION_DAYS", "30")
+    assert retention._limits()[0] == 1825

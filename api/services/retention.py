@@ -4,8 +4,8 @@ Run by the scheduler every few hours (job "retention"); safe to run anywhere,
 any number of times. Each step deletes or clears rows older than its limit:
 
   decisions, imported history, holds, notifications, snapshots
-      after FABLE_RETENTION_DAYS (5 years by default, the record-keeping period
-      Nigerian banks work to). The bank keeps its own records of the transfers.
+      after FABLE_RETENTION_DAYS (5 years by default and at least, the
+      record-keeping period Nigerian banks must keep to). The bank keeps its own records of the transfers.
   behavioural, device, location and IP detail on decisions; the location trail
       after FABLE_RETENTION_DETAIL_DAYS (2 years by default). The decision keeps
       its amount, outcome, recipient and score. The recipient stays because
@@ -33,10 +33,16 @@ DETAIL_COLUMNS = (
 )
 
 
+# Transaction records are kept at least 5 years (Nigeria's money laundering
+# rules require banks to keep them that long). Enforced here as well as in the
+# setting's bounds, so a value set in the environment cannot go lower either.
+MIN_KEEP_DAYS = 1825
+
+
 def _limits() -> tuple[int, int]:
     from core.secrets import setting
 
-    return int(setting("FABLE_RETENTION_DAYS")), int(setting("FABLE_RETENTION_DETAIL_DAYS"))
+    return max(int(setting("FABLE_RETENTION_DAYS")), MIN_KEEP_DAYS), int(setting("FABLE_RETENTION_DETAIL_DAYS"))
 
 
 def _table_columns(cur, table: str) -> set[str]:

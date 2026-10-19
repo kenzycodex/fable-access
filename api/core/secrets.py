@@ -180,8 +180,9 @@ MANAGED: dict[str, Spec] = {s.name: s for s in (
          rotate_days=0, value_type="int", minimum=30, maximum=1095, unit="days", config_attr="RECIPIENT_MEMORY_DAYS",
          help="After this long without a payment, a recipient counts as new again. Not backtested."),
     Spec("FABLE_RETENTION_DAYS", "Keep decisions for", "Data retention", "config", None, rotate_days=0,
-         value_type="int", minimum=365, maximum=3650, unit="days", config_attr="RETENTION_DAYS",
-         help="Decisions, imported history, holds and notifications older than this are deleted."),
+         value_type="int", minimum=1825, maximum=3650, unit="days", config_attr="RETENTION_DAYS",
+         help="Decisions, imported history, holds and notifications older than this are deleted. "
+              "Never less than 5 years: banks must keep transaction records that long."),
     Spec("FABLE_RETENTION_DETAIL_DAYS", "Keep device and location detail for", "Data retention", "config", None,
          rotate_days=0, value_type="int", minimum=120, maximum=3650, unit="days", config_attr="RETENTION_DETAIL_DAYS",
          help="After this, a decision keeps its amount and outcome but loses device, location, IP and session detail."),
