@@ -999,6 +999,7 @@ def _backfill_customers(conn) -> None:
                UNION SELECT user_id, institution_id FROM transactions
            )
            WHERE user_id IS NOT NULL AND institution_id IS NOT NULL
+             AND substr(user_id, 1, 7) != 'erased_'
              AND user_id NOT IN (SELECT id FROM customers)"""
     ).fetchall()
     added = 0
