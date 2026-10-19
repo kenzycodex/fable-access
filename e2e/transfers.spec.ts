@@ -93,3 +93,22 @@ test("an analyst works a flagged case in the console", async ({ page, browser })
   if (await confirm.isVisible()) await confirm.click();
   await expect(analyst.getByText(/Legitimate/).first()).toBeVisible();
 });
+
+test("the review sheet shows the amount's size and sends nothing on Recheck", async ({ page }) => {
+  await asCustomer(page, "e2e-pass", "Ada Obi");
+  await page.goto("/demo/e2ebank/transfer");
+  await page.getByRole("tab", { name: "New account" }).click();
+  await page.getByLabel("Account number").fill("0123456780");
+  const bank = page.getByLabel("Bank");
+  await expect(bank.locator("option").nth(1)).toBeAttached();
+  await bank.selectOption({ index: 1 });
+  await expect(page.getByText(/Demo name|Verified/).first()).toBeVisible();
+  await page.getByLabel("Amount in naira").fill("500000");
+  await expect(page.getByText("Hundreds of thousands").first()).toBeVisible();
+  await page.getByRole("button", { name: /^Send ₦/ }).click();
+  const review = page.getByRole("dialog", { name: "Check before you send" });
+  await expect(review.getByText(/can't be reversed/)).toBeVisible();
+  await review.getByRole("button", { name: "Recheck" }).click();
+  await expect(review).toBeHidden();
+  await expect(page).toHaveURL(/\/transfer/);
+});

@@ -25,6 +25,7 @@ CUSTOMERS = {
     "e2e-release": "Dayo Musa",
     "e2e-expire": "Efe Okoro",
     "e2e-review": "Femi Ade",
+    "e2e-mobile": "Grace Uche",
 }
 
 

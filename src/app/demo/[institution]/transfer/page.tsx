@@ -15,6 +15,7 @@ import {
   WarningCircle,
   XCircle,
 } from "@phosphor-icons/react";
+import { DemoSheet } from "@/components/demo/DemoSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { PageHeader } from "@/components/demo/PageHeader";
 import {
@@ -48,6 +49,18 @@ interface Bank {
 }
 
 const CHANNELS: Channel[] = ["app", "ussd", "web"];
+/** The smallest transfer the sandbox app accepts, shown in the amount range. */
+const MIN_TRANSFER = 10;
+
+/** A word for the amount's size, so a slipped zero is noticed before sending
+ * (₦50,000 reads "Tens of thousands"; ₦500,000 reads "Hundreds of thousands"). */
+function magnitude(n: number): string {
+  if (n < 1_000) return "";
+  const names = ["Thousands", "Tens of thousands", "Hundreds of thousands", "Millions", "Tens of millions",
+    "Hundreds of millions"];
+  const step = Math.floor(Math.log10(n)) - 3;
+  return step < names.length ? names[step] : "Billions";
+}
 type VerifyState = "idle" | "verifying" | "verified" | "error";
 
 /** Why a name is simulated rather than a real NUBAN lookup. Surfaced on the
@@ -85,6 +98,7 @@ export default function TransferPage() {
   const [detectedChannel, setDetectedChannel] = useState<Channel | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
 
   // What the Fable SDK has actually collected on this page.
   const [device, setDevice] = useState<DeviceFingerprint | null>(null);
@@ -225,10 +239,13 @@ export default function TransferPage() {
   const amountValue = Number(amount) || 0;
   const available = account?.available ?? null;
   const overBalance = available !== null && amountValue > available;
-  const canSubmit = customer !== null && contact !== null && verify === "verified" && amountValue > 0 && !overBalance && !submitting;
+  const underMinimum = amountValue > 0 && amountValue < MIN_TRANSFER;
+  const canSubmit = customer !== null && contact !== null && verify === "verified" && amountValue >= MIN_TRANSFER
+    && !overBalance && !submitting;
 
   async function handleSubmit() {
     if (!canSubmit || !contact) return;
+    setReviewing(false);
     setSubmitting(true);
     setSubmitError(null);
     // One reference per transfer the customer is making, reused if they retry
@@ -428,6 +445,7 @@ export default function TransferPage() {
           <Card>
             <CardHeader title="How much?" />
             <div className="rounded-2xl bg-d-surface-2 px-4 py-6">
+              <p className="h-4 text-center text-[12px] font-semibold text-brand" aria-live="polite">{magnitude(amountValue)}</p>
               <div className="flex items-center justify-center gap-1.5">
                 <span className="text-[28px] font-bold text-d-faint">₦</span>
                 <input
@@ -442,11 +460,18 @@ export default function TransferPage() {
                 />
               </div>
               {available !== null && (
-                <p className="mt-1 text-center text-[12px] text-d-muted">Available {formatNaira(available)}</p>
+                <p className="mt-1 text-center text-[12px] text-d-muted">
+                  {formatNaira(MIN_TRANSFER)} to {formatNaira(Math.max(available, 0))} · Available {formatNaira(available)}
+                </p>
+              )}
+              {underMinimum && (
+                <p className="mt-1 text-center text-[12px] font-semibold text-amber-600 dark:text-amber-400">
+                  The smallest transfer is {formatNaira(MIN_TRANSFER)}.
+                </p>
               )}
             </div>
 
-            <div className="mt-3 grid grid-cols-4 gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-2 min-[400px]:grid-cols-4">
               {QUICK_AMOUNTS.map((a) => (
                 <button
                   key={a}
@@ -530,7 +555,7 @@ export default function TransferPage() {
               className="mt-5"
               disabled={!canSubmit}
               loading={submitting}
-              onClick={handleSubmit}
+              onClick={() => setReviewing(true)}
               icon={!submitting ? <PaperPlaneTilt size={18} weight="fill" /> : undefined}
             >
               {submitting ? "Checking transfer…" : amountValue > 0 ? `Send ${formatNaira(amountValue)}` : "Send money"}
@@ -546,6 +571,18 @@ export default function TransferPage() {
                 )}
               </Notice>
             )}
+
+            <ReviewSheet
+              open={reviewing}
+              onClose={() => setReviewing(false)}
+              onConfirm={handleSubmit}
+              from={customer?.name ?? ""}
+              to={contact}
+              amount={amountValue}
+              available={available}
+              narration={narration}
+              channel={CHANNEL_LABELS[channel]}
+            />
 
             {/* What Fable reads, collapsed by default. It is the product's real
                 data collection, shown for evaluators without crowding the form. */}
@@ -575,6 +612,49 @@ export default function TransferPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** The check before money moves: who, how much, from what, and the reminder
+ * that a sent transfer cannot be pulled back. Recheck closes it; nothing is
+ * sent until the customer confirms here. */
+function ReviewSheet({ open, onClose, onConfirm, from, to, amount, available, narration, channel }: {
+  open: boolean; onClose: () => void; onConfirm: () => void; from: string; to: Recipient | null; amount: number;
+  available: number | null; narration: string; channel: string;
+}) {
+  if (!to) return null;
+  const account = to.accountNumber || (to.last4 ? `•••• ${to.last4}` : "");
+  return (
+    <DemoSheet open={open} onClose={onClose} title="Check before you send" subtitle="Nothing is sent until you confirm">
+      <div className="flex flex-col gap-4 pb-1">
+        <div className="rounded-2xl bg-d-surface-2 px-4 py-5 text-center">
+          <p className="text-[30px] font-bold tabular-nums text-d-text">{formatNaira(amount)}</p>
+          <p className="mt-0.5 text-[12px] font-semibold text-brand">{magnitude(amount)}</p>
+        </div>
+        <div className="divide-y divide-d-border">
+          <DetailRow label="To"><span className="font-semibold">{to.name}</span></DetailRow>
+          {account && <DetailRow label="Account"><span className="tabular-nums">{account}</span></DetailRow>}
+          <DetailRow label="Bank">{to.bank || "—"}</DetailRow>
+          <DetailRow label="From">{from}</DetailRow>
+          {narration && <DetailRow label="Narration"><span className="break-words">{narration}</span></DetailRow>}
+          <DetailRow label="Sent via">{channel}</DetailRow>
+          {available !== null && (
+            <DetailRow label="Balance after"><span className="tabular-nums">{formatNaira(Math.max(available - amount, 0))}</span></DetailRow>
+          )}
+        </div>
+        <Notice tone="warning" className="flex items-start gap-2 text-[12px]">
+          <WarningCircle size={18} weight="fill" className="mt-0.5 shrink-0" />
+          <span>
+            A transfer can&apos;t be reversed once it&apos;s sent. Check the name and amount. If anyone is rushing you or
+            telling you to send money to keep it safe, stop: that is how scams work.
+          </span>
+        </Notice>
+        <div className="grid grid-cols-2 gap-3">
+          <Button variant="secondary" size="lg" onClick={onClose}>Recheck</Button>
+          <Button size="lg" onClick={onConfirm} icon={<PaperPlaneTilt size={18} weight="fill" />}>Confirm</Button>
+        </div>
+      </div>
+    </DemoSheet>
   );
 }
 

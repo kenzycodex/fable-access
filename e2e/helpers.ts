@@ -38,6 +38,10 @@ export async function sendTransfer(page: Page, amount: number, opts: { channel?:
   if (opts.channel) await page.getByRole("tab", { name: new RegExp(`^${opts.channel}`) }).click();
   await page.getByLabel("Amount in naira").fill(String(amount));
   await page.getByRole("button", { name: /^Send ₦/ }).click();
+  // The review sheet: nothing is sent until the customer confirms.
+  const review = page.getByRole("dialog", { name: "Check before you send" });
+  await expect(review).toBeVisible();
+  await review.getByRole("button", { name: "Confirm" }).click();
   await page.waitForURL(/\/result/);
 }
 
