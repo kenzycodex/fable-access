@@ -39,20 +39,20 @@ export default function HomePage() {
 
               <Reveal delay={100}>
                 <h1>
-                  Catch the Scam Before It Clears.
+                  Stop Fraud Fast.
                   <br />
-                  <span className="font-marker text-accent">Three</span> Agents.
+                  <span className="font-marker text-accent">Three</span> AI Agents.
                 </h1>
               </Reveal>
               <Reveal delay={200}>
                 <p className="text-l max-w-[620px] text-white/85">
                   Copilot learns how your users actually move money. Shield stops the transfer that doesn&rsquo;t fit.
-                  Ghost gives even a fully-scammed user a way back. Each decision is made well inside NIP&rsquo;s 10 seconds.
+                  Ghost gives even a fully-scammed user a way back. Decisions land well inside NIP&rsquo;s 10 seconds.
                 </p>
               </Reveal>
               <Reveal delay={300}>
                 <Button href={demoCta.href} tone="secondary" className="mt-2">
-                  {demoCta.label}
+                  See Live Demo
                 </Button>
               </Reveal>
             </div>
