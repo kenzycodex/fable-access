@@ -126,12 +126,18 @@ export interface CaseDetail {
   };
   containment: {
     ghost_id: string;
-    status: string;
+    status: "HELD" | "RELEASE_REQUESTED" | "RELEASED" | "CANCELLED" | "EXPIRED";
     cooling_window_minutes: number | null;
     created_at: string;
+    expires_at?: string | null;
     resolved_at: string | null;
+    resolved_by?: string | null;
+    resolution_note?: string | null;
+    transaction_id?: string | null;
   } | null;
   activity: { event_type: string; payload: Record<string, unknown>; created_at: string }[];
+  /** Whether this bank lets analysts release holds (owners always can). */
+  analysts_can_release?: boolean;
 }
 
 export async function caseDetail(id: string): Promise<CaseDetail> {
@@ -150,6 +156,15 @@ export const addCaseNote = (id: string, body: string) => caseAction<CaseNote>(id
 export const resolveCase = (id: string, outcome: ReviewOutcome, note?: string) =>
   caseAction(id, "resolve", { outcome, note: note || null });
 export const reopenCase = (id: string) => caseAction(id, "reopen");
+
+/** Cancel a held transfer from the console. The money stays with the customer. */
+export const cancelCaseHold = (id: string, note: string) =>
+  call(`/v1/review/${encodeURIComponent(id)}/hold/cancel`, { method: "POST", ...json({ note }) });
+
+/** Release a held transfer after the bank confirmed it with the customer by its
+ * own means. Owners only; the note says how the customer confirmed. */
+export const releaseCaseHold = (id: string, note: string) =>
+  call(`/v1/review/${encodeURIComponent(id)}/hold/release`, { method: "POST", ...json({ note }) });
 
 // ---------------------------------------------------------------------------
 // Team
@@ -187,6 +202,10 @@ export interface RiskPolicy {
   hold_high_minutes: number;
   hold_medium_minutes: number;
   hold_low_minutes: number;
+  /** 1 when a customer may route a flagged transfer into a hold, not only a blocked one. */
+  hold_on_flag: number;
+  /** 1 when analysts, not only owners, may release a held transfer. */
+  analysts_can_release: number;
   custom: string[];
   updated_by: string | null;
   updated_at: string | null;
@@ -455,3 +474,25 @@ export const confirmAgreements = () =>
 
 export const resetSandbox = (confirm: string) =>
   call<{ customers_removed: number }>("/v1/sandbox/reset", { method: "POST", ...json({ confirm }) });
+
+// ---------------------------------------------------------------------------
+// A customer's rights over their data (owners only)
+// ---------------------------------------------------------------------------
+
+export interface CustomerRecord {
+  id: string;
+  reference: string;
+  name: string | null;
+}
+
+export const customerRecord = (id: string) => call<CustomerRecord>(`/v1/customers/${encodeURIComponent(id)}`);
+
+/** Everything Fable holds about one customer, as JSON. */
+export const exportCustomer = (id: string) => call<Record<string, unknown>>(`/v1/customers/${encodeURIComponent(id)}/export`);
+
+/** Remove what identifies one customer. The bank's reference must be typed to confirm. */
+export const eraseCustomer = (id: string, confirmReference: string) =>
+  call<{ erased: boolean; alias: string; reference_sha256: string; counts: Record<string, number> }>(
+    `/v1/customers/${encodeURIComponent(id)}/erase`,
+    { method: "POST", ...json({ confirm_reference: confirmReference }) },
+  );

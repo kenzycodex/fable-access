@@ -34,7 +34,7 @@ import {
   TextInput,
   inputClass,
 } from "@/components/dashboard/primitives";
-import { BacktestView } from "@/components/operator/EngineReport";
+import { BacktestView, ShadowView } from "@/components/operator/EngineReport";
 import { StepUpDialog } from "@/components/operator/StepUpDialog";
 import { ago, fullDate } from "@/components/operator/ui";
 import {
@@ -149,6 +149,30 @@ export default function EnginePage() {
       />
 
       <Overview data={data} onOpen={open} />
+
+      {data.cold_start && !data.cold_start.live && (
+        <Notice tone="warning">
+          <span className="font-semibold">The live version does not price first transfers yet.</span> A customer with no
+          history can send a very large first transfer without a flag.{" "}
+          {data.cold_start.waiting.length ? (
+            <>
+              {data.cold_start.waiting.map((w, i) => (
+                <span key={w.version}>
+                  {i > 0 ? ", " : ""}
+                  <button type="button" className="font-semibold text-brand underline" onClick={() => open(w.version)}>
+                    v{w.version}
+                  </button>{" "}
+                  ({w.status})
+                </span>
+              ))}{" "}
+              has the &quot;No history&quot; weights: backtest it, propose it, then promote it once approved (a single
+              owner&apos;s proposal is approved after its cooling-off period).
+            </>
+          ) : (
+            <>Start a draft and set the &quot;No history&quot; weights to turn this on.</>
+          )}
+        </Notice>
+      )}
 
       {data.env_keys.length > 0 && (
         <Notice tone="warning">
@@ -698,6 +722,8 @@ function VersionPanel({ version, data, onChanged, onDialog }: {
         <p className="mt-3 truncate font-mono text-[11px] text-d-faint" title="SHA-256 of the parameters">{detail.params_hash}</p>
       </Card>
 
+      {detail.status === "shadow" && <ShadowPanel />}
+
       {shown ? (
         <BacktestView report={shown} stale={!report && !detail.backtest_summary?.fresh && detail.status === "draft"} />
       ) : (
@@ -708,6 +734,12 @@ function VersionPanel({ version, data, onChanged, onDialog }: {
       )}
     </div>
   );
+}
+
+function ShadowPanel() {
+  const { data: diff } = useShadowDiff(true);
+  if (!diff) return <Skeleton className="h-40 w-full rounded-[20px]" />;
+  return <ShadowView diff={diff} />;
 }
 
 // ── History ──────────────────────────────────────────────────────────────────

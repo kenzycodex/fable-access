@@ -5,6 +5,7 @@ import { Fingerprint, EnvelopeSimple, DeviceMobile, CheckCircle } from "@phospho
 import { DemoSheet } from "@/components/demo/DemoSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { PinInput } from "@/components/demo/PinInput";
+import { SandboxCode } from "@/components/demo/SandboxCode";
 import { Button, Notice, SuccessTick } from "@/components/app-kit";
 import {
   authenticatePasskey,
@@ -12,6 +13,8 @@ import {
   verifyOtp,
   verifyPin,
   composeIdentityCheck,
+  type StepUpFactor,
+  type StepUpPurpose,
   type StepUpRequirement,
 } from "@/lib/fable/webauthn";
 import {
@@ -22,31 +25,31 @@ import {
   type SecurityStatus,
 } from "@/lib/fable/api";
 
-type Factor = "passkey" | "pin" | "otp";
+type Factor = StepUpFactor;
 
 interface DialogProps {
   open: boolean;
   onClose: () => void;
   onVerified: (token: string) => void;
+  /** For a hold the customer cannot release themselves: the two ways out. */
+  onCancelTransfer?: () => void;
+  onAskBank?: () => Promise<void>;
   requirement: StepUpRequirement | null;
   userId: string;
   institutionId: string | null;
-  purpose: "transfer" | "ghost_release";
+  purpose: StepUpPurpose;
   reference: string | null;
 }
 
 /**
  * Collects the factors a decision demands and hands back one proof.
  *
- * Releasing money out of a Ghost hold is the single most attacker-valuable
- * action in the product, so it can't be waved through on the session alone. The
- * factors are independent on purpose: a PIN is something known, a passkey is
- * answered by the device's secure element, and a one-time code arrives on a
- * channel the session doesn't control. An attacker who merely holds the tab has
- * none of them.
- *
- * Where the device has an enrolled passkey it is required as the strongest
- * factor; where it doesn't, a PIN plus an out-of-band code stand in.
+ * Which factors, and in what order, is the server's call: the requirement
+ * carries `steps`, worked out from Fable's stored decision and from the
+ * factors this customer had in place (a factor set up after money was held
+ * never releases it). The dialog only collects them. One step hands its
+ * token straight back; several are combined by the server into one proof
+ * whose level is exactly what they add up to.
  */
 export function StepUpDialog(props: DialogProps) {
   const { open, onClose, requirement } = props;
@@ -59,7 +62,34 @@ export function StepUpDialog(props: DialogProps) {
   );
 }
 
-function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, purpose, reference }: DialogProps) {
+/** The steps for an older API that does not send them: the same rules the
+ * server now applies, so the dialog still works against it. */
+function fallbackSteps(level: string, status: SecurityStatus | null): Factor[] | null {
+  const hasPasskey = (status?.passkey_count ?? 0) > 0;
+  const hasEmail = !!status?.email_set;
+  const hasPin = !!status?.pin_set;
+  if (level === "none") return [];
+  if (level === "pin") return hasPin ? ["pin"] : hasEmail ? ["otp"] : hasPasskey ? ["passkey"] : ["pin"];
+  if (level === "passkey") return hasPasskey ? ["passkey"] : hasPin && hasEmail ? ["pin", "otp"] : null;
+  if (level === "passkey_and_otp") {
+    if (hasPasskey && hasEmail) return ["passkey", "otp"];
+    return !hasPasskey && hasPin && hasEmail ? ["pin", "otp"] : null;
+  }
+  if (level === "identity_check") return hasPasskey && hasPin && hasEmail ? ["passkey", "pin", "otp"] : null;
+  return null;
+}
+
+function StepUpFlow({
+  onVerified,
+  onClose,
+  onCancelTransfer,
+  onAskBank,
+  requirement,
+  userId,
+  institutionId,
+  purpose,
+  reference,
+}: DialogProps) {
   const { name: bankName } = useInstitution();
   const [status, setStatus] = useState<SecurityStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,55 +107,37 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
   const [confirmPin, setConfirmPin] = useState("");
   const [pinStage, setPinStage] = useState<"new" | "confirm">("new");
 
-  const [channel, setChannel] = useState<"email" | "sms">("email");
   const [otpChallenge, setOtpChallenge] = useState<string | null>(null);
   const [otpDest, setOtpDest] = useState<string | null>(null);
   const [debugCode, setDebugCode] = useState<string | null>(null);
+  const [sentAt, setSentAt] = useState(0);
+  const [inbox, setInbox] = useState(false);
+  const [channel, setChannel] = useState<"email" | "sms">("email");
   const [code, setCode] = useState("");
 
   const level = requirement?.level ?? "pin";
-  const hasPasskey = (status?.passkey_count ?? 0) > 0;
-
-  // How much this decision demands. A medium-risk flag needs one factor;
-  // containment release needs the composed substitute. A "passkey" tier with no
-  // passkey enrolled escalates to the composed path rather than dead-ending.
-  const mode: "single_pin" | "single_passkey" | "composed" =
-    level === "pin" ? "single_pin" : level === "passkey" && hasPasskey ? "single_passkey" : "composed";
 
   useEffect(() => {
     securityStatus(userId)
-      .then((s) => {
-        setStatus(s);
-        setChannel(s.phone_set && !s.email_set ? "sms" : "email");
-      })
+      .then(setStatus)
       .catch(() => setStatus(null))
       .finally(() => setLoading(false));
   }, [userId]);
 
-  // Releasing needs TWO independent factors, not three: one primary (the device
-  // passkey if enrolled, otherwise the PIN) plus one out-of-band code to the
-  // customer's own email or phone. With no registered contact, the out-of-band
-  // step is replaced by the PIN, so a passkey customer is never asked for a code
-  // that has nowhere to go.
-  const hasContact = !!(status?.email_set || status?.phone_set);
-  const composedSteps: Factor[] = hasPasskey
-    ? hasContact
-      ? ["passkey", "otp"]
-      : ["passkey", "pin"]
-    : hasContact
-      ? ["pin", "otp"]
-      : ["pin"];
-  const steps: Factor[] = mode === "single_pin" ? ["pin"] : mode === "single_passkey" ? ["passkey"] : composedSteps;
+  const steps: Factor[] | null =
+    requirement?.steps !== undefined ? (requirement.steps ?? null) : fallbackSteps(level, status);
   const doneMap: Record<Factor, boolean> = { passkey: !!passkeyToken, pin: !!pinToken, otp: !!otpToken };
-  const active = steps.find((s) => !doneMap[s]) ?? null;
-  const allDone = steps.every((s) => doneMap[s]);
+  const active = steps?.find((s) => !doneMap[s]) ?? null;
+  const allDone = !!steps && steps.length > 0 && steps.every((s) => doneMap[s]);
 
-  /** Compose the collected factors into one proof, once every required step is
-   * in hand. Called from whichever handler completes the final factor, rather
-   * than from an effect, so state updates stay driven by user actions. */
-  async function compose(tokens: { passkey: string | null; pin: string | null; otp: string | null }) {
-    const ready = steps.every((s) => tokens[s]);
-    if (!ready) return;
+  /** Hand back the proof once every step is in hand: a single factor's token
+   * as it is, several combined by the server into one. */
+  async function finish(tokens: Record<Factor, string | null>) {
+    if (!steps || !steps.every((s) => tokens[s])) return;
+    if (steps.length === 1) {
+      onVerified(tokens[steps[0]] as string);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -139,7 +151,7 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
       });
       onVerified(res.token);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not verify your identity.");
+      setError(e instanceof Error ? e.message : "Could not verify that it's you.");
     } finally {
       setBusy(false);
     }
@@ -149,16 +161,11 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
     setBusy(true);
     setError(null);
     try {
-      const res = await authenticatePasskey(userId, purpose, reference, mode === "composed" ? "identity_check" : level);
-      if (res.token) {
-        // A single-passkey tier is satisfied outright; the composed tier folds
-        // the passkey in with the other factors.
-        if (mode === "single_passkey") {
-          onVerified(res.token);
-          return;
-        }
-        setPasskeyToken(res.token);
-        await compose({ passkey: res.token, pin: pinToken, otp: otpToken });
+      const res = await authenticatePasskey(userId, purpose, reference, level);
+      const token = res.token ?? res.passkey_token ?? null;
+      if (token) {
+        setPasskeyToken(token);
+        await finish({ passkey: token, pin: pinToken, otp: otpToken });
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Device verification failed.");
@@ -172,21 +179,10 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
     setBusy(true);
     setError(null);
     try {
-      const res = await verifyPin({
-        userId,
-        pin,
-        purpose,
-        reference,
-        requiredLevel: mode === "composed" ? "identity_check" : level,
-      });
-      // A single-PIN tier (a medium-risk flag) is done here: no code needed.
-      if (mode === "single_pin") {
-        onVerified(res.token);
-        return;
-      }
+      const res = await verifyPin({ userId, pin, purpose, reference });
       setPinToken(res.token);
       setPinValue("");
-      await compose({ passkey: passkeyToken, pin: res.token, otp: otpToken });
+      await finish({ passkey: passkeyToken, pin: res.token, otp: otpToken });
     } catch (e) {
       // Wrong PIN: shake, clear the boxes, and leave them ready for another try.
       setPinInvalid(true);
@@ -234,10 +230,13 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
     setBusy(true);
     setError(null);
     try {
+      const askedAt = Date.now();
       const res = await sendOtp({ userId, institutionId, purpose, reference, channel });
       setOtpChallenge(res.challenge_id);
       setOtpDest(res.destination);
       setDebugCode(res.debug_code ?? null);
+      setInbox(Boolean(res.sandbox_inbox));
+      setSentAt(askedAt);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send a code.");
     } finally {
@@ -250,10 +249,10 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
     setBusy(true);
     setError(null);
     try {
-      const res = await verifyOtp({ userId, challengeId: otpChallenge, code: entered, requiredLevel: "pin" });
+      const res = await verifyOtp({ userId, challengeId: otpChallenge, code: entered });
       setOtpToken(res.token);
       setCode("");
-      await compose({ passkey: passkeyToken, pin: pinToken, otp: res.token });
+      await finish({ passkey: passkeyToken, pin: pinToken, otp: res.token });
     } catch (e) {
       setError(e instanceof Error ? e.message : "That code isn't right.");
       setCode("");
@@ -276,11 +275,69 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
     return <div className="flex items-center justify-center py-10 text-[13px] text-d-muted">Checking your security…</div>;
   }
 
+  if (!steps) {
+    // Nothing the customer had in place reaches this level. Say so plainly and
+    // offer the two ways out rather than a flow that must fail.
+    if (purpose === "ghost_release") {
+      return (
+        <div className="flex flex-col gap-4 pb-2">
+          <Notice tone="warning">
+            You can&apos;t release this transfer yourself with the security you had set up before it was held. Releasing
+            it needs your device, your PIN and a one-time code, all set up beforehand. This is a check of your own
+            security, not a face or ID check.
+          </Notice>
+          {onCancelTransfer && (
+            <Button size="lg" full variant="success" onClick={onCancelTransfer}>
+              Cancel the transfer and keep my money
+            </Button>
+          )}
+          {onAskBank && (
+            <Button
+              size="lg"
+              full
+              variant="secondary"
+              loading={busy}
+              onClick={async () => {
+                setBusy(true);
+                setError(null);
+                try {
+                  await onAskBank();
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "We couldn't send your request. Please try again.");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Ask my bank to release it
+            </Button>
+          )}
+          <p className="text-[12px] leading-relaxed text-d-faint">
+            If you ask your bank, someone there may call you on the number they have on file to confirm it&apos;s you.
+            The money stays held until then. Nobody will ever ask you for your PIN or a code.
+          </p>
+          {error && <Notice tone="danger">{error}</Notice>}
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col gap-4 pb-2">
+        <Notice tone="warning">
+          This needs verification you haven&apos;t set up yet. Set up your PIN, email and device in Security, then try
+          again.
+        </Notice>
+        <Button size="lg" full onClick={onClose}>
+          Close
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4 pb-2">
       <p className="text-[13px] leading-relaxed text-d-muted">
-        {mode === "composed"
-          ? "A quick two-step check before this transfer leaves your account."
+        {steps.length > 1
+          ? `A ${steps.length}-step check before this goes ahead.`
           : (requirement?.detail ?? "Confirm it's really you.")}
       </p>
 
@@ -290,7 +347,7 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
           {steps.map((s, i) => (
             <StepDot
               key={s}
-              label={factorLabel(s, channel)}
+              label={factorLabel(s)}
               state={doneMap[s] ? "done" : active === s ? "active" : "todo"}
               connect={i < steps.length - 1}
             />
@@ -382,13 +439,16 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
         <div className="flex flex-col gap-3">
           {!otpChallenge ? (
             <>
-              {/* Offer the channels the customer actually has. */}
-              {status?.phone_set && status?.email_set && (
-                <div className="flex gap-2">
+              {/* Offer SMS only where the customer has a confirmed phone and
+                  SMS can actually be sent. */}
+              {status?.email_set && status?.phone_set && status?.sms_available && (
+                <div className="flex gap-2" role="radiogroup" aria-label="Where to send the code">
                   {(["email", "sms"] as const).map((ch) => (
                     <button
                       key={ch}
                       type="button"
+                      role="radio"
+                      aria-checked={channel === ch}
                       onClick={() => setChannel(ch)}
                       className={`flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border text-[12px] font-semibold transition-colors ${
                         channel === ch ? "border-brand bg-brand/10 text-brand" : "border-d-border text-d-muted"
@@ -404,10 +464,13 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
                 size="lg"
                 full
                 loading={busy}
-                onClick={requestCode}
-                icon={channel === "email" ? <EnvelopeSimple size={17} weight="bold" /> : <DeviceMobile size={17} weight="bold" />}
+                onClick={() => {
+                  if (!status?.email_set && status?.phone_set && status?.sms_available) setChannel("sms");
+                  void requestCode();
+                }}
+                icon={channel === "sms" ? <DeviceMobile size={17} weight="bold" /> : <EnvelopeSimple size={17} weight="bold" />}
               >
-                {busy ? "Sending…" : `Send a code by ${channel === "email" ? "email" : "SMS"}`}
+                {busy ? "Sending…" : channel === "sms" ? "Send a code by SMS" : "Send a code to my email"}
               </Button>
             </>
           ) : (
@@ -415,9 +478,10 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
               <p className="text-[13px] text-d-muted">
                 Code sent to <span className="font-semibold text-d-text">{otpDest}</span>.
               </p>
+              {inbox && <SandboxCode userId={userId} since={sentAt} />}
               {debugCode && (
                 <Notice>
-                  No {channel === "sms" ? "SMS provider" : "mail server"} is configured, so the code is shown here:{" "}
+                  Local development: no mail server is configured, so the code is shown here:{" "}
                   <span className="font-mono font-bold">{debugCode}</span>
                 </Notice>
               )}
@@ -452,10 +516,10 @@ function StepUpFlow({ onVerified, onClose, requirement, userId, institutionId, p
   );
 }
 
-function factorLabel(factor: Factor, channel: "email" | "sms"): string {
+function factorLabel(factor: Factor): string {
   if (factor === "passkey") return "Device";
   if (factor === "pin") return "PIN";
-  return channel === "sms" ? "SMS code" : "Email code";
+  return "Email code";
 }
 
 /** A small labelled progress dot with an optional connector: the whole

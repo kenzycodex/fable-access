@@ -29,7 +29,7 @@ export default function PricingPage() {
             aria-hidden="true"
             width={1134}
             height={1390}
-            priority
+            loading="eager"
             className="ml-auto h-auto w-full"
           />
         </div>

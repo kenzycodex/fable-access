@@ -1,10 +1,10 @@
 """Fable Shield — core risk scoring pipeline.
 
-Twelve signal layers: the original six from the build brief (amount anomaly,
-new recipient, time anomaly, channel risk, NIP response code, scam pattern),
-the Isolation Forest anomaly boost, and five new context layers driven by the
-real SDK data (device anomaly, location anomaly, session freshness, behavioral
-anomaly, timezone mismatch).
+Sixteen signals, added in order: amount, cold start and first-transfer amount,
+new recipient, time, channel, NIP code, scam pattern, the anomaly model, device,
+location, session freshness, behaviour, timezone, failed checks and velocity.
+Then a small tenure discount. routers/agents.py lists them for the console with
+the weights in force.
 
 Narration scanning is deliberately de-prioritized (most users skip the field);
 the behavioral/device/location layers carry the weight users can't opt out of.
@@ -17,7 +17,8 @@ from agents.copilot.baseline import (
     get_user_baseline,
     get_user_history_arrays,
 )
-from agents.shield.anomaly import score_anomaly
+from agents.shield.anomaly import GATE as ML_GATE
+from agents.shield.anomaly import current_anomaly, previous_anomaly
 from agents.shield.channel_risk import get_channel_risk
 from agents.shield.explainer import explain_now
 from agents.shield.nip_codes import get_nip_risk_signal
@@ -65,6 +66,11 @@ def _recent_transfer_count(user_id: str, institution_id: str | None, window_minu
     cutoff's date*, turning a 10-minute window into a whole day (and, across
     midnight, the previous day too). datetime() on both sides normalises the
     formats so the window is the window.
+
+    Only live decisions count, not imported history, on purpose: velocity is
+    about a burst happening now, and imported rows describe the past. Counting
+    them would also make every customer look like a burst right after a bank
+    imports a batch dated "now".
 
     Any failure returns 0 — a missing velocity signal must never take down a
     decision.
@@ -152,6 +158,13 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     # The detection settings in force (Environment page), read once per decision.
     rules = detection()
     w = p["weights"]
+    # A version running in shadow is scored by replaying this decision's parts,
+    # so a term it weighs must be recorded even when the live version does not.
+    shadow_version = engine_config.shadow()
+    shadow_w = shadow_version["params"]["weights"] if shadow_version else {}
+
+    def shadow_wants(key: str) -> bool:
+        return shadow_w.get(key, 0) > 0
 
     signals: list[str] = []
     score = 0.0
@@ -250,6 +263,23 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         signals.append(f"new_recipient: first transfer to this account (+{boost})")
         score += boost
 
+    # Step 2b: the amount, when the customer has no history of their own.
+    #
+    # With nothing personal to compare against, the amount anomaly cannot fire,
+    # and a first transfer of any size scored the same. The highest naira tier
+    # reached is priced, at full weight with no history anywhere and at half
+    # weight when the bank's population gives a norm (which the amount anomaly
+    # then also uses). Recorded even when its weight is zero, so a backtest of a
+    # future version can see it.
+    if cold_start:
+        tier_key = next((key for floor, key in engine_config.FIRST_AMOUNT_TIERS if amount >= floor), None)
+        if tier_key:
+            first_term = term({tier_key: 0.5 if baseline else 1.0}, rounded=True)
+            first_value = add(first_term)
+            if first_value > 0:
+                signals.append(f"first_transfer_amount: a large amount with no history to compare (+{first_value})")
+                score += first_value
+
     # Step 3: Time anomaly — device-local hour vs the user's typical hours
     typical_hours = baseline["typical_hours"] if baseline else list(range(8, 22))
     if baseline and now_hour not in typical_hours:
@@ -288,13 +318,22 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         signals.append(f"scam_pattern: {pattern['name']} (+{boost})")
         score += add(term(const=boost))
 
-    # Step 7 (auxiliary): Isolation Forest anomaly boost from own history
+    # Step 7 (auxiliary): anomaly against the customer's own history. The
+    # engine version's two weights decide which model counts. The current
+    # model's value is always recorded (even 0), so a backtest or a shadow
+    # version can weigh it whatever the live version does; the previous
+    # model's only while a live or shadow version still weighs it.
     if baseline:
         history_amounts, history_hours = get_user_history_arrays(user_id)
-        ml_boost = score_anomaly(history_amounts, history_hours, amount, now_hour, cache_key=user_id)
-        if ml_boost > 0.02:
-            signals.append(f"ml_anomaly: isolation forest deviation (+{ml_boost})")
-            score += add(term(const=ml_boost))
+        coefs = {"ml_anomaly": current_anomaly(history_amounts, history_hours, amount, now_hour, cache_key=user_id)}
+        if w.get("ml_anomaly_previous", 0) > 0 or shadow_wants("ml_anomaly_previous"):
+            coefs["ml_anomaly_previous"] = previous_anomaly(history_amounts, history_hours, amount, now_hour,
+                                                            cache_key=user_id)
+        ml_term = term(coefs, gate=ML_GATE)
+        ml_boost = round(term_value(ml_term, w), 4)
+        if ml_boost > 0:
+            signals.append(f"ml_anomaly: unusual amount and hour for this customer (+{ml_boost})")
+        score += add(ml_term)
 
     # Step 8: Device anomaly — unrecognized fingerprint (weight scales with amount)
     fingerprint = device.get("fingerprint_id")
@@ -445,6 +484,12 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         # Covers the weights and thresholds AND the detection settings, so a
         # decision always records everything that shaped it.
         "engine_params_hash": engine_config.decision_hash(engine["hash"], rules),
+        # What scoring saw, for the decision's feature snapshot (features.py).
+        # Internal: the router builds the snapshot and never returns this.
+        "_seen": {
+            "baseline": baseline, "cold_start": cold_start, "now_hour": now_hour, "client_hour": client_hour,
+            "known_cities": known_cities, "device_tz": device_tz, "pattern": pattern, "failed": failed,
+        },
     }
 
 

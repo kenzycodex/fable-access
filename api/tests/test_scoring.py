@@ -177,11 +177,13 @@ def test_release_requires_a_factor_that_predates_the_hold():
     """Bootstrapping the first factor is allowed, and the composed tier counts
     whatever exists — so an attacker set a PIN on the release screen and used it
     to release the money."""
-    from routers.stepup import _predates
+    from agents.shield.stepup import factors_predate
 
     hold = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
-    assert _predates("2026-08-06T11:00:00+00:00", hold) is True
-    assert _predates("2026-08-06T12:30:00+00:00", hold) is False
+    assert factors_predate({"pin": "2026-08-06T11:00:00+00:00"}, hold) == (True, [])
+    assert factors_predate({"pin": "2026-08-06T12:30:00+00:00"}, hold) == (False, ["pin"])
+    # A factor whose enrolment time predates the column counts as long-standing.
+    assert factors_predate({"pin": None}, hold) == (True, [])
 
 
 def test_otp_is_never_returned_in_the_response():

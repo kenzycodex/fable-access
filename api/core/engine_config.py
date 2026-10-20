@@ -83,8 +83,46 @@ WEIGHT_GROUPS: list[tuple[str, list[tuple[str, str, float]]]] = [
         ("channel_branch", "Branch", 0.02),
         ("channel_unknown", "Any other channel", 0.15),
     ]),
+    # A customer with no history of their own used to score a flat 0.47 on the
+    # mobile app whatever the amount, just under the 0.48 flag line, so a first
+    # transfer of NGN 900 million passed. These price the amount itself when
+    # there is nothing personal to compare it with: the highest tier reached
+    # applies, at full weight with no history at all and at half weight when
+    # the bank's own customers give a population norm.
+    ("First transfers (no history)", [
+        ("first_amount_100k", "No history: NGN 100k or more", 0.10),
+        ("first_amount_500k", "No history: NGN 500k or more", 0.20),
+        ("first_amount_1m", "No history: NGN 1m or more", 0.28),
+        ("first_amount_5m", "No history: NGN 5m or more", 0.36),
+        ("first_amount_20m", "No history: NGN 20m or more", 0.45),
+    ]),
+    # Anomaly against the customer's own history (agents/shield/anomaly.py).
+    # Each weight turns one model's 0..1 anomaly-ness into points. The previous
+    # model (an Isolation Forest) scored even a typical transfer above its own
+    # gate, so it is being retired: versions approved under it keep it
+    # (LEGACY_FILL), and new versions use the nearest-neighbour model instead.
+    ("Anomaly model", [
+        ("ml_anomaly_previous", "Previous anomaly model (retiring)", 0.0),
+        ("ml_anomaly", "Unusual amount and hour for this customer", 0.10),
+    ]),
 ]
 WEIGHT_DEFAULTS = {key: default for _, items in WEIGHT_GROUPS for key, _, default in items}
+
+# Parameters added after versions were already approved. A stored version that
+# predates one reads it as LEGACY_FILL (what it did before), so shipping the code changes
+# no decision: the new values take effect only through a governed version.
+LEGACY_FILL = {
+    "first_amount_100k": 0.0, "first_amount_500k": 0.0, "first_amount_1m": 0.0,
+    "first_amount_5m": 0.0, "first_amount_20m": 0.0,
+    # A version from before the anomaly weights ran the previous model at 0.10.
+    "ml_anomaly_previous": 0.10, "ml_anomaly": 0.0,
+}
+FIRST_AMOUNT_KEYS = ("first_amount_100k", "first_amount_500k", "first_amount_1m", "first_amount_5m",
+                     "first_amount_20m")
+FIRST_AMOUNT_TIERS = (
+    (20_000_000, "first_amount_20m"), (5_000_000, "first_amount_5m"), (1_000_000, "first_amount_1m"),
+    (500_000, "first_amount_500k"), (100_000, "first_amount_100k"),
+)
 WEIGHT_LABELS = {key: label for _, items in WEIGHT_GROUPS for key, label, _ in items}
 
 # Per-channel (block, flag). The default applies to an unknown channel.
@@ -191,10 +229,15 @@ def normalise(params: dict | None) -> dict:
     anything unknown dropped. Values are floats rounded to 4 places."""
     base = code_defaults()
     params = params or {}
+    stored = params.get("weights")
     for key in base["weights"]:
-        v = (params.get("weights") or {}).get(key)
+        v = (stored or {}).get(key)
         if v is not None:
             base["weights"][key] = round(float(v), 4)
+        elif stored is not None and key in LEGACY_FILL:
+            # A version written before this parameter existed keeps behaving
+            # exactly as it was approved.
+            base["weights"][key] = LEGACY_FILL[key]
     for scope, pair in base["thresholds"].items():
         given = (params.get("thresholds") or {}).get(scope) or {}
         for kind in ("block", "flag"):
@@ -264,9 +307,18 @@ def validate(params: dict, base: dict | None = None) -> list[str]:
                 errors.append(f"{name} {kind} threshold must be between {THRESHOLD_MIN:g} and {THRESHOLD_MAX:g}.")
         if pair["block"] - pair["flag"] < MIN_GAP - 1e-9:
             errors.append(f"{name}: the flag threshold must sit at least {MIN_GAP:g} below the block threshold.")
+    w = p["weights"]
+    tiers = [w[key] for _, key in reversed(FIRST_AMOUNT_TIERS)]
+    if any(b < a - 1e-9 for a, b in zip(tiers, tiers[1:])):
+        errors.append("No-history amount weights must not fall as the amount rises.")
     if base is not None:
         before = flat(base)
+        # A parameter the base version never had is being introduced, not
+        # moved: the step limit applies from the next version on.
+        introduced = {f"weights.{k}" for k in LEGACY_FILL if k not in (base.get("weights") or {})}
         for path, v in flat(p).items():
+            if path in introduced:
+                continue
             if abs(v - before[path]) > MAX_STEP + 1e-9:
                 errors.append(f"{label(path)} moves by {abs(v - before[path]):.2f}; one version may move a value "
                               f"by at most {MAX_STEP:g}.")
@@ -295,6 +347,51 @@ def _cursor():
     from core.db import cursor
 
     return cursor()
+
+
+COLD_START_DRAFT_FLAG = "engine.cold_start_draft_seeded"
+
+
+def seed_cold_start_draft() -> int | None:
+    """Offer the no-history amount weights as a draft, once, on a deployment
+    whose active version predates them.
+
+    Nothing goes live: the draft has to be backtested, proposed, approved by a
+    second owner (or through the cooling-off with one), shadowed and promoted
+    on the Engine page like any other change. Returns the draft's number when
+    one was created.
+    """
+    with _cursor() as cur:
+        cur.execute("SELECT value FROM platform_settings WHERE key = ?", (COLD_START_DRAFT_FLAG,))
+        if cur.fetchone():
+            return None
+        cur.execute("SELECT version, params FROM engine_versions WHERE status = 'active' "
+                    "ORDER BY version DESC LIMIT 1")
+        row = cur.fetchone()
+        if not row:
+            return None
+        stored = json.loads(row["params"])
+        if all(k in (stored.get("weights") or {}) for k in LEGACY_FILL):
+            cur.execute("INSERT OR IGNORE INTO platform_settings (key, value, updated_by) VALUES (?, 'not needed', "
+                        "'system')", (COLD_START_DRAFT_FLAG,))
+            return None
+        params = normalise(stored)
+        for key in LEGACY_FILL:
+            params["weights"][key] = WEIGHT_DEFAULTS[key]
+        cur.execute("SELECT COALESCE(MAX(version), 0) + 1 AS v FROM engine_versions")
+        version = cur.fetchone()["v"]
+        cur.execute(
+            """INSERT INTO engine_versions (version, status, params, params_hash, base_version, note, created_by)
+               VALUES (?, 'draft', ?, ?, ?, ?, 'system')""",
+            (version, canonical(params), params_hash(params), row["version"],
+             "Prepared by the release: weights for customers with no history, so a large first transfer is "
+             "flagged or blocked instead of passing at 0.47, and the current anomaly model in place of the "
+             "previous one, which added points to typical transfers. Backtest, then propose. Past decisions "
+             "did not record these terms, so the backtest under-reports their effect."),
+        )
+        cur.execute("INSERT OR IGNORE INTO platform_settings (key, value, updated_by) VALUES (?, ?, 'system')",
+                    (COLD_START_DRAFT_FLAG, str(version)))
+    return version
 
 
 def seed_if_empty() -> None:

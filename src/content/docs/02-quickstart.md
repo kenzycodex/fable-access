@@ -16,7 +16,10 @@ Then, in your console:
 1. **Settings > Go live** lists everything left to do. The Overview shows the same progress.
 2. **Settings > API & webhooks**: create an API key (shown once) and add a webhook.
 3. **Settings > Data**: import your customers and their past transfers (below).
-4. Try it end to end in the **sandbox app** with test customers you add.
+4. Try it end to end in the **sandbox app** with test customers you add. Set
+   up a test customer's PIN and trusted device on their security page before
+   you try a risky transfer: a check added after a transfer is stopped cannot
+   approve it, exactly as it will be live.
 
 ## 1b. Bring your customers and history
 
@@ -105,17 +108,21 @@ When a customer insists on a blocked transfer, hold it rather than losing it:
 curl -X POST $FABLE_API_URL/v1/ghost/create \
   -H "Content-Type: application/json" \
   -H "X-API-Key: fbl_live_..." \
-  -d '{
-    "user_id": "CIF-000123",
-    "risk_score": 0.88,
-    "signals": ["amount_anomaly", "device_anomaly"],
-    "transaction": { "amount": 250000, "recipient_account": "0111222333" }
-  }'
+  -d '{ "user_id": "CIF-000123", "transaction_id": "txn_a1b2c3d4e5f6" }'
 ```
 
-The cooling window is 15, 10 or 5 minutes depending on the risk score. The
-customer is notified out-of-band, on a channel the session cannot read.
+Send the `transaction_id` Shield returned. The hold is opened from the stored
+decision, so its amount, recipient and risk come from what Fable scored, not
+from the request. The cooling window depends on the risk score; each
+institution sets its three windows under **Settings > Risk policy**. The
+customer is told on a channel the session cannot read (email, or SMS where set
+up).
 
-Cancel returns the money and needs no proof. Release requires a step-up token,
-see [Identity Assurance](#identity-assurance). A container that outlives its
-window can no longer be released (`410`), but can still be cancelled.
+Cancel needs no proof and the money stays with the customer. Release needs a
+step-up token, see [Identity Assurance](#identity-assurance). A customer who
+cannot produce it can ask the bank to release instead
+(`POST /v1/ghost/{id}/request-release`). A hold nobody releases in its window
+expires: the money stays with the customer and a release returns `410`.
+
+Live, Fable holds no money: your system keeps the funds while the hold lasts
+and acts on the `containment.*` webhooks (see [Integration](#integration)).

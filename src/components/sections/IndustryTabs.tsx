@@ -8,10 +8,9 @@ import { demoCta } from "@/data/nav";
 import type { IndustryTab } from "@/data/why-fable";
 
 /**
- * The "Industries We Serve" widget from why-fable, matching the source's
- * dark treatment: white-bordered slider cards (icon + Titillium title),
- * active card highlighted with a pink border + 1px pink outline, and a
- * panel below with the copy and (when there are any) related case studies.
+ * The "Who We Serve" widget on Why Fable: white-bordered cards (icon + title),
+ * the active one highlighted with a pink border and outline, and a panel
+ * below with the copy and (when there are any) related case studies.
  */
 export function IndustryTabs({ tabs }: { tabs: IndustryTab[] }) {
   const [active, setActive] = useState(0);
@@ -24,7 +23,7 @@ export function IndustryTabs({ tabs }: { tabs: IndustryTab[] }) {
       {/* Card strip -- all 6 fit across on desktop (2/3/6 responsive) */}
       <div
         role="tablist"
-        aria-label="Industries we serve"
+        aria-label="Who we serve"
         className="grid grid-cols-2 gap-[13px] py-[20px] sm:grid-cols-3 lg:grid-cols-6"
       >
         {tabs.map((t, i) => (

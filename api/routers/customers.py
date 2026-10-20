@@ -99,3 +99,40 @@ def edit_customer(customer_id: str, body: CustomerPatch, request: Request):
     audit.record(audit.CUSTOMER_UPDATED, updated["id"], institution_id=institution_id,
                  fields=[k for k, v in body.model_dump().items() if v is not None], admin=who["email"])
     return customers.public(updated)
+
+
+# ── The customer's rights over their data (services/data_rights.py) ─────────
+
+@router.get("/{customer_id}/export")
+def export_customer(customer_id: str, request: Request):
+    """Everything Fable holds about one customer, for a subject access request. Owners only."""
+    from services import data_rights
+
+    who = require_role(request, "owner")
+    customer = customers.get(who["inst"], customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    try:
+        return data_rights.export(who["inst"], customer["id"])
+    except data_rights.RightsError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc))
+
+
+class Erasure(BaseModel):
+    confirm_reference: str = Field(min_length=1, max_length=64)
+
+
+@router.post("/{customer_id}/erase")
+def erase_customer(customer_id: str, body: Erasure, request: Request):
+    """Remove what identifies one customer. Owners only; the bank's reference
+    for the customer must be typed to confirm. Cannot be undone."""
+    from services import data_rights
+
+    who = require_role(request, "owner")
+    customer = customers.get(who["inst"], customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    try:
+        return data_rights.erase(who["inst"], customer["id"], who["email"], body.confirm_reference)
+    except data_rights.RightsError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc))

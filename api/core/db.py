@@ -26,6 +26,9 @@ _init_lock = threading.Lock()
 _initialized = False
 
 SCHEMA = """
+-- No longer written or read by the app (customers replaced it); kept, empty
+-- on new installs, because migrations only ever add. Read once by the
+-- customers backfill for databases from before the customers table.
 CREATE TABLE IF NOT EXISTS fable_users (
     user_id TEXT PRIMARY KEY,
     -- No default: every customer is created for a named institution. A default
@@ -121,6 +124,31 @@ CREATE TABLE IF NOT EXISTS device_profiles (
     trust_score REAL DEFAULT 0.5
 );
 
+-- The devices each customer has used, one row per customer and device.
+-- device_profiles keyed a row by the fingerprint alone, so the first customer
+-- to use a device owned its row everywhere: another customer's transfers from
+-- it, even at another bank, raised that row's trust and never counted as their
+-- own. Scoped by customer (and so by bank) here.
+CREATE TABLE IF NOT EXISTS customer_devices (
+    user_id TEXT NOT NULL,
+    institution_id TEXT,
+    fingerprint_id TEXT NOT NULL,
+    platform TEXT,
+    os TEXT,
+    browser TEXT,
+    screen TEXT,
+    gpu TEXT,
+    language TEXT,
+    timezone TEXT,
+    touch_support INTEGER,
+    first_seen TEXT DEFAULT (datetime('now')),
+    last_seen TEXT DEFAULT (datetime('now')),
+    times_seen INTEGER DEFAULT 1,
+    trust_score REAL DEFAULT 0.5,
+    trusted INTEGER DEFAULT 0,
+    PRIMARY KEY (user_id, fingerprint_id)
+);
+
 -- Explanations keyed by the shape of the decision that produced them, so an
 -- identical signal set never pays for the same sentence twice. Signal sets
 -- repeat heavily in practice: "new recipient + amount anomaly + USSD" is one
@@ -163,6 +191,7 @@ CREATE TABLE IF NOT EXISTS login_failures (
 );
 
 -- Former ids of renamed customers (see scripts/rename_customers.py).
+-- No longer written by the app; kept because migrations only ever add.
 CREATE TABLE IF NOT EXISTS user_aliases (
     alias TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -354,6 +383,72 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     error TEXT,
     attempt INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Webhook events waiting to be delivered. Written in the same moment as the
+-- action that caused them and delivered from here, so a restart no longer
+-- loses a retry that was sleeping in a thread. One row per endpoint per event;
+-- the event id is fixed when the row is written, so a receiver can de-duplicate
+-- retries.
+CREATE TABLE IF NOT EXISTS webhook_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    webhook_id TEXT NOT NULL,
+    institution_id TEXT NOT NULL,
+    event TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending | sending | delivered | failed
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at REAL NOT NULL DEFAULT 0,
+    claimed_at REAL,
+    last_error TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    delivered_at TEXT
+);
+
+-- What a sandbox bank's test customers would have received: one-time codes
+-- and notices. Shown in the demo app so testing never depends on a real
+-- inbox. Never written for a live bank (services/delivery.py).
+CREATE TABLE IF NOT EXISTS sandbox_inbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    institution_id TEXT,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL,              -- 'code' | 'notice'
+    channel TEXT,
+    destination TEXT,                -- masked
+    subject TEXT,
+    body TEXT,
+    code TEXT,
+    purpose TEXT,
+    reference TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- When each background job last ran, and the lease that keeps two workers
+-- from running the same job at once (services/scheduler.py).
+-- What each decision was scored on, for training and backtesting a richer
+-- per-customer model later (agents/shield/features.py). No names, account
+-- numbers, narration, exact GPS or IP addresses. Follows the decision's
+-- retention and the customer's erasure.
+CREATE TABLE IF NOT EXISTS decision_features (
+    transaction_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    institution_id TEXT,
+    feature_version INTEGER NOT NULL,
+    features TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS job_runs (
+    name TEXT PRIMARY KEY,
+    holder TEXT,
+    lease_until REAL NOT NULL DEFAULT 0,
+    last_started REAL NOT NULL DEFAULT 0,
+    last_finished REAL,
+    last_ok INTEGER,
+    last_detail TEXT,
+    runs INTEGER DEFAULT 0,
+    failures INTEGER DEFAULT 0
 );
 
 -- A bank's customers. The bank knows a customer by its own reference
@@ -701,6 +796,12 @@ MIGRATIONS = {
         # held because of an unfamiliar device demands a stronger factor than
         # one held purely on amount.
         "signals": "TEXT",
+        # The decision the hold was opened from. Risk and signals are copied
+        # from it, never taken from the caller.
+        "transaction_id": "TEXT",
+        # Who resolved it: the customer, staff at the bank, or the expiry job.
+        "resolved_by": "TEXT",
+        "resolution_note": "TEXT",
     },
     "api_keys": {
         "institution_id": "TEXT",
@@ -752,6 +853,10 @@ MIGRATIONS = {
         "trusted": "INTEGER DEFAULT 0",
     },
     "user_security": {
+        # The customer chose not to share their location: it is neither
+        # collected by the sandbox app nor stored or scored (location_anomaly
+        # cannot fire for them).
+        "location_opt_out": "INTEGER DEFAULT 0",
         # How many digits the stored PIN has, so the entry boxes match it even
         # if the configured length changes later.
         "pin_length": "INTEGER",
@@ -761,6 +866,49 @@ MIGRATIONS = {
         # true. These let a customer register where their codes actually go.
         "contact_email": "TEXT",
         "contact_phone": "TEXT",
+        # When each contact was last set. A code sent to an address that was
+        # only just added cannot release held money. NULL means the contact
+        # predates the column and counts as long-standing.
+        "contact_email_set_at": "TEXT",
+        "contact_phone_set_at": "TEXT",
+        # A new address waits here until the customer proves they receive
+        # mail at it; only then does it become contact_email.
+        "pending_email": "TEXT",
+        # A phone number counts as a channel for codes only once the customer
+        # entered the code sent to it. Phones stored before this existed were
+        # never confirmed, so they stay on file but are not a factor.
+        "pending_phone": "TEXT",
+        "contact_phone_verified_at": "TEXT",
+    },
+    "institution_settings": {
+        # 1 lets a customer route a flagged transfer into a hold as well as a
+        # blocked one (services/policy.py). NULL or 0: blocks only.
+        "hold_on_flag": "INTEGER",
+        # 1 lets analysts (not only owners) release a held transfer from the
+        # console, with a note. NULL or 0: owners only.
+        "analysts_can_release": "INTEGER",
+    },
+    "stepup_failures": {"institution_id": "TEXT"},
+    "user_locations": {"institution_id": "TEXT"},
+    "webhooks": {
+        # The signing secret, envelope-encrypted with the master key
+        # (core/secrets.seal). The plaintext column is emptied once sealed.
+        "secret_ciphertext": "BLOB",
+        "secret_nonce": "BLOB",
+        "secret_wrapped": "BLOB",
+        "secret_kid": "TEXT",
+    },
+    "stepup_challenges": {
+        # Which channel a code went out on (email or sms), so the factor is
+        # judged by when that contact was confirmed.
+        "channel": "TEXT",
+        "institution_id": "TEXT",
+    },
+    "stepup_tokens": {
+        # Which factors the token proves, and when each was enrolled (JSON), so
+        # a release can refuse factors set up after the money was held.
+        "factors": "TEXT",
+        "institution_id": "TEXT",
     },
 }
 
@@ -797,6 +945,14 @@ def _migrate(conn):
     if converted:
         logger.info("Stored %d API key(s) as hashes instead of plain text.", converted)
 
+    # Step-up tokens were stored as issued. Store the hash instead, in place:
+    # a token still in flight keeps working, because it hashes to the new key.
+    import hashlib
+
+    for (raw,) in conn.execute("SELECT token FROM stepup_tokens WHERE token LIKE 'su\\_%' ESCAPE '\\'").fetchall():
+        conn.execute("UPDATE OR IGNORE stepup_tokens SET token = ? WHERE token = ?",
+                     ("h:" + hashlib.sha256(raw.encode()).hexdigest(), raw))
+
     conn.execute(
         """UPDATE transactions SET review_state = 'open'
            WHERE review_state IS NULL AND action_taken IN ('FLAG', 'BLOCK')"""
@@ -804,6 +960,15 @@ def _migrate(conn):
 
     _backfill_customers(conn)
     _create_history_view(conn)
+    _create_dataset_view(conn)
+    _backfill_customer_devices(conn)
+    _seal_webhook_secrets(conn)
+
+    from core import privacy
+
+    coarsened = privacy.backfill_precision(conn)
+    if coarsened:
+        logger.info("Coarsened the stored location or IP address on %d row(s).", coarsened)
 
     # No institution is created here. One used to be inserted into an empty
     # database; institutions now come only from provisioning.
@@ -835,6 +1000,20 @@ def _create_history_view(conn) -> None:
     conn.commit()
 
 
+def _create_dataset_view(conn) -> None:
+    """Each decision's feature snapshot with its outcome and the analyst's label
+    as they stand now. The label changes after the decision, so it is joined,
+    never copied into the snapshot."""
+    conn.execute("DROP VIEW IF EXISTS decision_dataset")
+    conn.execute(
+        """CREATE VIEW decision_dataset AS
+           SELECT f.transaction_id, f.user_id, f.institution_id, f.feature_version, f.features, f.created_at,
+                  t.action_taken, t.risk_score, t.score_parts, t.engine_version, t.review_outcome, t.status
+             FROM decision_features f JOIN transactions t ON t.id = f.transaction_id"""
+    )
+    conn.commit()
+
+
 def _backfill_customers(conn) -> None:
     """Give every customer that predates the customers table a row in it.
 
@@ -843,12 +1022,6 @@ def _backfill_customers(conn) -> None:
     this were sandbox customers, so they are marked as test customers. Runs on
     every start and only inserts what is missing.
     """
-    try:
-        from agents.copilot.demo_customers import customer_name_for
-    except Exception:  # noqa: BLE001 - names are a nicety, never a blocker
-        def customer_name_for(_user_id):
-            return None
-
     rows = conn.execute(
         """SELECT user_id, institution_id FROM (
                SELECT user_id, institution_id FROM fable_users
@@ -856,6 +1029,7 @@ def _backfill_customers(conn) -> None:
                UNION SELECT user_id, institution_id FROM transactions
            )
            WHERE user_id IS NOT NULL AND institution_id IS NOT NULL
+             AND substr(user_id, 1, 7) != 'erased_'
              AND user_id NOT IN (SELECT id FROM customers)"""
     ).fetchall()
     added = 0
@@ -864,12 +1038,62 @@ def _backfill_customers(conn) -> None:
             """INSERT OR IGNORE INTO customers
                    (id, institution_id, external_ref, display_name, kind, source)
                VALUES (?, ?, ?, ?, 'test', 'console')""",
-            (user_id, institution_id, user_id, customer_name_for(user_id)),
+            (user_id, institution_id, user_id, None),
         )
         added += cur.rowcount
     conn.commit()
     if added:
         logger.info("Recorded %d existing customer(s) in the customers table.", added)
+
+
+def _backfill_customer_devices(conn) -> None:
+    """Copy device_profiles rows into customer_devices, once each.
+
+    Idempotent (INSERT OR IGNORE on the composite key). Each old row belongs to
+    the customer it was first recorded for, which is the only owner it ever
+    had; trust built by other customers' traffic cannot be told apart, so it
+    is carried over as it stands.
+    """
+    try:
+        conn.execute(
+            """INSERT OR IGNORE INTO customer_devices
+                 (user_id, institution_id, fingerprint_id, platform, os, browser, screen, gpu, language, timezone,
+                  touch_support, first_seen, last_seen, times_seen, trust_score, trusted)
+               SELECT d.user_id, c.institution_id, d.fingerprint_id, d.platform, d.os, d.browser, d.screen, d.gpu,
+                      d.language, d.timezone, d.touch_support, d.first_seen, d.last_seen, d.times_seen,
+                      d.trust_score, COALESCE(d.trusted, 0)
+               FROM device_profiles d LEFT JOIN customers c ON c.id = d.user_id"""
+        )
+    except sqlite3.OperationalError as exc:
+        logger.warning("Could not copy device profiles: %s", exc)
+
+
+def _seal_webhook_secrets(conn) -> None:
+    """Encrypt webhook signing secrets still stored in plain text.
+
+    Needs the master key; without it the secrets stay as they are (the same
+    as before) and the startup log says so. Idempotent: only rows with a
+    plaintext secret and no ciphertext are touched.
+    """
+    from core import secrets as vault
+
+    rows = conn.execute(
+        "SELECT id, secret FROM webhooks WHERE COALESCE(secret, '') != '' AND secret_ciphertext IS NULL"
+    ).fetchall()
+    if not rows:
+        return
+    if vault.master_key() is None:
+        logger.warning("%d webhook signing secret(s) are stored in plain text: set FABLE_SECRETS_KEY to encrypt them.",
+                       len(rows))
+        return
+    for hook_id, secret in rows:
+        sealed = vault.seal(secret, f"webhook:{hook_id}", 1, "webhook")
+        conn.execute(
+            """UPDATE webhooks SET secret_ciphertext = ?, secret_nonce = ?, secret_wrapped = ?, secret_kid = ?,
+                      secret = '' WHERE id = ? AND secret_ciphertext IS NULL""",
+            (sealed["ciphertext"], sealed["nonce"], sealed["wrapped_key"], sealed["kid"], hook_id),
+        )
+    logger.info("Encrypted %d webhook signing secret(s).", len(rows))
 
 
 def require_institution_id(institution_id: str | None) -> str:
@@ -941,6 +1165,7 @@ def slugify_institution(name: str) -> str:
 # on its own — see _create_indexes.
 INDEXES = """
 CREATE INDEX IF NOT EXISTS ix_txn_user_created   ON transactions(user_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_features_user      ON decision_features(user_id);
 CREATE INDEX IF NOT EXISTS ix_txn_inst_created   ON transactions(institution_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_txn_user_conf      ON transactions(user_id, confirmed_legitimate, created_at);
 CREATE INDEX IF NOT EXISTS ix_txn_action         ON transactions(action_taken);
@@ -965,6 +1190,11 @@ CREATE INDEX IF NOT EXISTS ix_history_inst       ON transaction_history(institut
 CREATE INDEX IF NOT EXISTS ix_import_rows_job    ON import_rows(job_id, line);
 CREATE INDEX IF NOT EXISTS ix_import_jobs_inst   ON import_jobs(institution_id, created_at);
 CREATE INDEX IF NOT EXISTS ix_txn_inst_clientref ON transactions(institution_id, client_reference);
+CREATE INDEX IF NOT EXISTS ix_outbox_due         ON webhook_outbox(status, next_attempt_at);
+CREATE INDEX IF NOT EXISTS ix_ghost_expiry       ON ghost_containers(status, expires_at);
+CREATE INDEX IF NOT EXISTS ix_ghost_txn          ON ghost_containers(transaction_id);
+CREATE INDEX IF NOT EXISTS ix_inbox_user         ON sandbox_inbox(user_id, id);
+CREATE INDEX IF NOT EXISTS ix_devices_customer   ON customer_devices(user_id);
 """
 
 # Offline-replay idempotency rests entirely on client_reference, and the lookup
@@ -973,9 +1203,12 @@ CREATE INDEX IF NOT EXISTS ix_txn_inst_clientref ON transactions(institution_id,
 # partial unique index does the job and tolerates the many NULLs (every
 # online transfer has none). ledger_entries.reference got this right from the
 # start with a plain UNIQUE.
+# Unique per bank, not globally: two banks may use the same reference for
+# their own transfers. The old global index made the second bank's insert fail
+# with a 500 and told it the reference existed elsewhere.
 CLIENT_REF_INDEX = (
-    "CREATE UNIQUE INDEX IF NOT EXISTS ux_txn_client_ref "
-    "ON transactions(client_reference) WHERE client_reference IS NOT NULL"
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_txn_inst_client_ref "
+    "ON transactions(institution_id, client_reference) WHERE client_reference IS NOT NULL"
 )
 
 
@@ -983,6 +1216,8 @@ def _create_indexes(conn) -> None:
     conn.executescript(INDEXES)
     try:
         conn.execute(CLIENT_REF_INDEX)
+        # The per-bank index is in place, so the global one can go.
+        conn.execute("DROP INDEX IF EXISTS ux_txn_client_ref")
     except sqlite3.IntegrityError:
         # Pre-existing duplicates from before the constraint existed. Log and
         # continue rather than refusing to boot: the index is a guard against

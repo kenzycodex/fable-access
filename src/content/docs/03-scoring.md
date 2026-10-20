@@ -1,30 +1,37 @@
 # Scoring
 
-Shield combines fourteen additive signal layers into a score between 0 and 1,
-then softens it for customers with a long clean record. The default boundaries
+Shield adds up sixteen signals into a score between 0 and 1, then softens it
+for customers with a long clean record. The default boundaries
 are `FLAG` at ≥ 0.5 and `BLOCK` at ≥ 0.8; riskier channels trip sooner (see
 below).
 
-| # | Signal | Fires when | Max |
+| # | Signal | Fires when | Max (default) |
 |---|---|---|---|
-| 1 | `amount_anomaly` | Far above the customer's own average | 0.40 |
-| 2 | `new_recipient` | First transfer to this account | 0.20 |
-| 3 | `time_anomaly` | Outside typical hours, on the **device clock** | 0.12 |
-| 4 | `channel_risk` | NIBSS channel weights (USSD highest) | 0.25 |
-| 5 | `nip_code` | NIBSS risk codes; code 34 auto-blocks | 0.95 |
-| 6 | `scam_pattern` | Narration matches a scam script | 0.25 |
-| 7 | `ml_anomaly` | Isolation Forest deviation from own history | 0.15 |
-| 8 | `device_anomaly` | Unrecognised device fingerprint | 0.18 |
-| 9 | `location_anomaly` | New city, or outside home country | 0.22 |
-| 10 | `session_freshness` | Large transfer within 30s of login | 0.12 |
-| 11 | `behavioral_anomaly` | Pasted account + near-zero hesitation | 0.15 |
-| 12 | `timezone_mismatch` | Device timezone differs from usual | 0.08 |
-| 13 | `failed_verification` | Recent failed identity checks | 0.25 |
-| 14 | `velocity` | A burst of transfers in a short window | 0.20 |
+| 1 | `amount_anomaly` | Far above the customer's own normal, in tiers from 3x to 50x | 0.40 |
+| 2 | `cold_start` | Fewer than three past transfers: judged against the institution's customers as a whole | 0.15 |
+| 3 | `first_transfer_amount` | No history to compare: the amount itself, in tiers from NGN 100k to NGN 20m | 0.45 |
+| 4 | `new_recipient` | First transfer to this account | 0.20 |
+| 5 | `time_anomaly` | Outside typical hours, on the **device clock** | 0.12 |
+| 6 | `channel_risk` | Channel risk weights informed by NIBSS fraud data (internet banking highest, branch lowest) | 0.22 |
+| 7 | `nip_code` | NIBSS risk codes from the bank's rail; code 34 always blocks | 0.95 |
+| 8 | `scam_pattern` | Narration matches a scam script (halved on purpose) | 0.25 |
+| 9 | `ml_anomaly` | The amount and hour together sit far from the customer's own past transfers | 0.10 |
+| 10 | `device_anomaly` | Unrecognised device fingerprint, more for a large transfer | 0.18 |
+| 11 | `location_anomaly` | New city, or outside home country | 0.22 |
+| 12 | `session_freshness` | Large transfer seconds after sign-in | 0.12 |
+| 13 | `behavioral_anomaly` | Pasted account number and near-zero hesitation on a large amount | 0.15 |
+| 14 | `timezone_mismatch` | Device timezone differs from usual | 0.08 |
+| 15 | `failed_verification` | Recent failed PIN, passkey or code attempts | 0.25 |
+| 16 | `velocity` | Several live transfers in a few minutes | 0.20 |
 
-Weights are the shipped defaults. Every one is tunable per deployment through
-`FABLE_W_*` environment variables, so a bank can adjust the engine without a
-code change.
+A long, confirmed-clean record then subtracts a small `tenure` discount (at most
+0.08 by default).
+
+Weights live in governed engine versions, changed on the operator platform's
+Engine page: every scoring change goes through approval with a cooling-off period, a backtest and a shadow run (two-person approval when there are two owners), and is then promoted. Every
+decision records the version that made it. A value set in the server
+environment (`FABLE_W_*`) still overrides the version, and the Engine page says
+so.
 
 ## Thresholds by channel
 
@@ -91,12 +98,20 @@ itself (+0.15). The population baseline uses the median rather than the mean:
 a few large business transfers otherwise drag "normal" upward and hide real
 anomalies.
 
-A new account sending ₦450,000 scores **0.69 → FLAG**, where it previously
-passed.
+With no personal history the amount itself is also priced, in tiers from
+NGN 100k (+0.10) to NGN 20m (+0.45), at full weight when the institution has no
+population norm yet and half weight when it does. Before this, a brand-new
+customer on the mobile app scored a flat 0.47 whatever the amount, so a first
+transfer of NGN 900m passed.
+
+These weights ship as a draft engine version. A deployment upgraded from an
+earlier version keeps scoring as approved until an owner backtests, proposes
+and promotes the draft; the Engine page shows a banner until then.
 
 ## The same amount, three customers
 
-Verified against live data, identical transfer of ₦250,000:
+An example from sandbox test customers, identical transfer of ₦250,000. The
+exact scores depend on each customer's history:
 
 | Customer | Baseline | Result |
 |---|---|---|
@@ -106,6 +121,18 @@ Verified against live data, identical transfer of ₦250,000:
 
 Same recipient, same device, same moment. Three verdicts. That difference is
 the entire argument for per-customer baselines.
+
+## The anomaly model
+
+`ml_anomaly` compares the transfer with the customer's own confirmed history:
+each past transfer is a point (log amount, hour of day), with the clock read
+as a circle so 23:00 and 01:00 are two hours apart. A transfer within the
+customer's usual spread scores 0; one three times further away than usual
+scores the full weight. It catches an amount the customer sends at one time of
+day sent at another, which the amount and time rules each miss on their own.
+
+It replaced an Isolation Forest that added points to typical transfers. A
+version approved under the old model keeps it until a new version is promoted.
 
 ## Explanations
 

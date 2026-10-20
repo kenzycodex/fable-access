@@ -96,7 +96,10 @@ def status(user_id: str) -> dict:
     locked = _locked_until(row)
     passkeys = list_credentials(user_id)
     email = (row or {}).get("contact_email")
-    phone = (row or {}).get("contact_phone")
+    # A phone counts only once confirmed; one stored before confirmation
+    # existed stays on file but is not a channel for codes.
+    phone = (row or {}).get("contact_phone") if (row or {}).get("contact_phone_verified_at") else None
+    from services.delivery import sms_available
 
     return {
         "user_id": user_id,
@@ -111,6 +114,7 @@ def status(user_id: str) -> dict:
         "pin_locked_until": locked.isoformat() if locked else None,
         "failed_attempts": (row or {}).get("failed_attempts") or 0,
         "two_factor_enabled": bool((row or {}).get("two_factor_enabled")),
+        "location_shared": not bool((row or {}).get("location_opt_out")),
         "passkeys": passkeys,
         "passkey_count": len(passkeys),
         # Masked for display; the raw values only leave the server as a code
@@ -119,16 +123,31 @@ def status(user_id: str) -> dict:
         "contact_phone": _mask_phone(phone) if phone else None,
         "email_set": bool(email),
         "phone_set": bool(phone),
+        "contact_email_set_at": (row or {}).get("contact_email_set_at"),
+        # An address waiting for the customer to enter the code sent to it.
+        "pending_email": _mask_email(row["pending_email"]) if row and row.get("pending_email") else None,
+        "pending_phone": _mask_phone(row["pending_phone"]) if row and row.get("pending_phone") else None,
+        "contact_phone_verified_at": (row or {}).get("contact_phone_verified_at"),
+        # Whether codes can go by SMS: a provider is configured (or, for a
+        # sandbox bank, the sandbox inbox stands in). Otherwise email only.
+        "sms_available": sms_available((row or {}).get("institution_id") or _institution_of(user_id)),
     }
 
 
 def get_contact(user_id: str) -> dict:
-    """Raw registered channels, for the code sender only."""
-    row = _record(user_id)
+    """Raw confirmed channels, for the code sender only."""
+    row = _record(user_id) or {}
     return {
-        "email": (row or {}).get("contact_email"),
-        "phone": (row or {}).get("contact_phone"),
+        "email": row.get("contact_email"),
+        "phone": row.get("contact_phone") if row.get("contact_phone_verified_at") else None,
     }
+
+
+def _institution_of(user_id: str) -> str | None:
+    with cursor() as cur:
+        cur.execute("SELECT institution_id FROM customers WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+    return row["institution_id"] if row else None
 
 
 def _mask_email(email: str) -> str:
@@ -149,53 +168,190 @@ def _mask_phone(phone: str) -> str:
 _EMAIL_RE = __import__("re").compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-def require_pin_if_set(user_id: str, current_pin: str | None) -> None:
-    """Guard a security-settings change with an existing factor.
+def has_any_factor(user_id: str) -> bool:
+    """Whether the customer has set up anything that proves it is them."""
+    from agents.shield.stepup import has_passkey
 
-    Changing where codes are sent, or enrolling a new device, is exactly what a
-    session-riding attacker wants — redirect the OTP, trust their own phone. So
-    once a PIN exists, changing any security setting must prove it, the same
-    rule that already protects a PIN change. Bootstrapping the very first factor
-    is allowed, because there is nothing yet to prove."""
-    row = _record(user_id)
-    if not (row and row.get("pin_hash")):
-        return  # no PIN yet — first-factor setup
-    if not current_pin:
-        raise SecurityError("Enter your transaction PIN to change this.")
-    if not check_pin(user_id, current_pin):  # counts failures / locks out
-        raise SecurityError("Your PIN isn't right.")
+    row = _record(user_id) or {}
+    return bool(row.get("pin_hash") or row.get("contact_email") or row.get("contact_phone_verified_at")
+                or has_passkey(user_id))
+
+
+def require_existing_factor(user_id: str, current_pin: str | None = None,
+                            stepup_token: str | None = None) -> str | None:
+    """Guard a security-settings change with a factor the customer already has.
+
+    Changing where codes are sent, enrolling a device or replacing the PIN is
+    exactly what a session-riding attacker wants. So once any factor exists,
+    the change must prove one: the PIN (checked with the same lockout as every
+    other PIN entry), or a step-up token for purpose "security_change" from a
+    passkey or a code sent to the registered email. Bootstrapping the very
+    first factor is allowed, because there is nothing yet to prove; factors set
+    up that way never release money that was already held.
+
+    Returns which factor was proved, or None for a first factor.
+    """
+    if not has_any_factor(user_id):
+        return None
+    if stepup_token:
+        from agents.shield import stepup
+
+        info = stepup.token_info(stepup_token, user_id, "security_change")
+        if info and stepup.consume_token(stepup_token):
+            return info["level"]
+        raise SecurityError("That verification has expired. Verify again to make this change.")
+    row = _record(user_id) or {}
+    if row.get("pin_hash"):
+        if not current_pin:
+            raise SecurityError("Enter your transaction PIN to change this.")
+        if not check_pin(user_id, current_pin):  # counts failures / locks out
+            raise SecurityError("Your PIN isn't right.")
+        return "pin"
+    raise SecurityError("Verify it's you with your device or an emailed code to change this.")
+
+
+def require_pin_if_set(user_id: str, current_pin: str | None) -> None:
+    """Kept for callers that only ever pass a PIN; see require_existing_factor."""
+    require_existing_factor(user_id, current_pin)
+
+
+def _validate_email(email: str) -> str:
+    email = email.strip()
+    if not _EMAIL_RE.match(email) or len(email) > 254:
+        raise SecurityError("That doesn't look like a valid email address.")
+    return email
+
+
+def _validate_phone(phone: str) -> str:
+    digits = "".join(c for c in phone if c.isdigit())
+    # Nigerian numbers are 11 local digits (0803...) or 13 with the country
+    # code (234803...); accept the common international range rather than
+    # hard-coding one format.
+    if not (10 <= len(digits) <= 15):
+        raise SecurityError("That doesn't look like a valid phone number.")
+    return phone.strip()
 
 
 def set_contact(user_id: str, email: str | None, phone: str | None,
-                institution_id: str | None = None, current_pin: str | None = None) -> dict:
-    """Register the customer's own email and/or phone for verification codes.
-    Gated by the PIN once one exists, so an attacker can't reroute codes."""
-    require_pin_if_set(user_id, current_pin)
+                institution_id: str | None = None, current_pin: str | None = None,
+                stepup_token: str | None = None) -> dict:
+    """Start changing where the customer's codes go.
+
+    Gated by an existing factor, so an attacker holding the session cannot
+    reroute codes. A new email or phone does not take effect until the customer
+    enters the code sent to it (confirm_contact), so nobody can register an
+    address or number they do not control. A phone needs SMS: a configured
+    provider, or for a sandbox bank the sandbox inbox. Without either the
+    request is refused and says so.
+    """
+    from agents.shield import stepup
+    from services.delivery import sms_available
+
     email = (email or "").strip() or None
     phone = (phone or "").strip() or None
-
-    if email and not _EMAIL_RE.match(email):
-        raise SecurityError("That doesn't look like a valid email address.")
-    if phone:
-        digits = "".join(c for c in phone if c.isdigit())
-        # Nigerian numbers are 11 local digits (0803…) or 13 with the country
-        # code (234803…); accept the common international range rather than
-        # hard-coding one format.
-        if not (10 <= len(digits) <= 15):
-            raise SecurityError("That doesn't look like a valid phone number.")
     if not email and not phone:
         raise SecurityError("Enter an email or phone number.")
+    if email:
+        email = _validate_email(email)
+    if phone:
+        phone = _validate_phone(phone)
+    institution_id = institution_id or _institution_of(user_id)
+    if phone and not sms_available(institution_id):
+        raise SecurityError("Codes by SMS aren't available yet, so a phone number can't be confirmed. "
+                            "Use an email instead.")
+
+    require_existing_factor(user_id, current_pin, stepup_token)
+    previous = _record(user_id) or {}
+    confirmed_phone = previous.get("contact_phone") if previous.get("contact_phone_verified_at") else None
+    phone_changed = bool(phone and phone != confirmed_phone)
+    email_changed = bool(email and email != previous.get("contact_email"))
 
     with cursor() as cur:
         cur.execute(
-            """INSERT INTO user_security (user_id, institution_id, contact_email, contact_phone)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(user_id) DO UPDATE SET
-                 contact_email = COALESCE(excluded.contact_email, user_security.contact_email),
-                 contact_phone = COALESCE(excluded.contact_phone, user_security.contact_phone),
-                 updated_at = datetime('now')""",
-            (user_id, institution_id, email, phone),
+            """INSERT INTO user_security (user_id, institution_id) VALUES (?, ?)
+               ON CONFLICT(user_id) DO NOTHING""",
+            (user_id, institution_id),
         )
+        if phone_changed:
+            cur.execute("UPDATE user_security SET pending_phone = ?, updated_at = datetime('now') WHERE user_id = ?",
+                        (phone, user_id))
+        if email_changed:
+            cur.execute("UPDATE user_security SET pending_email = ?, updated_at = datetime('now') WHERE user_id = ?",
+                        (email, user_id))
+
+    verifications = []
+    for channel, changed, value, column in (("email", email_changed, email, "pending_email"),
+                                            ("sms", phone_changed, phone, "pending_phone")):
+        if not changed:
+            continue
+        try:
+            sent = stepup.send_otp(user_id, "contact_verify", None,
+                                   email=value if channel == "email" else None,
+                                   phone=value if channel == "sms" else None, channel=channel)
+        except stepup.OtpDeliveryFailed as exc:
+            with cursor() as cur:
+                cur.execute(f"UPDATE user_security SET {column} = NULL WHERE user_id = ?", (user_id,))
+            raise SecurityError(
+                "We couldn't send a code to that " + ("address" if channel == "email" else "number")
+                + ". Check it and try again."
+            ) from exc
+        item = {"channel": channel, "challenge_id": sent["challenge_id"], "destination": sent["destination"],
+                "sandbox_inbox": sent.get("sandbox_inbox", False)}
+        if "debug_code" in sent:
+            item["debug_code"] = sent["debug_code"]
+        verifications.append(item)
+
+    result = status(user_id)
+    if verifications:
+        result["verifications"] = verifications
+        # The first one, under the field older clients read.
+        result["verification"] = verifications[0]
+    return result
+
+
+def confirm_contact(user_id: str, challenge_id: str, code: str,
+                    institution_id: str | None = None) -> dict:
+    """Make a pending email or phone the customer's own, once they have entered
+    the code sent to it. Whoever owned the previous one is told."""
+    from agents.shield import stepup
+
+    row = _record(user_id) or {}
+    try:
+        result = stepup.verify_otp(user_id, challenge_id, code)
+    except ValueError as exc:
+        raise SecurityError(str(exc)) from exc
+    if result.get("purpose") != "contact_verify":
+        raise SecurityError("That code was not sent to confirm a contact.")
+
+    from services import notifications
+
+    now = _now().isoformat()
+    if result.get("channel") == "sms":
+        pending = row.get("pending_phone")
+        if not pending:
+            raise SecurityError("There is no phone number waiting to be confirmed.")
+        with cursor() as cur:
+            cur.execute(
+                """UPDATE user_security SET contact_phone = ?, contact_phone_set_at = ?,
+                          contact_phone_verified_at = ?, pending_phone = NULL, updated_at = datetime('now')
+                   WHERE user_id = ? AND pending_phone = ?""",
+                (pending, now, now, user_id, pending),
+            )
+        notifications.notify_security_change(user_id, institution_id, "phone_changed")
+        return status(user_id)
+
+    pending = row.get("pending_email")
+    if not pending:
+        raise SecurityError("There is no email waiting to be confirmed.")
+    previous = row.get("contact_email")
+    with cursor() as cur:
+        cur.execute(
+            """UPDATE user_security SET contact_email = ?, contact_email_set_at = ?, pending_email = NULL,
+                      updated_at = datetime('now') WHERE user_id = ? AND pending_email = ?""",
+            (pending, now, user_id, pending),
+        )
+    notifications.notify_security_change(user_id, institution_id, "email_changed",
+                                         also_email=previous if previous != pending else None)
     return status(user_id)
 
 
@@ -215,7 +371,7 @@ def _validate_pin(pin: str) -> None:
 
 
 def set_pin(user_id: str, pin: str, current_pin: str | None = None,
-            institution_id: str | None = None) -> dict:
+            institution_id: str | None = None, stepup_token: str | None = None) -> dict:
     pin = pin.strip()
     if not pin.isdigit():
         raise SecurityError("Your PIN must be digits only.")
@@ -225,12 +381,19 @@ def set_pin(user_id: str, pin: str, current_pin: str | None = None,
 
     # Replacing an existing PIN requires the old one. Without this, a session
     # an attacker already holds could simply overwrite the factor meant to
-    # stop them.
+    # stop them. The old PIN is checked by check_pin, so wrong guesses here
+    # count towards the same lock as everywhere else: this used to compare
+    # hashes directly, which made it an unlimited PIN-guessing oracle.
     if row and row.get("pin_hash"):
         if not current_pin:
             raise SecurityError("Enter your current PIN to change it.")
-        if not _verify_hash(row, current_pin):
+        if not check_pin(user_id, current_pin):
             raise SecurityError("Your current PIN isn't right.")
+    else:
+        # No PIN yet (never set, or reset by the bank). If another factor
+        # exists it must be proved, so a reset cannot be followed by an
+        # attacker choosing the new PIN.
+        require_existing_factor(user_id, None, stepup_token)
 
     _store_pin(user_id, pin, institution_id)
     return status(user_id)
@@ -328,6 +491,25 @@ def check_pin(user_id: str, pin: str) -> bool:
             f"Too many wrong attempts. Locked for {setting("FABLE_PIN_LOCKOUT_MINUTES")} minutes."
         )
     return False
+
+
+def location_opted_out(user_id: str) -> bool:
+    """Whether the customer chose not to share their location."""
+    with cursor() as cur:
+        cur.execute("SELECT location_opt_out FROM user_security WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+    return bool(row and row["location_opt_out"])
+
+
+def set_location_sharing(user_id: str, share: bool) -> dict:
+    with cursor() as cur:
+        cur.execute(
+            """INSERT INTO user_security (user_id, location_opt_out) VALUES (?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET location_opt_out = excluded.location_opt_out,
+                 updated_at = datetime('now')""",
+            (user_id, 0 if share else 1),
+        )
+    return status(user_id)
 
 
 def set_two_factor(user_id: str, enabled: bool) -> dict:

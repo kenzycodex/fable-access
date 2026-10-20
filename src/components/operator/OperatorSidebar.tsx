@@ -94,8 +94,8 @@ export function OperatorSidebar({ open, onClose }: { open: boolean; onClose: () 
         <div className="nav-brand flex items-center justify-between px-6 pb-2 pt-6">
           <Link href="/operator" className="flex items-center" aria-label="Operator home">
             <span className="nav-wide-only flex items-center">
-              <Image src="/images/brand/fable-logo-white.png" alt="Fable" width={1671} height={547} className="hidden h-7 w-auto dark:block" />
-              <Image src="/images/brand/fable-logo.png" alt="Fable" width={1671} height={547} className="block h-7 w-auto dark:hidden" />
+              <Image src="/images/brand/fable-logo-white.png" alt="Fable" width={1671} height={547} loading="eager" className="hidden h-7 w-auto dark:block" />
+              <Image src="/images/brand/fable-logo.png" alt="Fable" width={1671} height={547} loading="eager" className="block h-7 w-auto dark:hidden" />
             </span>
             <Image src="/images/brand/fable-logo-icon.png" alt="Fable" width={1254} height={1254} className="nav-rail-only hidden size-10" />
           </Link>

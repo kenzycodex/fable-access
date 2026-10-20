@@ -15,6 +15,7 @@ import {
   WarningCircle,
   XCircle,
 } from "@phosphor-icons/react";
+import { ReviewSheet } from "@/components/demo/ReviewSheet";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { PageHeader } from "@/components/demo/PageHeader";
 import {
@@ -31,14 +32,22 @@ import {
   inputClass,
 } from "@/components/app-kit";
 import { BehavioralTracker } from "@/lib/fable/biometrics";
-import { InsufficientFundsError, accountBalance, sandboxRecipients, type SavedRecipient } from "@/lib/fable/api";
+import {
+  accountBalance,
+  FableUnavailableError,
+  InsufficientFundsError,
+  sandboxRecipients,
+  securityStatus,
+  type SavedRecipient,
+} from "@/lib/fable/api";
 import { collectDeviceFingerprint, type DeviceFingerprint } from "@/lib/fable/fingerprint";
-import { formatNaira } from "@/lib/fable/format";
+import { amountMagnitude, formatNaira } from "@/lib/fable/format";
 import { getGeolocationSnapshot, subscribeGeolocation, type GeoLocation } from "@/lib/fable/geolocation";
-import { CHANNEL_LABELS } from "@/lib/fable/scoring";
+import { CHANNEL_LABELS } from "@/lib/fable/constants";
 import { QUICK_AMOUNTS } from "@/lib/fable/seed";
 import { ensureSession, getSessionContext, type BankingSession } from "@/lib/fable/session";
 import { submitTransfer } from "@/lib/fable/store";
+import { authHeaders } from "@/lib/fable/tenant";
 import type { Channel, Recipient } from "@/lib/fable/types";
 
 interface Bank {
@@ -47,6 +56,9 @@ interface Bank {
 }
 
 const CHANNELS: Channel[] = ["app", "ussd", "web"];
+/** The smallest transfer the sandbox app accepts, shown in the amount range. */
+const MIN_TRANSFER = 10;
+
 type VerifyState = "idle" | "verifying" | "verified" | "error";
 
 /** Why a name is simulated rather than a real NUBAN lookup. Surfaced on the
@@ -78,11 +90,13 @@ export default function TransferPage() {
   const [banks, setBanks] = useState<Bank[]>([]);
   const [selectedBankCode, setSelectedBankCode] = useState("");
   const [amount, setAmount] = useState("");
+  const submitRef = useRef<{ key: string; reference: string } | null>(null);
   const [narration, setNarration] = useState("");
   const [channel, setChannel] = useState<Channel>("app");
   const [detectedChannel, setDetectedChannel] = useState<Channel | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
 
   // What the Fable SDK has actually collected on this page.
   const [device, setDevice] = useState<DeviceFingerprint | null>(null);
@@ -102,8 +116,6 @@ export default function TransferPage() {
     tracker = t;
 
     void collectDeviceFingerprint().then(setDevice);
-    // Shown the moment a first reading exists, then updated as it sharpens.
-    const stopLocation = subscribeGeolocation(setLocation);
 
     // Browser-only state (the session clock and the detected channel) is set up
     // from a callback rather than synchronously in the effect body, so the first
@@ -125,12 +137,24 @@ export default function TransferPage() {
 
     return () => {
       clearTimeout(init);
-      stopLocation();
       if (tick) clearInterval(tick);
       t.stop();
       if (tracker === t) tracker = null;
     };
   }, []);
+
+  // Location is read only for a customer who has not turned it off, and only
+  // once that is known, so an opted-out customer is never asked for it.
+  const { data: security } = useSWR(
+    customer ? ["security", customer.user_id] : null,
+    () => securityStatus(customer!.user_id),
+  );
+  const locationShared = security ? security.location_shared !== false : null;
+  useEffect(() => {
+    if (!locationShared) return;
+    // Shown the moment a first reading exists, then updated as it sharpens.
+    return subscribeGeolocation(setLocation);
+  }, [locationShared]);
 
   // Real bank list (Paystack when a key is configured, a built-in list otherwise).
   useEffect(() => {
@@ -195,8 +219,9 @@ export default function TransferPage() {
     setFallbackReason(null);
     try {
       const res = await fetch("/api/resolve-account", {
+        // The lookup needs the signed-in session (src/lib/routeGuard.ts).
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ accountNumber: acct, bankCode }),
       });
       const data = await res.json();
@@ -222,17 +247,27 @@ export default function TransferPage() {
   const amountValue = Number(amount) || 0;
   const available = account?.available ?? null;
   const overBalance = available !== null && amountValue > available;
-  const canSubmit = customer !== null && contact !== null && verify === "verified" && amountValue > 0 && !overBalance && !submitting;
+  const underMinimum = amountValue > 0 && amountValue < MIN_TRANSFER;
+  const canSubmit = customer !== null && contact !== null && verify === "verified" && amountValue >= MIN_TRANSFER
+    && !overBalance && !submitting;
 
   async function handleSubmit() {
     if (!canSubmit || !contact) return;
+    setReviewing(false);
     setSubmitting(true);
     setSubmitError(null);
+    // One reference per transfer the customer is making, reused if they retry
+    // after an error, so a retry returns the decision already made rather than
+    // booking a second one. A changed amount or recipient starts a new one.
+    const fingerprint = `${amountValue}|${contact.accountNumber || contact.token || contact.name}|${channel}`;
+    if (!submitRef.current || submitRef.current.key !== fingerprint) {
+      submitRef.current = { key: fingerprint, reference: `ref_${crypto.randomUUID()}` };
+    }
 
     // Everything the SDK collected on this page travels with the transfer.
     const sdk = {
       device,
-      location: getGeolocationSnapshot(),
+      location: locationShared ? getGeolocationSnapshot() : null,
       session: getSessionContext(),
       behavior: tracker?.snapshot() ?? null,
     };
@@ -243,14 +278,20 @@ export default function TransferPage() {
       // A short floor so the checking moment registers. Scoring is sub-200ms, so
       // a long artificial wait would be pure friction.
       const minDelay = new Promise((resolve) => setTimeout(resolve, 650));
-      await Promise.all([submitTransfer({ amount: amountValue, recipient: contact, narration, channel }, sdk), minDelay]);
+      await Promise.all([
+        submitTransfer({ amount: amountValue, recipient: contact, narration, channel }, sdk, submitRef.current.reference),
+        minDelay,
+      ]);
+      submitRef.current = null;
       router.push(href("/result"));
     } catch (err) {
       if (err instanceof InsufficientFundsError) {
         const short = err.shortfall > 0 ? ` You're ${formatNaira(err.shortfall)} short.` : "";
         setSubmitError(`Not enough balance for this transfer.${short}`);
+      } else if (err instanceof FableUnavailableError) {
+        setSubmitError(err.message);
       } else {
-        setSubmitError("We couldn't process this transfer just now. Please try again.");
+        setSubmitError("We couldn't process this transfer just now. Nothing was sent. Please try again.");
       }
       setSubmitting(false);
     }
@@ -412,6 +453,7 @@ export default function TransferPage() {
           <Card>
             <CardHeader title="How much?" />
             <div className="rounded-2xl bg-d-surface-2 px-4 py-6">
+              <p className="h-4 text-center text-[12px] font-semibold text-brand" aria-live="polite">{amountMagnitude(amountValue)}</p>
               <div className="flex items-center justify-center gap-1.5">
                 <span className="text-[28px] font-bold text-d-faint">₦</span>
                 <input
@@ -426,11 +468,18 @@ export default function TransferPage() {
                 />
               </div>
               {available !== null && (
-                <p className="mt-1 text-center text-[12px] text-d-muted">Available {formatNaira(available)}</p>
+                <p className="mt-1 text-center text-[12px] text-d-muted">
+                  {formatNaira(MIN_TRANSFER)} to {formatNaira(Math.max(available, 0))} · Available {formatNaira(available)}
+                </p>
+              )}
+              {underMinimum && (
+                <p className="mt-1 text-center text-[12px] font-semibold text-amber-600 dark:text-amber-400">
+                  The smallest transfer is {formatNaira(MIN_TRANSFER)}.
+                </p>
               )}
             </div>
 
-            <div className="mt-3 grid grid-cols-4 gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-2 min-[400px]:grid-cols-4">
               {QUICK_AMOUNTS.map((a) => (
                 <button
                   key={a}
@@ -514,7 +563,7 @@ export default function TransferPage() {
               className="mt-5"
               disabled={!canSubmit}
               loading={submitting}
-              onClick={handleSubmit}
+              onClick={() => setReviewing(true)}
               icon={!submitting ? <PaperPlaneTilt size={18} weight="fill" /> : undefined}
             >
               {submitting ? "Checking transfer…" : amountValue > 0 ? `Send ${formatNaira(amountValue)}` : "Send money"}
@@ -531,6 +580,18 @@ export default function TransferPage() {
               </Notice>
             )}
 
+            <ReviewSheet
+              open={reviewing}
+              onClose={() => setReviewing(false)}
+              onConfirm={handleSubmit}
+              from={customer?.name ?? ""}
+              to={contact}
+              amount={amountValue}
+              available={available}
+              narration={narration}
+              channel={CHANNEL_LABELS[channel]}
+            />
+
             {/* What Fable reads, collapsed by default. It is the product's real
                 data collection, shown for evaluators without crowding the form. */}
             <details className="group mt-5 rounded-xl border border-d-border">
@@ -543,7 +604,7 @@ export default function TransferPage() {
                   {device ? `${device.os} · ${device.browser}` : "Reading…"}
                 </Signal>
                 <Signal icon={<MapPin size={16} />} title="Location">
-                  <LocationStatus location={location} />
+                  {locationShared === false ? "Not used: you turned it off" : <LocationStatus location={location} />}
                 </Signal>
                 <Signal icon={<Timer size={16} />} title="Session">
                   {session

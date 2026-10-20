@@ -8,10 +8,10 @@ import { Badge, Button, Card, CardHeader, DetailRow, Eyebrow, Notice, Screen } f
 import { PageSpinner } from "@/components/demo/Spinner";
 import { GhostTimer } from "@/components/demo/GhostTimer";
 import { StepUpDialog } from "@/components/demo/StepUpDialog";
-import { StepUpRequiredError } from "@/lib/fable/api";
+import { GhostExpiredError, ghostDetail, ghostRequestRelease, StepUpRequiredError } from "@/lib/fable/api";
 import { stepUpRequirement, type StepUpRequirement } from "@/lib/fable/webauthn";
 import { formatNaira } from "@/lib/fable/format";
-import { cancelGhost, confirmGhost, useFableStore } from "@/lib/fable/store";
+import { cancelGhost, confirmGhost, markGhostEnded, useFableStore } from "@/lib/fable/store";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 
 const STEPS = [
@@ -32,20 +32,60 @@ export default function GhostPage() {
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [requirement, setRequirement] = useState<StepUpRequirement | null>(null);
   const [releasing, setReleasing] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [releaseError, setReleaseError] = useState<string | null>(null);
+  const [ended, setEnded] = useState<string | null>(null);
+  const [askedBank, setAskedBank] = useState(false);
 
   useEffect(() => {
-    if (store !== null && !ghost) router.replace(href());
-  }, [store, ghost, router, href]);
+    if (store !== null && !ghost && !ended) router.replace(href());
+  }, [store, ghost, router, href, ended]);
+
+  if (ended) {
+    return (
+      <Screen>
+        <PageHeader title="Hold ended" subtitle="Nothing was sent" back />
+        <Card className="flex flex-col gap-4">
+          <Notice tone="neutral">{ended}</Notice>
+          <Button size="lg" full onClick={() => router.push(href())}>
+            Back to home
+          </Button>
+        </Card>
+      </Screen>
+    );
+  }
 
   if (!ghost) {
     return <PageSpinner />;
   }
 
-  function cancel() {
+  async function cancel() {
+    if (!ghost || cancelling) return;
+    setCancelling(true);
+    setReleaseError(null);
+    try {
+      await cancelGhost(ghost.id);
+      router.push(href());
+    } catch (err) {
+      setReleaseError(err instanceof Error ? err.message : "We couldn't cancel just now. Please try again.");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  /** The window closed on screen: ask the server what happened, since it is
+   * the server that ends the hold. */
+  async function checkExpiry() {
     if (!ghost) return;
-    cancelGhost(ghost.id);
-    router.push(href());
+    try {
+      const fresh = await ghostDetail(ghost.id);
+      if (fresh.status === "EXPIRED") {
+        markGhostEnded(ghost.id, "expired");
+        setEnded(new GhostExpiredError().message);
+      }
+    } catch {
+      // Unreachable: leave the screen as it is; release will say what happened.
+    }
   }
 
   async function confirm(token?: string) {
@@ -56,16 +96,22 @@ export default function GhostPage() {
       await confirmGhost(ghost.id, token ?? null);
       router.push(href());
     } catch (err) {
+      if (err instanceof GhostExpiredError) {
+        markGhostEnded(ghost.id, "expired");
+        setEnded(err.message);
+        return;
+      }
       if (err instanceof StepUpRequiredError) {
         // The server named the factor it wants; go and collect it.
         try {
+          // The server answers from the hold it stored, including which of the
+          // customer's factors were in place before the money was held.
           const req = await stepUpRequirement({
             userId: customer?.user_id ?? "",
-            riskScore: 0,
-            signals: [],
             purpose: "ghost_release",
+            reference: ghost!.id,
           });
-          setRequirement({ ...req, level: err.level, ...describeFallback(err.level, req) });
+          setRequirement(req);
         } catch {
           setRequirement(null);
         }
@@ -78,27 +124,6 @@ export default function GhostPage() {
     } finally {
       setReleasing(false);
     }
-  }
-
-  /** The requirement endpoint answers for a hypothetical risk; the refusal
-   * carries the real level, so prefer the server's copy for that level. */
-  function describeFallback(level: string, req: StepUpRequirement) {
-    if (level === req.level) return {};
-    const copy: Record<string, { label: string; detail: string; factors: string[] }> = {
-      pin: { label: "Transaction PIN", detail: "Re-enter your transaction PIN to release this transfer.", factors: ["pin"] },
-      passkey: { label: "Device biometric", detail: "Confirm with this device's fingerprint or face unlock.", factors: ["passkey"] },
-      passkey_and_otp: {
-        label: "Biometric + emailed code",
-        detail: "Confirm on this device, then enter the code sent to your registered email.",
-        factors: ["passkey", "otp"],
-      },
-      identity_check: {
-        label: "Identity verification",
-        detail: "This transfer needs a liveness check against your registered ID.",
-        factors: ["identity_check"],
-      },
-    };
-    return copy[level] ?? {};
   }
 
   return (
@@ -119,7 +144,7 @@ export default function GhostPage() {
 
           <Card>
             <CardHeader title="Cooling window" subtitle="Cancel any time before it ends" />
-            <GhostTimer expiresAt={ghost.expiresAt} windowSeconds={ghost.windowSeconds} />
+            <GhostTimer expiresAt={ghost.expiresAt} windowSeconds={ghost.windowSeconds} onExpire={() => void checkExpiry()} />
           </Card>
         </div>
 
@@ -148,7 +173,7 @@ export default function GhostPage() {
           </Card>
 
           <Card className="flex flex-col gap-3">
-            <Button variant="danger" size="lg" full disabled={releasing} onClick={cancel}>
+            <Button variant="danger" size="lg" full loading={cancelling} disabled={releasing} onClick={() => void cancel()}>
               Cancel and get my money back
             </Button>
             <Button
@@ -156,11 +181,18 @@ export default function GhostPage() {
               size="lg"
               full
               loading={releasing}
+              disabled={cancelling}
               onClick={() => confirm()}
               icon={!releasing ? <HandPointing size={18} /> : undefined}
             >
               I&apos;m sure, release the transfer
             </Button>
+            {askedBank && (
+              <Notice tone="neutral">
+                We&apos;ve asked your bank to verify you. They may call you on the number they have on file. The money
+                stays held until they release it, and you can still cancel.
+              </Notice>
+            )}
             {/* A refused release has to be visible. Failing quietly would read as
                 a broken button, when the money is in fact being held on purpose. */}
             {releaseError && <Notice tone="danger">{releaseError}</Notice>}
@@ -180,6 +212,15 @@ export default function GhostPage() {
         institutionId={institutionId}
         purpose="ghost_release"
         reference={ghost.id}
+        onCancelTransfer={() => {
+          setStepUpOpen(false);
+          void cancel();
+        }}
+        onAskBank={async () => {
+          await ghostRequestRelease(ghost.id);
+          setAskedBank(true);
+          setStepUpOpen(false);
+        }}
       />
     </Screen>
   );

@@ -84,47 +84,119 @@ class SetPinRequest(BaseModel):
     # Required once a PIN exists, so a hijacked session can't silently replace
     # the factor that guards the account.
     current_pin: Optional[str] = None
+    # With no PIN yet but another factor in place (a passkey or a confirmed
+    # email), a step-up token for purpose "security_change".
+    stepup_token: Optional[str] = None
     institution_id: Optional[str] = None
 
 
 @router.post("/{user_id}/security/pin")
-def set_pin(user_id: str, payload: SetPinRequest):
+def set_pin(user_id: str, payload: SetPinRequest, request: Request):
+    from services import notifications
+
+    institution_id = request.state.institution_id
     had_pin = security.status(user_id)["pin_set"]
     try:
-        result = security.set_pin(user_id, payload.pin, payload.current_pin, payload.institution_id)
+        result = security.set_pin(user_id, payload.pin, payload.current_pin, institution_id,
+                                  payload.stepup_token)
     except security.SecurityError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    audit.record(audit.SECURITY_CHANGED, user_id, institution_id=payload.institution_id,
-                 change="pin_changed" if had_pin else "pin_set")
+    change = "pin_changed" if had_pin else "pin_set"
+    audit.record(audit.SECURITY_CHANGED, user_id, institution_id=institution_id, change=change)
+    notifications.notify_security_change(user_id, institution_id, change)
     return result
 
 
 class TwoFactorRequest(BaseModel):
     enabled: bool
     current_pin: Optional[str] = None
+    stepup_token: Optional[str] = None
 
 
 @router.post("/{user_id}/security/two-factor")
-def set_two_factor(user_id: str, payload: TwoFactorRequest):
+def set_two_factor(user_id: str, payload: TwoFactorRequest, request: Request):
+    from services import notifications
+
     try:
-        security.require_pin_if_set(user_id, payload.current_pin)
+        security.require_existing_factor(user_id, payload.current_pin, payload.stepup_token)
     except security.SecurityError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return security.set_two_factor(user_id, payload.enabled)
+    result = security.set_two_factor(user_id, payload.enabled)
+    audit.record(audit.SECURITY_CHANGED, user_id, institution_id=request.state.institution_id,
+                 change="two_factor_on" if payload.enabled else "two_factor_off")
+    notifications.notify_security_change(user_id, request.state.institution_id, "two_factor_changed")
+    return result
+
+
+class LocationSharingRequest(BaseModel):
+    share: bool
+    current_pin: Optional[str] = None
+    stepup_token: Optional[str] = None
+
+
+@router.post("/{user_id}/security/location")
+def set_location_sharing(user_id: str, payload: LocationSharingRequest, request: Request):
+    """The customer chooses whether their location is used. Turning it off
+    removes a check (a transfer from a new city is no longer noticed), so it
+    needs a factor the customer already has, like the other security settings:
+    someone holding only the session cannot switch it off before a transfer."""
+    from services import notifications
+
+    if not payload.share:
+        try:
+            security.require_existing_factor(user_id, payload.current_pin, payload.stepup_token)
+        except security.SecurityError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    result = security.set_location_sharing(user_id, payload.share)
+    audit.record(audit.SECURITY_CHANGED, user_id, institution_id=request.state.institution_id,
+                 change="location_on" if payload.share else "location_off")
+    if not payload.share:
+        notifications.notify_security_change(user_id, request.state.institution_id, "location_off")
+    return result
 
 
 class SetContactRequest(BaseModel):
-    email: Optional[str] = None
-    phone: Optional[str] = None
+    email: Optional[str] = Field(None, max_length=254)
+    phone: Optional[str] = Field(None, max_length=32)
     institution_id: Optional[str] = None
     current_pin: Optional[str] = None
+    stepup_token: Optional[str] = None
 
 
 @router.post("/{user_id}/security/contact")
-def set_contact(user_id: str, payload: SetContactRequest):
+def set_contact(user_id: str, payload: SetContactRequest, request: Request):
+    """Change the customer's contact details.
+
+    A new email is not used until it is confirmed: the response carries a
+    `verification` object with the challenge for the code sent to the new
+    address, to be completed at /security/contact/verify.
+    """
     try:
-        return security.set_contact(
-            user_id, payload.email, payload.phone, payload.institution_id, payload.current_pin
+        result = security.set_contact(
+            user_id, payload.email, payload.phone, request.state.institution_id,
+            payload.current_pin, payload.stepup_token,
         )
     except security.SecurityError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    audit.record(audit.SECURITY_CHANGED, user_id, institution_id=request.state.institution_id,
+                 change="contact_change_started",
+                 email_pending=bool(result.get("verification")), phone=bool(payload.phone))
+    return result
+
+
+class ConfirmContactRequest(BaseModel):
+    challenge_id: str
+    code: str = Field(max_length=12)
+
+
+@router.post("/{user_id}/security/contact/verify")
+def confirm_contact(user_id: str, payload: ConfirmContactRequest, request: Request):
+    """Confirm a new email with the code that was sent to it."""
+    try:
+        result = security.confirm_contact(user_id, payload.challenge_id, payload.code,
+                                          request.state.institution_id)
+    except security.SecurityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    audit.record(audit.SECURITY_CHANGED, user_id, institution_id=request.state.institution_id,
+                 change="email_confirmed")
+    return result

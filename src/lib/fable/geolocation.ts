@@ -1,5 +1,7 @@
 "use client";
 
+import { authHeaders } from "./tenant";
+
 // Fable SDK: geolocation collector. GPS first (the browser's permission
 // prompt, like a bank app), IP geolocation as fallback (ipapi.co, free, no
 // key). Never blocks the transfer flow: the first reading shows at once, later
@@ -106,10 +108,10 @@ interface ReverseGeocode {
 // module; a cycle between the two is not worth one line.
 const API_BASE = (process.env.NEXT_PUBLIC_FABLE_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
 
-function timedFetch(url: string): Promise<Response> {
+function timedFetch(url: string, headers: Record<string, string> = {}): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REVERSE_GEOCODE_TIMEOUT_MS);
-  return fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } }).finally(() =>
+  return fetch(url, { signal: controller.signal, headers: { Accept: "application/json", ...headers } }).finally(() =>
     clearTimeout(timer),
   );
 }
@@ -153,7 +155,9 @@ async function reverseGeocodeNominatim(lat: number, lon: number): Promise<Revers
  * unreachable API this falls through to OpenStreetMap from the browser. */
 async function reverseGeocodeFable(lat: number, lon: number): Promise<ReverseGeocode | null> {
   try {
-    const res = await timedFetch(`${API_BASE}/v1/geo/reverse?lat=${lat}&lon=${lon}`);
+    // Fable's lookup needs the caller's credential: it spends the bank's paid
+    // map-provider quota, so it is not open to the internet.
+    const res = await timedFetch(`${API_BASE}/v1/geo/reverse?lat=${lat}&lon=${lon}`, authHeaders());
     if (!res.ok) return null;
     const g = (await res.json()) as {
       street_line?: string | null;

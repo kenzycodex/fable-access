@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, DownloadSimple, FileText, ShieldCheck } from "@phosphor-icons/react";
+import { CheckCircle, Circle, DownloadSimple, FileText, ShieldCheck } from "@phosphor-icons/react";
 import { Dialog } from "@/components/dashboard/Dialog";
 import {
   Badge,
@@ -21,16 +21,23 @@ import {
 import { daysAgo, downloadCsv } from "@/lib/fable/console";
 import { formatNaira, formatRelativeTime } from "@/lib/fable/format";
 import { useCompliance, useDashboardFeed } from "@/lib/fable/useBackend";
+import { useOnboarding } from "@/lib/fable/useConsole";
 import { useCustomerNames } from "@/lib/fable/useInstitution";
 
-// Regulatory frameworks Fable is built against (real Nigerian/industry
-// standards). Presented as posture, nothing here is certified in the demo.
-const FRAMEWORKS = [
-  { name: "CBN Risk-Based Cybersecurity Framework", note: "Real-time transaction risk scoring" },
-  { name: "NDPA 2023 + GAID 2025", note: "Data minimization, hashed signals only" },
-  { name: "PCI-DSS", note: "Card fields stripped before any processing" },
-  { name: "FATF AML typologies", note: "Mule-account and layering signals" },
+// Readiness, not certification. Your own steps come from the go-live
+// checklist; Fable's controls say plainly whether each is live or still being
+// built. Nothing here is a certification, and Fable holds none today.
+type ControlStatus = "Live" | "In progress";
+const FABLE_CONTROLS: { name: string; status: ControlStatus; note: string }[] = [
+  { name: "Audit trail", status: "Live", note: "Decisions, holds, identity checks and staff actions are recorded" },
+  { name: "No credentials in logs", status: "Live", note: "PINs, codes, passwords and keys are never written to the audit log" },
+  { name: "AI provider redaction", status: "Live", note: "Names and account numbers are removed before any AI provider sees text" },
+  { name: "Tenant isolation", status: "Live", note: "Your customers and decisions are never visible to another institution" },
+  { name: "Customer data export and erasure", status: "Live", note: "From a customer's page: download a copy, or erase" },
+  { name: "Automatic retention", status: "Live", note: "Decisions kept 5 years, device and location detail 2 years" },
+  { name: "Location kept coarse", status: "Live", note: "About 1 km; IP addresses without the last part" },
 ];
+const OWN_STEPS = ["agreements", "api_key", "webhook", "policy", "team"];
 
 type Tone = "neutral" | "success" | "warning" | "danger" | "brand";
 type AuditEvent = NonNullable<ReturnType<typeof useCompliance>["data"]>["audit_trail"] extends (infer E)[] | undefined ? E : never;
@@ -144,22 +151,7 @@ export default function CompliancePage() {
           )}
         </Card>
 
-        <Card>
-          <CardHeader title="Regulatory posture" subtitle="What Fable is built against" />
-          <ul className="flex flex-col gap-4">
-            {FRAMEWORKS.map((f) => (
-              <li key={f.name} className="flex items-start gap-3">
-                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600 dark:text-emerald-400">
-                  <Check size={13} weight="bold" />
-                </span>
-                <span>
-                  <span className="block text-[13px] font-semibold text-d-text">{f.name}</span>
-                  <span className="block text-[12px] text-d-muted">{f.note}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
+        <Readiness />
       </div>
 
       <Card padded={false}>
@@ -205,6 +197,50 @@ export default function CompliancePage() {
 }
 
 /** Choose what and which period to export, then download it as a CSV. */
+/** Readiness from real state: the institution's own steps and Fable's controls. */
+function Readiness() {
+  const { data } = useOnboarding();
+  const steps = (data?.items ?? []).filter((i) => OWN_STEPS.includes(i.key));
+  return (
+    <Card>
+      <CardHeader title="Readiness" subtitle="Readiness, not certification" />
+      <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-d-faint">Your steps</p>
+      {!data ? (
+        <Skeleton className="h-24 w-full" />
+      ) : (
+        <ul className="mb-5 flex flex-col gap-2.5">
+          {steps.map((i) => (
+            <li key={i.key} className="flex items-start gap-2.5 text-[13px]">
+              {i.done ? (
+                <CheckCircle size={18} weight="fill" className="mt-px shrink-0 text-emerald-600 dark:text-emerald-400" />
+              ) : (
+                <Circle size={18} className="mt-px shrink-0 text-d-faint" />
+              )}
+              <span className={i.done ? "text-d-text" : "text-d-muted"}>{i.label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-d-faint">Fable&apos;s controls</p>
+      <ul className="flex flex-col gap-3">
+        {FABLE_CONTROLS.map((c) => (
+          <li key={c.name} className="flex items-start justify-between gap-3">
+            <span className="min-w-0">
+              <span className="block text-[13px] font-semibold text-d-text">{c.name}</span>
+              <span className="block text-[12px] text-d-muted">{c.note}</span>
+            </span>
+            <Badge tone={c.status === "Live" ? "success" : "warning"}>{c.status}</Badge>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-4 text-[12px] text-d-faint">
+        Fable is not certified against PCI-DSS, ISO 27001 or SOC 2. Use this list with your own review against the CBN
+        Risk-Based Cybersecurity Framework and the NDPA 2023.
+      </p>
+    </Card>
+  );
+}
+
 function ExportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [what, setWhat] = useState<"transactions" | "audit">("transactions");
   const [range, setRange] = useState<"7" | "30" | "90" | "custom">("30");

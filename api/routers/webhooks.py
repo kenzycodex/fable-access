@@ -73,9 +73,14 @@ def create_endpoint(body: CreateBody, request: Request):
             raise HTTPException(status_code=409, detail=f"You can register up to {MAX_ENDPOINTS} endpoints.")
         hook_id = "wh_" + secrets.token_hex(8)
         secret = webhooks.new_secret()
+        # Stored encrypted (core/secrets envelope) when the master key is set.
+        cols = webhooks.seal_secret(hook_id, secret)
         cur.execute(
-            "INSERT INTO webhooks (id, institution_id, url, secret, events, created_by) VALUES (?, ?, ?, ?, ?, ?)",
-            (hook_id, who["inst"], url, secret, ",".join(events), who["email"]),
+            """INSERT INTO webhooks (id, institution_id, url, secret, events, created_by, secret_ciphertext,
+                                     secret_nonce, secret_wrapped, secret_kid)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (hook_id, who["inst"], url, cols["secret"], ",".join(events), who["email"], cols["secret_ciphertext"],
+             cols["secret_nonce"], cols["secret_wrapped"], cols["secret_kid"]),
         )
         cur.execute("SELECT * FROM webhooks WHERE id = ?", (hook_id,))
         row = row_to_dict(cur.fetchone())
@@ -108,7 +113,7 @@ def test_endpoint(hook_id: str, request: Request):
     """Send a signed sample event now and report what came back."""
     who = require_role(request, "owner")
     row = _own(hook_id, who["inst"])
-    ok = webhooks.deliver(row, "case.resolved", {"test": True, "message": "A test event from the Fable console."},
+    ok = webhooks.deliver(webhooks.with_secret(row), "case.resolved", {"test": True, "message": "A test event from the Fable console."},
                           sleep=lambda _s: None)
     with cursor() as cur:
         cur.execute(

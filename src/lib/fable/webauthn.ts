@@ -12,6 +12,7 @@
 
 import { API_BASE } from "./api";
 import { collectDeviceFingerprint } from "./fingerprint";
+import { authHeaders } from "./tenant";
 
 function b64urlToBuffer(value: string): ArrayBuffer {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -43,7 +44,10 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   try {
     res = await fetch(`${API_BASE}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // Every step-up route acts on a customer, so it needs the caller's
+      // credential like every other customer endpoint. Without it each call
+      // was refused with a 401 before the factor could even start.
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
     });
   } catch {
@@ -54,10 +58,13 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     const detail = await res.json().catch(() => ({}));
     // The server words its own refusals ("That PIN isn't right."); anything else
     // is ours to explain, not a status code.
+    const d = detail?.detail;
     throw new Error(
-      typeof detail?.detail === "string"
-        ? detail.detail
-        : res.status >= 500
+      typeof d === "string"
+        ? d
+        : typeof d?.message === "string"
+          ? d.message
+          : res.status >= 500
           ? "Something went wrong on our side. Please try again in a moment."
           : "We couldn't complete that. Please try again.",
     );
@@ -161,10 +168,17 @@ export async function registerPasskey(
   displayName: string,
   institutionId: string | null,
   currentPin?: string | null,
+  stepupToken?: string | null,
 ): Promise<{ credential_id: string; device_label: string }> {
   const { challenge_id, options } = await post<RegistrationOptions>(
     "/v1/stepup/passkey/register/begin",
-    { user_id: userId, display_name: displayName, institution_id: institutionId, current_pin: currentPin ?? null },
+    {
+      user_id: userId,
+      display_name: displayName,
+      institution_id: institutionId,
+      current_pin: currentPin ?? null,
+      stepup_token: stepupToken ?? null,
+    },
   );
 
   let created: PublicKeyCredential | null;
@@ -214,6 +228,8 @@ export interface PasskeyAuthResult {
   verified: boolean;
   level: string;
   token: string | null;
+  /** The same proof, to hand to verifyOtp when a code must follow. */
+  passkey_token?: string | null;
   next: "otp" | null;
   expires_in?: number;
 }
@@ -344,31 +360,45 @@ function deviceLabel(): string {
 
 // --- Step-up requirement + out-of-band code -------------------------------
 
+export type StepUpPurpose = "transfer" | "ghost_release" | "security_change";
+export type StepUpFactor = "passkey" | "pin" | "otp";
+
 export interface StepUpRequirement {
   level: string;
   label: string;
   detail: string;
   factors: string[];
+  /** The factors to collect, in order, worked out by the server from what this
+   * customer has. Null when nothing they have reaches the level (only
+   * cancelling is open then). Absent from an older API. */
+  steps?: StepUpFactor[] | null;
+  available?: boolean;
+  /** "stored_decision" when the level came from Fable's own record. */
+  source?: string;
+  /** For a hold: nothing the customer has reaches the level, so they may ask
+   * their bank to verify them another way and release it. */
+  can_request_release?: boolean;
   passkey_registered: boolean;
   recent_failures: number;
 }
 
+/** What a transfer or hold needs before money can move. Pass the transfer or
+ * hold id as `reference` and the server answers from its own stored decision;
+ * nothing the browser says about risk is trusted. */
 export function stepUpRequirement(input: {
   userId: string;
-  riskScore: number;
-  signals: string[];
-  action?: string;
-  purpose: "transfer" | "ghost_release";
+  purpose: StepUpPurpose;
+  reference?: string | null;
 }): Promise<StepUpRequirement> {
   return post("/v1/stepup/requirement", {
     user_id: input.userId,
-    risk_score: input.riskScore,
-    signals: input.signals,
-    action: input.action ?? null,
     purpose: input.purpose,
+    reference: input.reference ?? null,
   });
 }
 
+/** Send a one-time code to the customer's own confirmed email, or by SMS to
+ * their confirmed phone where SMS is available. */
 export function sendOtp(input: {
   userId: string;
   institutionId: string | null;
@@ -381,6 +411,7 @@ export function sendOtp(input: {
   channel: "email" | "sms";
   destination: string;
   email: string;
+  sandbox_inbox?: boolean;
   debug_code?: string;
 }> {
   return post("/v1/stepup/otp/send", {
@@ -392,17 +423,19 @@ export function sendOtp(input: {
   });
 }
 
+/** Check a code. With `passkeyToken` from the same transfer or hold, the code
+ * completes the combined device-plus-code level. */
 export function verifyOtp(input: {
   userId: string;
   challengeId: string;
   code: string;
-  requiredLevel: string;
+  passkeyToken?: string | null;
 }): Promise<{ verified: boolean; level: string; token: string; expires_in: number }> {
   return post("/v1/stepup/otp/verify", {
     user_id: input.userId,
     challenge_id: input.challengeId,
     code: input.code,
-    required_level: input.requiredLevel,
+    passkey_token: input.passkeyToken ?? null,
   });
 }
 
@@ -412,20 +445,17 @@ export function verifyPin(input: {
   pin: string;
   purpose: string;
   reference: string | null;
-  requiredLevel: string;
 }): Promise<{ verified: boolean; level: string; token: string; expires_in: number }> {
   return post("/v1/stepup/pin/verify", {
     user_id: input.userId,
     pin: input.pin,
     purpose: input.purpose,
     reference: input.reference,
-    required_level: input.requiredLevel,
   });
 }
 
-/** Compose the independent factors (passkey where available, PIN, out-of-band
- * code) into a single identity-assurance proof — the substitute for a vendor
- * liveness check. Returns a token that satisfies the strongest release tier. */
+/** Combine separately verified factors into one proof. The server issues the
+ * level those factors add up to; it is not an ID or liveness check. */
 export function composeIdentityCheck(input: {
   userId: string;
   purpose: string;
@@ -445,5 +475,7 @@ export function composeIdentityCheck(input: {
 }
 
 export function passkeyStatus(userId: string): Promise<{ registered: boolean }> {
-  return fetch(`${API_BASE}/v1/stepup/passkey/${encodeURIComponent(userId)}`).then((r) => r.json());
+  return fetch(`${API_BASE}/v1/stepup/passkey/${encodeURIComponent(userId)}`, { headers: authHeaders() }).then(
+    (r) => r.json(),
+  );
 }

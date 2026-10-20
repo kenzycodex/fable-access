@@ -35,6 +35,10 @@ export const legalContact = {
 };
 
 const EFFECTIVE = "8 October 2026";
+// The privacy notice changed materially on this date (retention periods, the
+// location switch, erasure from the console), so it has its own date. Change
+// it whenever the notice changes materially again.
+const PRIVACY_EFFECTIVE = "20 October 2026";
 const VERSION = "1.0";
 
 const p = (text: string): LegalBlock => ({ type: "p", text });
@@ -50,14 +54,14 @@ export const privacyNotice: LegalDocument = {
   title: "Privacy Notice",
   summary:
     "How Fable collects, uses, shares and protects personal data, for the people who visit our site, the staff of institutions who use the console, and the customers of those institutions whose transfers we score.",
-  effective: EFFECTIVE,
+  effective: PRIVACY_EFFECTIVE,
   version: VERSION,
   sections: [
     {
       id: "who-we-are",
       title: "1. Who we are and what this covers",
       blocks: [
-        p("Fable (\"Fable\", \"we\", \"us\") builds AI security and intelligence infrastructure for banks, fintechs, wallets and payment gateways in Africa. Our platform scores transfers for fraud risk, explains the result in plain language, holds risky transfers in a recoverable cooling window, and gives the institution a console to see what happened."),
+        p("Fable (\"Fable\", \"we\", \"us\") builds behavioural fraud-risk software for banks, wallets, payment service providers and lenders in Nigeria. Our platform scores transfers for fraud risk, explains the result in plain language, holds risky transfers in a recoverable cooling window, and gives the institution a console to see what happened."),
         p("This notice covers three groups of people. Which of our roles applies to you depends on which group you are in."),
         table(
           ["You are", "Our role", "What that means"],
@@ -87,9 +91,9 @@ export const privacyNotice: LegalDocument = {
           ["Institution and contact data", "Institution name and type, contact and support emails, branding (logo, colours, vanity URL), API keys, provisioning details", "Set up and run an institution's tenant, and send you credentials"],
           ["Customer identifiers", "A customer ID assigned by the institution, which institution they belong to, when they were enrolled", "Tie scores and history to the right customer"],
           ["Transfer details", "Amount, currency, recipient account number, recipient bank, the recipient's account-holder name as returned by the bank lookup, narration (the note written on the transfer), channel (app, USSD, POS, ATM, internet, QR, branch), time, and the outcome", "Score the transfer for fraud, build a behavioural baseline, show the institution what happened"],
-          ["Device data", "A device fingerprint made from technical traits (platform, operating system, browser, screen size, graphics renderer, language, timezone, touch support, hardware details, network type, battery level where the browser exposes it), and the IP address", "Recognise a customer's usual device and spot an unfamiliar one"],
-          ["Location data", "GPS coordinates if you allow your browser to share them, otherwise a city-level estimate from your IP address, plus the place name derived from them", "Spot a transfer from an unusual city or country"],
-          ["Behavioural signals", "Derived measures only: average typing speed, whether account details were pasted, time to first input and to submit, session length, how the customer signed in (biometric, PIN or password), and a pointer-speed and scroll summary. We never receive or store individual keystrokes, what was typed, or pointer paths, and the pointer and scroll summary is used for the score and not kept", "Tell a customer acting normally from someone rushed, coached or controlled"],
+          ["Device data", "A device fingerprint made from technical traits (platform, operating system, browser, screen size, graphics renderer, language, timezone, touch support, hardware details, network type, battery level where the browser exposes it), and the IP address, stored without its last part (the network, not the household)", "Recognise a customer's usual device and spot an unfamiliar one"],
+          ["Location data", "GPS coordinates if you allow your browser to share them, otherwise a city-level estimate from your IP address, plus the place name derived from them. Coordinates are stored rounded to about 1 km. A customer can switch location off on their security page, and then none is collected or used", "Spot a transfer from an unusual city or country"],
+          ["Behavioural signals", "Derived measures only: average typing speed, whether account details were pasted, time to first input and to submit, session length, and how the customer signed in (biometric, PIN or password). Pasting and time to submit are used in the score; typing speed is kept as context for the institution's analysts and is not scored. We never receive or store individual keystrokes, what was typed, or pointer movements", "Tell a customer acting normally from someone rushed, coached or controlled"],
           ["Security factors", "A hashed transaction PIN with failed-attempt counters, passkey public keys and signature counters, hashed one-time codes, and the email address or phone number the customer registers to receive codes", "Make sure the right person approves a risky transfer or releases held money"],
           ["Account and ledger data", "Balance and every movement (top-up, debit, reversal, release) with references", "Keep balances correct and explainable"],
           ["Notifications and audit records", "Alerts sent to a customer and whether they were delivered, plus an audit trail of containment and security events", "Tell customers what happened, and give the institution a compliance record"],
@@ -182,12 +186,16 @@ export const privacyNotice: LegalDocument = {
           ["One-time codes and step-up challenges", "Minutes. They expire after 10 minutes and are single-use"],
           ["Password-reset links", "Short-lived and single-use"],
           ["Console session", "Until it expires (hours), or you sign out"],
-          ["Customer, transfer, device, location, ledger and audit data", "While the institution's agreement is active and for the period the institution and the law need it for fraud, dispute and audit purposes"],
+          ["Transfer decisions, imported history, holds and notifications", "5 years, then deleted automatically (an operator can set 5 to 10 years for the platform, never less)"],
+          ["Device, location, IP and session detail on a decision, and the location history", "2 years, then cleared automatically; the decision keeps its amount and outcome"],
+          ["Uploaded import files that were never applied", "7 days"],
+          ["Codes shown in the sandbox inbox", "30 days"],
+          ["Audit log", "While the institution's agreement is active and for the period the law needs it. An erased customer's events in it keep no identifying details"],
           ["Institution and staff account data", "While the account is active"],
           ["Website visit data", "Up to 13 months"],
         ),
         p("When an institution ends its agreement, it can ask us to return or delete its data. We will do so within 90 days of a confirmed request, except for what we must keep to meet a legal obligation, and then only for as long as that obligation lasts. Backups are overwritten on their normal cycle."),
-        note("The platform does not yet run automated deletion on a schedule. Deletion is carried out on request and on termination. We will update this notice when scheduled deletion is in place."),
+        p("These deletions run automatically every few hours. An institution can also erase one customer at any time from its console; their decisions are then kept only as anonymous outcomes with nothing that identifies them."),
       ],
     },
     {
@@ -214,9 +222,9 @@ export const privacyNotice: LegalDocument = {
         p("We use a small amount of browser storage, all of it to make the product work. We use no advertising or third-party marketing trackers."),
         table(
           ["Name", "Type", "Purpose", "Lifetime"],
-          ["fable_auth", "Cookie", "Holds the signed console session so the dashboard can tell you are signed in. It is set when you sign in and is strictly necessary", "Until the session expires or you sign out"],
+          ["fable_auth", "Cookie", "Says which institution you are signed in to and when the session ends, so the dashboard can send a signed-out visitor to the login page. It holds no credential. It is set when you sign in and is strictly necessary", "Until the session expires or you sign out"],
           ["fable-cookie-consent", "Local storage", "Remembers whether you accepted or rejected cookies", "Until you clear it"],
-          ["Console and demo state", "Local and session storage", "Your signed-in session, saved preferences, a cached copy of a customer's baseline, and a queue of transfers waiting to sync if you are offline", "Until you clear it or sign out"],
+          ["Console and demo state", "Local and session storage", "Your signed-in session, saved preferences and the demo's recent transfers, shown back to you", "Until you clear it or sign out"],
           ["Dismissed banners", "Local storage", "Remembers that you closed an announcement", "Until you clear it"],
         ),
         p("You can clear this storage in your browser at any time. Rejecting cookies on the website does not turn off the session cookie, because the console cannot work without it."),
@@ -238,6 +246,7 @@ export const privacyNotice: LegalDocument = {
           "withdraw consent where we rely on it, without affecting what we did before; and",
           "complain to the Nigeria Data Protection Commission.",
         ),
+        p("Institutions can answer a customer's request directly: an owner can download everything Fable holds about one customer, or erase it, from that customer's page in the console."),
         p("Customers of an institution should contact that institution first. To contact us, email " + legalContact.privacy + ". We may ask you to prove who you are, and we will reply within the time the law allows. We will not charge for an ordinary request."),
         p("Customers can also see what Fable has learned about them. The platform includes a transparency view of a customer's baseline, and institutions can surface it to them."),
       ],

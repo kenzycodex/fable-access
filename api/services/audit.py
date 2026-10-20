@@ -25,6 +25,7 @@ CONTAINMENT_CREATED = "containment.created"
 CONTAINMENT_RELEASED = "containment.released"
 CONTAINMENT_CANCELLED = "containment.cancelled"
 CONTAINMENT_EXPIRED = "containment.expired"
+CONTAINMENT_RELEASE_REQUESTED = "containment.release_requested"
 STEPUP_PASSED = "stepup.passed"
 STEPUP_FAILED = "stepup.failed"
 TRANSFER_APPROVED = "transfer.approved"
@@ -60,6 +61,9 @@ OPERATOR_LOGIN = "operator.login"
 OPERATOR_INVITED = "operator.invited"
 OPERATOR_CHANGED = "operator.changed"
 ASSISTANT_SETTINGS_CHANGED = "platform.assistant_changed"
+DATA_EXPORTED = "data.exported"
+DATA_ERASED = "data.erased"
+RETENTION_APPLIED = "data.retention_applied"
 INSTITUTION_ASSISTANT_CHANGED = "institution.assistant_changed"
 
 
@@ -100,6 +104,13 @@ def for_institution(payload: dict) -> dict:
     return payload
 
 
+# Never written to the audit log, whatever a caller passes: credentials and
+# one-time secrets. A mistake at a call site must not put one in a table that
+# is kept indefinitely and exported as CSV.
+_NEVER_LOGGED = {"pin", "current_pin", "password", "code", "otp", "token", "stepup_token", "secret", "api_key",
+                 "key_value", "value"}
+
+
 def record(event_type: str, user_id: str | None = None, **payload) -> None:
     """Append one event. Best effort, by design.
 
@@ -107,6 +118,7 @@ def record(event_type: str, user_id: str | None = None, **payload) -> None:
     so the compliance view can scope directly rather than inferring a tenant by
     joining through transactions.
     """
+    payload = {k: ("[redacted]" if k.lower() in _NEVER_LOGGED else v) for k, v in payload.items()}
     institution_id = payload.get("institution_id") or _institution_of(user_id)
     try:
         with cursor() as cur:

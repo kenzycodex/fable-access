@@ -42,7 +42,7 @@ export default function IntelligencePage() {
             <BarList items={patterns} emptyLabel="No scam patterns detected yet" color="#ef4444" />
           </Card>
           <Card>
-            <CardHeader title="Signals fired" subtitle="Which of the 14 layers trigger most" />
+            <CardHeader title="Signals fired" subtitle="Which signals fire most" />
             <BarList items={signals} emptyLabel="No signals fired yet" color="#f59e0b" />
           </Card>
         </div>

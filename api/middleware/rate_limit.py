@@ -14,6 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from core import config
+from core.errors import body
 
 _hits: dict[str, deque] = defaultdict(deque)
 
@@ -80,7 +81,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             retry_after = int(q[0] + window - now) + 1
             return JSONResponse(
                 status_code=429,
-                content={"detail": "Rate limit exceeded. Slow down."},
+                content=body(429, "Rate limit exceeded. Slow down."),
                 headers={"Retry-After": str(retry_after)},
             )
 

@@ -89,7 +89,7 @@ export function CookieConsent() {
                 alt="Fable"
                 width={1671}
                 height={547}
-                priority
+                loading="eager"
                 className="h-8 w-auto object-contain"
               />
               <button

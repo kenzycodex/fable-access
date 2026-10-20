@@ -39,7 +39,7 @@ export default function PlatformPage() {
             aria-hidden="true"
             width={534}
             height={577}
-            priority
+            loading="eager"
             className="h-auto w-full"
           />
         </div>
@@ -95,7 +95,7 @@ export default function PlatformPage() {
           <Reveal className="mb-[var(--spacing-xl)] flex flex-col gap-[var(--spacing-m)] lg:max-w-[720px]">
             <h2><span className="font-marker text-accent">One</span> API Call, in Front of Every Transfer</h2>
             <p className="text-l text-black/80">
-              Banks, fintechs, wallets, and gateways integrate with a single scoring endpoint. Context, device, and
+              Banks, wallets, payment service providers and lenders integrate with a single scoring endpoint. Context, device, and
               behavioral signals go in; a decision, a risk score, and a plain-language reason come back.
             </p>
           </Reveal>
@@ -132,11 +132,11 @@ export default function PlatformPage() {
           <Reveal className="flex flex-col justify-between gap-[var(--spacing-l)] rounded-[var(--radius-l)] bg-tertiary p-[var(--space-xl)] lg:flex-row lg:items-center lg:rounded-[900px] lg:px-[var(--section-space-l)] lg:py-[var(--section-space-s)]">
             <div className="flex flex-col items-start gap-[var(--spacing-m)] lg:w-[65%]">
               <h3>
-                <span className="font-marker">Start</span> Your Fraud Risk Assessment
+                <span className="font-marker">Try</span> It on Test Transfers
               </h3>
               <p className="text-m text-black/80">
-                See where your transfer flow is exposed. Get started with a free, 1:1 risk assessment for your
-                institution.
+                Open a sandbox bank, add test customers and send transfers through the same pipeline Fable runs
+                live. No contract and no real customer data needed.
               </p>
               <Button href={demoCta.href} tone="secondary">
                 Get Started

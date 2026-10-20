@@ -129,6 +129,9 @@ export const acceptOperatorInvite = (token: string, password: string, name?: str
 
 export function operatorSignOut(): void {
   setOperatorSession(null);
+  // A full page load on purpose: it drops every cached response of the session
+  // that just ended, so nothing of it is shown to whoever signs in next.
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
   window.location.assign("/operator/login");
 }
 
@@ -478,6 +481,13 @@ export const approveSecretChange = (id: string, step_up: StepUp) =>
   call<SecretChange>(`/operator/secrets/changes/${encodeURIComponent(id)}/approve`, post({ step_up }));
 export const rejectSecretChange = (id: string, reason?: string) =>
   call<SecretChange>(`/operator/secrets/changes/${encodeURIComponent(id)}/reject`, post({ reason: reason || null }));
+/** Send a test email or SMS with the settings in force. */
+export const sendTestMessage = (kind: "email" | "sms", to: string) =>
+  call<{ sent: boolean; message: string }>(`/operator/integrations/test-${kind}`, {
+    method: "POST",
+    body: JSON.stringify({ to }),
+  });
+
 export const testSecret = (name: string) =>
   call<{ ok: boolean; message: string }>(`/operator/secrets/${encodeURIComponent(name)}/test`, { method: "POST" });
 
@@ -531,12 +541,29 @@ export interface Metrics {
   low_sample: boolean;
 }
 
+/** One group of changes (as the Engine page groups weights), replayed on its own. */
+export interface ChangeEffect {
+  group: string;
+  changes: { path: string; label: string; from: number; to: number }[];
+  changed: number;
+  moves: Record<string, number>;
+  examples: {
+    id: string; institution_id: string; channel: string; amount: number | null;
+    before: DecisionAction; after: DecisionAction; score_before: number; score_after: number;
+  }[];
+}
+
 export interface BacktestReport {
   days: number;
   since: string;
   run_at: string;
   params_hash: string;
-  rows: { replayed: number; exact: number; approximate: number; skipped: number; fidelity: number; truncated: boolean };
+  rows: {
+    replayed: number; exact: number; approximate: number; skipped: number; fidelity: number; truncated: boolean;
+    /** Rows scored before a release, with that release's terms rebuilt. */
+    rebuilt?: number;
+  };
+  by_change?: ChangeEffect[];
   matrix: DecisionMatrix;
   overall: BacktestGroup;
   by_channel: (BacktestGroup & { channel: string })[];
@@ -603,6 +630,7 @@ export interface ShadowDiff {
     id: string; institution_id: string; channel: string; amount: number; risk_score: number;
     action_taken: DecisionAction; shadow_score: number; shadow_action: DecisionAction; created_at: string;
   }[];
+  by_change?: ChangeEffect[];
 }
 
 export interface EngineOverview {
@@ -626,6 +654,9 @@ export interface EngineOverview {
   /** Detection settings: approved on the Environment page, shown here read-only. */
   detection: { name: string; label: string; value: number; display: string; unit: string; source: "environment" | "console" | "default" }[];
   me: { role: OperatorRole; email: string; can_draft: boolean; can_decide: boolean };
+  /** Whether the live version prices first transfers with no history, and
+   * which waiting versions would. Absent from an older API. */
+  cold_start?: { live: boolean; waiting: { version: number; status: string }[] };
 }
 
 const engine = (path: string) => `/operator/engine${path}`;

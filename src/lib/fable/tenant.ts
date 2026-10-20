@@ -156,24 +156,6 @@ export function maskKey(key: string): string {
   return key.length <= 16 ? "•".repeat(8) : `${key.slice(0, 13)}${"•".repeat(8)}${key.slice(-4)}`;
 }
 
-export function getApiKey(): string | null {
-  try {
-    return localStorage.getItem(API_KEY_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function setApiKey(key: string | null): void {
-  try {
-    if (key) localStorage.setItem(API_KEY_KEY, key);
-    else localStorage.removeItem(API_KEY_KEY);
-  } catch {
-    // ignore quota/private-mode failures
-  }
-  emit();
-}
-
 /** Auth headers for Fable API calls.
  *
  * Two independent credentials, and they mean different things:

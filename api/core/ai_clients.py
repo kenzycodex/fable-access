@@ -59,3 +59,11 @@ def openai_model() -> str:
 
 def anthropic_model() -> str:
     return secrets.get("ANTHROPIC_MODEL")
+
+
+def configured() -> bool:
+    """Whether any AI provider key is in force (for /health). Never raises."""
+    try:
+        return bool(secrets.get("ANTHROPIC_API_KEY") or secrets.get("OPENAI_API_KEY"))
+    except Exception:  # noqa: BLE001
+        return False

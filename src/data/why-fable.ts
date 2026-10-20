@@ -23,7 +23,7 @@ export const overviewCards: IconCard[] = [
   {
     image: { src: "/images/why-fable/scale.webp", alt: "Radical transparency", width: 80, height: 80 },
     title: "Radical Transparency, by Design",
-    body: "Every intervention comes with plain-language reasoning. Users can open a single “what Fable knows about me” panel and toggle signals on or off.",
+    body: "Every intervention comes with plain-language reasoning, and users can open a single “what Fable knows about me” panel to see the habits each transfer is compared against.",
   },
   {
     image: { src: "/images/why-fable/pioneering-new-solutions.webp", alt: "Network effects", width: 80, height: 80 },
@@ -32,8 +32,9 @@ export const overviewCards: IconCard[] = [
   },
 ];
 
-// "Who We Serve" tabbed widget: the actual client layer described in the
-// architecture. Banks, fintechs, wallets, payment gateways, crypto/Web3.
+// "Who We Serve" tabbed widget: the institutions Fable is built for, each
+// with one honest line on where it fits. The tab images stay in their
+// original slots until replacements are made.
 export interface IndustryCaseStudy {
   name: string;
   blurb: string;
@@ -51,50 +52,50 @@ export interface IndustryTab {
 
 export const industryTabs: IndustryTab[] = [
   {
-    label: "Banks",
-    panelTitle: "Banks & Digital Banks",
+    label: "Microfinance Banks",
+    panelTitle: "Microfinance Banks",
     icon: { src: "/images/why-fable/ind-finance.webp", alt: "", width: 80, height: 76 },
-    body: "Direct and indirect NIP participants plug Shield into the transfer flow before funds move, with Ghost holding any overridden block, without slowing down the 10-second NIP clearing window.",
+    body: "Many microfinance customers are new to mobile transfers, so Fable scores a first transfer on its amount and channel until a customer has history of their own, and asks for a PIN or holds the transfer instead of refusing it outright.",
     learnMoreHref: "#technology",
     caseStudies: [],
   },
   {
-    label: "Fintechs",
-    panelTitle: "Fintech Platforms",
+    label: "Wallets & Mobile Money",
+    panelTitle: "Digital Wallets and Mobile Money Operators",
     icon: { src: "/images/why-fable/ind-commerce.png", alt: "", width: 80, height: 80 },
-    body: "Copilot builds a behavioral baseline per user from day one, so safe transfers clear with zero friction while the platform scales without scaling its fraud team headcount.",
+    body: "When a wallet user is talked into sending money, Ghost holds the transfer for a cooling window so they can still cancel it; the operator keeps the funds during the hold and sends or returns them when Fable's webhook says so.",
     learnMoreHref: "#technology",
     caseStudies: [],
   },
   {
-    label: "Wallets",
-    panelTitle: "Digital Wallets",
+    label: "Payment Service Providers",
+    panelTitle: "Payment Service Providers",
     icon: { src: "/images/why-fable/ind-marketplaces.png", alt: "", width: 80, height: 80 },
-    body: "Ghost gives wallet users a cooling window on any transaction that gets flagged. Money is held, not lost, even when a scam has already fully convinced them.",
+    body: "One API call before a payout leaves returns pass, flag or block with the reasons in plain language, so a PSP can put a behavioural check in front of transfers without building its own scoring model.",
     learnMoreHref: "#technology",
     caseStudies: [],
   },
   {
-    label: "Payment Gateways",
-    panelTitle: "Payment Gateways",
+    label: "Fintech Lenders",
+    panelTitle: "Fintech Lenders",
     icon: { src: "/images/why-fable/ind-software.png", alt: "", width: 80, height: 76 },
-    body: "One API call routes context, device, and behavioral signals through the full agent pipeline in under 200ms, fast enough to sit in front of every transaction, not just the risky ones.",
+    body: "Withdrawals and disbursements can be scored like any transfer, so money heading to an account the customer has never paid, from a device they have never used, is checked before it leaves.",
     learnMoreHref: "#technology",
     caseStudies: [],
   },
   {
-    label: "Crypto & Web3",
-    panelTitle: "Crypto & Web3 Platforms",
+    label: "Commercial Banks",
+    panelTitle: "Commercial Banks",
     icon: { src: "/images/why-fable/ind-travel.png", alt: "", width: 80, height: 80 },
-    body: "The same behavioral and device intelligence that protects a NIP transfer extends to on-chain activity as the platform grows: one shared fraud graph across rails.",
+    body: "Banks on NIP call Fable before a transfer is sent; each customer is compared with their own history of who they pay, how much and from where, and every decision is kept with its reasons for review in the console.",
     learnMoreHref: "#technology",
     caseStudies: [],
   },
   {
-    label: "Remittance & MTOs",
-    panelTitle: "Remittance & Money Transfer Operators",
+    label: "Not on This List?",
+    panelTitle: "Other Institutions That Move Naira",
     icon: { src: "/images/why-fable/ind-gambling.png", alt: "", width: 80, height: 80 },
-    body: "Cross-border payouts are where a sudden change of destination country or beneficiary is the whole signal. Shield reads location and device context on the payout leg, and Ghost holds the transfer while it is still recallable rather than after settlement.",
+    body: "If you send naira on behalf of customers and want a check before the money leaves, you can open a sandbox bank, add test customers and run transfers through the same scoring Fable uses live, before any contract.",
     learnMoreHref: "#technology",
     caseStudies: [],
   },
@@ -108,15 +109,15 @@ export const technologyIntro =
 
 export const provenScience = {
   title: "Copilot Learns. Shield Defends. Ghost Contains.",
-  body: "Copilot builds a behavioral baseline per user: who they pay, when, how much, which devices. When a transfer matches it, friction disappears. When it breaks the pattern, Shield takes over: real-time scam and deepfake defense, scored and explained in plain language. If a user overrides a block anyway, Ghost routes the transfer into a disposable account with a cooling window, so even a fully-tricked user loses nothing.",
+  body: "Copilot builds a behavioral baseline per user: who they pay, when, how much, which devices. When a transfer matches it, friction disappears. When it breaks the pattern, Shield takes over: real-time scam defence, scored and explained in plain language. If a user still wants a blocked transfer sent, Ghost holds it for a cooling window, so even a fully-tricked user has time to cancel.",
   href: dashboardCta.href,
   image: { src: "/images/why-fable/phone-in-hand.webp", alt: "Reviewing a flagged transaction on a phone", width: 581, height: 463 },
 };
 
 export const technologyStats = [
-  { value: "₦25.85bn", label: "Lost to fraud in Q1 2025 alone (NIBSS)" },
-  { value: "603%", label: "Jump in fraud losses, Q1 2025 vs Q1 2024 (FITC)" },
-  { value: "37%", label: "Of institutions don't even report their fraud (NIBSS 2023)" },
+  { value: "₦25.85bn", label: "Lost to fraud by Nigerian financial institutions in 2025 (NIBSS)" },
+  { value: "₦13.37bn", label: "Of it through internet banking, from about 4,500 cases (NIBSS, 2025)" },
+  { value: "63%", label: "Of institutions did not report their fraud cases to NIBSS (NIBSS, 2023)" },
 ];
 
 // "The Gap" section: why the tools institutions already use don't solve
@@ -137,8 +138,8 @@ export const ecosystemBlocks = [
   },
   {
     id: "moat",
-    title: "Localization Foreign Fraud Tools Don't Have",
-    body: "Nigerian scam scripts, Pidgin urgency patterns, NIP response codes, USSD and POS channel risk. A fraud model built for American e-commerce doesn't recognize any of it. Fable was built for this market from the first line of code.",
+    title: "Built Around How Nigerians Move Money",
+    body: "Pidgin and English scam narrations, NIP response codes, and channel risk weights for USSD, POS, mobile app and internet banking informed by NIBSS fraud data. Fable starts from the scams Nigerian customers actually meet: someone on WhatsApp or the phone talking them into sending the money themselves.",
     image: { src: "/images/why-fable/shield-hero.png", alt: "A customer sending ₦85,000 on her phone, with Shield, Copilot and Ghost labelled around her and the transfer marked protected", width: 1254, height: 1124 },
     imageSide: "right" as const,
     cta: { label: "Get in touch", href: dashboardCta.href },

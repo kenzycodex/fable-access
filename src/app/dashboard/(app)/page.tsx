@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSyncExternalStore } from "react";
 import { LinkRow } from "@/components/dashboard/LinkRow";
-import { ArrowRight, ArrowSquareOut, Brain, Flag, Ghost, Lightning, RocketLaunch, ShieldCheck, Tray, X } from "@phosphor-icons/react";
+import { ArrowRight, ArrowSquareOut, Binoculars, Brain, Flag, Ghost, Lightning, RocketLaunch, ShieldCheck, Tray, X } from "@phosphor-icons/react";
 import { BarChart, DonutChart } from "@/components/dashboard/charts";
 import {
   Avatar,
@@ -21,19 +21,20 @@ import {
   table,
 } from "@/components/dashboard/primitives";
 import { changeLabel, dailyOutcomes, periodPair } from "@/lib/fable/analytics";
-import { LATENCY_BUDGET_MS } from "@/lib/fable/constants";
+import { LATENCY_BUDGET_MS, agentStatus } from "@/lib/fable/constants";
 import { formatNaira, formatNairaCompact, formatRelativeTime } from "@/lib/fable/format";
 import type { Transaction } from "@/lib/fable/types";
-import { useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
+import { FEED_LIMIT, useAgentsOverview, useDashboardFeed, useDashboardStats, useIntelligence } from "@/lib/fable/useBackend";
 import { useOnboarding, useReviewCounts } from "@/lib/fable/useConsole";
 import { useFableStore } from "@/lib/fable/store";
 import { useSignedInInstitution } from "@/lib/fable/useInstitution";
 
 const AGENTS = [
-  { name: "Copilot", role: "Learns each customer's habits", icon: Brain, href: "/dashboard/agents/copilot" },
-  { name: "Shield", role: "Scores every transfer", icon: ShieldCheck, href: "/dashboard/agents/shield" },
-  { name: "Ghost", role: "Holds risky transfers", icon: Ghost, href: "/dashboard/agents/ghost" },
-];
+  { key: "copilot", name: "Copilot", role: "Learns each customer's habits", icon: Brain, href: "/dashboard/agents/copilot" },
+  { key: "shield", name: "Shield", role: "Scores every transfer", icon: ShieldCheck, href: "/dashboard/agents/shield" },
+  { key: "ghost", name: "Ghost", role: "Holds risky transfers", icon: Ghost, href: "/dashboard/agents/ghost" },
+  { key: "watch", name: "Watch", role: "Monitoring between transfers", icon: Binoculars, href: "/dashboard/agents" },
+] as const;
 
 const isProtected = (t: Transaction) =>
   t.action !== "PASS" && (t.status === "blocked" || t.status === "cancelled" || t.status === "held");
@@ -89,7 +90,17 @@ export default function OverviewPage() {
   const days = dailyOutcomes(txns, 14);
   const patterns = (intel?.scam_patterns ?? []).slice(0, 4).map((p) => ({ label: p.label, count: p.count }));
 
-  const total = ready ? s.passCount + s.flagCount + s.blockCount : 0;
+  // Headline counts come from the server, which counts every decision. The
+  // feed holds only the newest FEED_LIMIT, so it used to cap "Transactions
+  // scored" at that number; it is the fallback while the counts load.
+  const counts = stats
+    ? { total: stats.transactions_analyzed, pass: stats.passed, flag: stats.flagged, block: stats.threats_blocked }
+    : { total: s.total, pass: s.passCount, flag: s.flagCount, block: s.blockCount };
+  const countsReady = Boolean(stats) || ready;
+  // Week-on-week movement needs both weeks inside the feed; once the feed is
+  // full it may not reach back 14 days, so no movement is shown.
+  const fullFeed = txns.length >= FEED_LIMIT;
+  const total = countsReady ? counts.pass + counts.flag + counts.block : 0;
   const pct = (n: number) => (total ? `${Math.round((n / total) * 100)}%` : "0%");
 
   return (
@@ -114,18 +125,18 @@ export default function OverviewPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Transactions scored"
-          value={ready ? s.total.toLocaleString("en-NG") : "-"}
+          value={countsReady ? counts.total.toLocaleString("en-NG") : "-"}
           sub="vs previous 7 days"
-          delta={ready ? changeLabel(scored.current, scored.previous, true) : null}
+          delta={ready && !fullFeed ? changeLabel(scored.current, scored.previous, true) : null}
           trend={ready ? (daySeries(txns, () => true) ?? undefined) : undefined}
           icon={<ShieldCheck size={17} weight="fill" />}
           featured
         />
         <StatCard
           label="Threats blocked"
-          value={ready ? String(s.blockCount) : "-"}
-          sub={ready ? `${s.flagCount} flagged for review` : "Loading"}
-          delta={ready ? changeLabel(blocked.current, blocked.previous, false) : null}
+          value={countsReady ? counts.block.toLocaleString("en-NG") : "-"}
+          sub={countsReady ? `${counts.flag.toLocaleString("en-NG")} flagged for review` : "Loading"}
+          delta={ready && !fullFeed ? changeLabel(blocked.current, blocked.previous, false) : null}
           trend={ready ? (daySeries(txns, (t) => t.action === "BLOCK") ?? undefined) : undefined}
           tone="danger"
         />
@@ -133,7 +144,7 @@ export default function OverviewPage() {
           label="Amount protected"
           value={ready ? formatNairaCompact(amountProtected) : "-"}
           sub="vs previous 7 days"
-          delta={ready ? changeLabel(protectedPair.current, protectedPair.previous, true) : null}
+          delta={ready && !fullFeed ? changeLabel(protectedPair.current, protectedPair.previous, true) : null}
           tone="success"
         />
         <StatCard
@@ -172,24 +183,24 @@ export default function OverviewPage() {
           <CardHeader title="Risk distribution" subtitle="All decisions" />
           <DonutChart
             segments={[
-              { label: "Passed", value: ready ? s.passCount : 0, color: "#10b981" },
-              { label: "Flagged", value: ready ? s.flagCount : 0, color: "#f59e0b" },
-              { label: "Blocked", value: ready ? s.blockCount : 0, color: "#ef4444" },
+              { label: "Passed", value: countsReady ? counts.pass : 0, color: "#10b981" },
+              { label: "Flagged", value: countsReady ? counts.flag : 0, color: "#f59e0b" },
+              { label: "Blocked", value: countsReady ? counts.block : 0, color: "#ef4444" },
             ]}
             centerValue={ready ? total.toLocaleString("en-NG") : "-"}
             centerLabel="decisions"
           />
           <ul className="mt-5 flex flex-col gap-2.5 text-[13px]">
             {[
-              { label: "Passed", n: s.passCount, color: "#10b981" },
-              { label: "Flagged", n: s.flagCount, color: "#f59e0b" },
-              { label: "Blocked", n: s.blockCount, color: "#ef4444" },
+              { label: "Passed", n: counts.pass, color: "#10b981" },
+              { label: "Flagged", n: counts.flag, color: "#f59e0b" },
+              { label: "Blocked", n: counts.block, color: "#ef4444" },
             ].map((row) => (
               <li key={row.label} className="flex items-center gap-2.5">
                 <span className="size-2.5 rounded-full" style={{ backgroundColor: row.color }} />
                 <span className="text-d-muted">{row.label}</span>
                 <span className="ml-auto font-semibold tabular-nums text-d-text">{ready ? row.n.toLocaleString("en-NG") : "-"}</span>
-                <span className="w-10 text-right text-[12px] tabular-nums text-d-faint">{ready ? pct(row.n) : ""}</span>
+                <span className="w-10 text-right text-[12px] tabular-nums text-d-faint">{countsReady ? pct(row.n) : ""}</span>
               </li>
             ))}
           </ul>
@@ -269,28 +280,7 @@ export default function OverviewPage() {
         <div className="flex flex-col gap-4">
           <NeedsReview />
 
-          <Card>
-            <CardHeader title="Agents" subtitle="All running" />
-            <ul className="flex flex-col gap-1">
-              {AGENTS.map((a) => {
-                const Icon = a.icon;
-                return (
-                  <li key={a.name}>
-                    <Link href={a.href} className="-mx-2 flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-d-surface-2">
-                      <span className="flex size-10 items-center justify-center rounded-xl bg-brand/10 text-brand">
-                        <Icon size={20} weight="fill" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[14px] font-semibold text-d-text">{a.name}</span>
-                        <span className="block truncate text-[12px] text-d-muted">{a.role}</span>
-                      </span>
-                      <Badge tone="success">Active</Badge>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </Card>
+          <AgentsCard />
 
           <Card>
             <CardHeader
@@ -306,6 +296,45 @@ export default function OverviewPage() {
         </div>
       </div>
     </>
+  );
+}
+
+/** Each agent's real status: Ghost can be off or need attention, Watch is planned. */
+function AgentsCard() {
+  const { data, error } = useAgentsOverview();
+  const unreachable = !data && Boolean(error);
+  const statuses = data
+    ? { copilot: data.copilot.status, shield: data.shield.status, ghost: data.ghost.status, watch: data.watch.status }
+    : null;
+  const attention = statuses ? Object.values(statuses).some((s) => s === "degraded") : false;
+  const subtitle = unreachable ? "Not reachable" : !data ? "Checking" : attention ? "Needs attention" : "Running";
+  return (
+    <Card>
+      <CardHeader title="Agents" subtitle={subtitle} />
+      {data?.ghost.status === "degraded" && data.ghost.detail && (
+        <p className="mb-2 text-[12px] text-amber-700 dark:text-amber-400">{data.ghost.detail}</p>
+      )}
+      <ul className="flex flex-col gap-1">
+        {AGENTS.map((a) => {
+          const Icon = a.icon;
+          const status = unreachable ? { label: "Not reachable", tone: "danger" as const } : agentStatus(statuses?.[a.key]);
+          return (
+            <li key={a.name}>
+              <Link href={a.href} className="-mx-2 flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-d-surface-2">
+                <span className="flex size-10 items-center justify-center rounded-xl bg-brand/10 text-brand">
+                  <Icon size={20} weight="fill" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-semibold text-d-text">{a.name}</span>
+                  <span className="block truncate text-[12px] text-d-muted">{a.role}</span>
+                </span>
+                {data || unreachable ? <Badge tone={status.tone}>{status.label}</Badge> : <Skeleton className="h-5 w-16" />}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
   );
 }
 

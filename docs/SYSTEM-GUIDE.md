@@ -34,9 +34,9 @@ Two runtimes back them:
 - **FastAPI** (`api/`) — the intelligence layer: Shield, Copilot, Ghost, the
   dashboard aggregations, provisioning, and auth. SQLite (`api/fable.db`).
 
-The frontend degrades gracefully: if the FastAPI service is down, the demo falls
-back to a local scoring engine (`src/lib/fable/scoring.ts`) so it never breaks
-mid-pitch. The dashboard shows an offline notice instead of blank panels.
+Every decision is made by the FastAPI service. If it is down, the sandbox app
+says so and sends nothing (it never invents a verdict on the device), and the
+dashboard shows an offline notice instead of blank panels.
 
 ---
 
@@ -107,7 +107,7 @@ This is the core loop. Every numbered step is real, not simulated.
    └─ everything collected is bundled and POSTed to /v1/shield/analyze
       along with user_id (the picked customer) and institution_id
 
-5. Shield scores it through 12 signal layers (see §5)
+5. Shield scores it against the customer's baseline (see §5)
    └─ writes the transaction, tagged with institution_id, plus the device
       profile and location trail
 
@@ -116,8 +116,11 @@ This is the core loop. Every numbered step is real, not simulated.
    FLAG  → user is asked to confirm
    BLOCK → user can override into Ghost
 
-7. Ghost (if used) holds the money in a cooling window sized by risk
-   (30 min high / 15 med / 5 low). Cancel = money back. Confirm = released.
+7. Ghost (if used) holds the transfer in a cooling window sized by risk
+   (15 min high / 10 med / 5 low by default, set per institution). Cancel =
+   the money stays. Release = sent, with stronger proof. Nobody acts = it
+   expires and the money stays. Live, the bank keeps the funds during the hold
+   and acts on the containment.* webhooks.
 
 8. The bank's dashboard shows it within ~4 seconds (SWR polling),
    and ONLY that bank's dashboard.
@@ -125,32 +128,44 @@ This is the core loop. Every numbered step is real, not simulated.
 
 ---
 
-## 5. Shield's 14 signal layers
+## 5. Shield's signals
 
 Signals are additive. The default cutoffs are `FLAG` at 0.50 and `BLOCK` at 0.80,
 adjusted per channel (see the scoring doc), and an institution can move them in
 Settings, Risk policy.
 
-| # | Signal | Fires when | Max |
+| # | Signal | Fires when | Max (default) |
 |---|---|---|---|
-| 1 | `amount_anomaly` | Amount far above the customer's own average | 0.40 |
-| 2 | `new_recipient` | First transfer to this account | 0.20 |
-| 3 | `time_anomaly` | Outside typical hours (**device clock**, not server UTC) | 0.12 |
-| 4 | `channel_risk` | NIBSS channel weights (USSD highest) | 0.25 |
-| 5 | `nip_code` | NIBSS instant-payment risk codes (34 = auto-block) | 0.95 |
-| 6 | `scam_pattern` | Narration matches a scam script — **halved on purpose** | 0.25 |
-| 7 | `ml_anomaly` | Isolation Forest deviation from own history | 0.15 |
-| 8 | `device_anomaly` | Unrecognised fingerprint (scales with amount) | 0.18 |
-| 9 | `location_anomaly` | New city, or outside home country | 0.22 |
-| 10 | `session_freshness` | Large transfer within 30s of login | 0.12 |
-| 11 | `behavioral_anomaly` | Pasted account number + near-zero hesitation | 0.15 |
-| 12 | `timezone_mismatch` | Device timezone ≠ usual timezone | 0.08 |
-| 13 | `failed_verification` | Recent failed identity checks | 0.25 |
-| 14 | `velocity` | A burst of transfers in a short window | 0.20 |
+| 1 | `amount_anomaly` | Far above the customer's own normal, in tiers from 3x to 50x | 0.40 |
+| 2 | `cold_start` | Fewer than three past transfers: judged against the institution's customers as a whole | 0.15 |
+| 3 | `first_transfer_amount` | No history to compare: the amount itself, in tiers from NGN 100k to NGN 20m | 0.45 |
+| 4 | `new_recipient` | First transfer to this account | 0.20 |
+| 5 | `time_anomaly` | Outside typical hours, on the **device clock** | 0.12 |
+| 6 | `channel_risk` | Channel risk weights informed by NIBSS fraud data (internet banking highest, branch lowest) | 0.22 |
+| 7 | `nip_code` | NIBSS risk codes from the bank's rail; code 34 always blocks | 0.95 |
+| 8 | `scam_pattern` | Narration matches a scam script (halved on purpose) | 0.25 |
+| 9 | `ml_anomaly` | The amount and hour together sit far from the customer's own past transfers | 0.10 |
+| 10 | `device_anomaly` | Unrecognised device fingerprint, more for a large transfer | 0.18 |
+| 11 | `location_anomaly` | New city, or outside home country | 0.22 |
+| 12 | `session_freshness` | Large transfer seconds after sign-in | 0.12 |
+| 13 | `behavioral_anomaly` | Pasted account number and near-zero hesitation on a large amount | 0.15 |
+| 14 | `timezone_mismatch` | Device timezone differs from usual | 0.08 |
+| 15 | `failed_verification` | Recent failed PIN, passkey or code attempts | 0.25 |
+| 16 | `velocity` | Several live transfers in a few minutes | 0.20 |
 
-**Why narration is deliberately weak (layer 6):** most people leave it blank.
-Basing fraud detection on it would be theatre. It contributes when present, but
-layers 8–12 carry the weight because the customer cannot opt out of them.
+A long, confirmed-clean record then subtracts a small `tenure` discount (at most
+0.08 by default).
+
+Weights live in governed engine versions, changed on the operator platform's
+Engine page: every scoring change goes through approval with a cooling-off period, a backtest and a shadow run (two-person approval when there are two owners), and is then promoted. Every
+decision records the version that made it. A value set in the server
+environment (`FABLE_W_*`) still overrides the version, and the Engine page says
+so.
+
+**Why narration is deliberately weak (`scam_pattern`):** most people leave it
+blank. Basing fraud detection on it would be theatre. It contributes when
+present, but the device, location, session and behaviour signals carry the
+weight because the customer cannot opt out of them.
 
 **The amount scale runs past 10x on purpose.** It used to cap there, which meant
 a student sending 45× her normal amount scored *lower* than someone at 8× who
@@ -164,14 +179,14 @@ tiers.
 | Agent | Job | Where its data lives |
 |---|---|---|
 | **Copilot** | Learns each customer's normal: amounts, hours, recipients, devices, cities, session habits | Derived live from `transactions` (90-day window) |
-| **Shield** | Scores every transfer through the 14 layers | Writes `transactions` with signals |
+| **Shield** | Scores every transfer against the sixteen signals | Writes `transactions` with signals, score parts and the engine version |
 | **Ghost** | Holds risky transfers in a recoverable cooling window | `ghost_containers` |
-| **Watch** | Continuous monitoring between transactions | Not built — honestly marked "coming soon" |
+| **Watch** | Continuous monitoring between transactions | Not built — marked "Planned" |
 
 Each has a dashboard deep-dive at `/dashboard/agents/{agent}`:
 
 - **Copilot** — per-customer baselines, searchable. What Fable knows about whom.
-- **Shield** — the 14-layer pipeline with weights, plus recent decisions you can
+- **Shield** — the signals with their weights in force, plus recent decisions you can
   expand to see every signal and the device/location/session context behind it.
 - **Ghost** — active and historical containers, cancellation rate, money saved.
 
@@ -281,7 +296,7 @@ again, an owner can reset the sandbox under **Settings > Data**.
 
 ## 10. Known limits (stated honestly)
 
-- **Watch is not built.** The dashboard marks it "coming soon" rather than
+- **Watch is not built.** The dashboard marks it "Planned" rather than
   faking it.
 - **Reverse geocoding uses third-party map services.** The device's GPS fix is
   named by the API (Google, LocationIQ or Geoapify when keyed, else
@@ -290,15 +305,18 @@ again, an owner can reset the sandbox under **Settings > Data**.
   required under the NDPA 2023 and GAID 2025 has to cover.
 - **Paystack's IP allowlist rotates.** Dynamic ISP addresses change, so
   `/api/paystack-status` exists to diagnose it in one call.
-- **Ghost is simulated containment.** It models the cooling window in SQLite;
-  production would wire it to a real Open Banking holds endpoint.
+- **Ghost does not hold money itself.** It keeps the hold's state and tells
+  the bank, by webhook, when to send or return the funds. In the sandbox the
+  sandbox ledger stands in for the bank; live, the bank's core banking system
+  keeps the funds during the hold.
 - **API keys are shown once.** Only a SHA-256 hash of each key is stored, with
   its first and last characters for display, so a copy of the database holds no
   usable key. The full key appears once, when it is issued (provisioning email or
   rotation). A lost key is replaced by rotating it in Settings.
 - **Analyst actions label, they do not move money.** Resolving a case as
   legitimate does not release a blocked transfer. Money moves only through the
-  customer's own verification or a Ghost release.
+  customer's own verification, a Ghost release, or a staff release of a hold
+  the customer asked the bank to release.
 - **There is no cross-institution intelligence.** Each institution's data is
   strictly its own. Sharing hashed signals between banks is on the roadmap, not
   built.
@@ -318,8 +336,8 @@ containment hold: *who must prove they are here, and with what?*
 Ghost's release path checked only that the caller claimed to be the account
 holder — and the client supplies that id about itself. So containment was
 defeated by the exact session compromise that triggered it: an attacker holding
-the tab could press "release" and Fable would hand over the money, with all
-twelve behavioural layers having correctly fired.
+the tab could press "release" and Fable would hand over the money, with every
+behavioural signal having correctly fired.
 
 **Releasing now costs proof. Cancelling stays free**, because returning money is
 always safe.
@@ -332,7 +350,7 @@ prompt too. Only two kinds of factor cost an attacker anything:
 | Kind | Example | Why it holds |
 |---|---|---|
 | **Device-bound** | Passkey / platform biometric | Private key is generated in the secure element and never leaves it. Holding the session ≠ holding the key. |
-| **Out-of-band** | Code to the registered address | Arrives on a channel the session doesn't control. |
+| **Out-of-band** | Code to the confirmed email or phone | Arrives on a channel the session doesn't control. |
 
 ### The tiers, and the escalation rule
 
@@ -350,11 +368,17 @@ already has. Release is always at least one tier above the transfer itself.
 
 - **Passkeys** — genuine WebAuthn, signatures verified with `py_webauthn`. Real
   Face ID / Touch ID / Windows Hello.
-- **Email OTP** — real, over the configured SMTP. Codes are stored hashed and
-  compared in constant time.
-- **Face / liveness** — deliberately **not** implemented. Returns `501` with the
-  provider contract (Smile ID / Dojah / Prembly). Faking it would make the
-  strongest tier the least trustworthy.
+- **One-time codes** — real, by email over the configured SMTP, or by SMS
+  through Termii or Africa's Talking when configured. A phone is used only
+  once the customer confirms it. Codes are stored hashed and compared in
+  constant time. Sandbox codes go to the sandbox inbox, never to a real address.
+- **The top tier** (`identity_check`) is passkey, code and PIN together, while
+  there is no liveness provider.
+- **Face / liveness** — planned, **not** implemented. Returns `501` with the
+  provider contract (Smile ID / Youverify / Dojah / Prembly). Faking it would
+  make the strongest tier the least trustworthy.
+- **Only factors set up before the decision count**, so someone who has just
+  taken over an account cannot add their own device and release a hold.
 
 Challenges and tokens are single-use, expiring, and bound to a user, a purpose
 and a reference — proof minted for a small transfer cannot be replayed against
@@ -364,7 +388,8 @@ tokens are all refused.
 ### The feedback loop
 
 `previous_failed_attempts` had sat unused in the schema since it was added.
-Failed factor attempts are now recorded and read back as scoring signal #13 —
+Failed factor attempts are now recorded and read back as the
+`failed_verification` scoring signal —
 three failed biometrics before a large transfer is about the clearest evidence
 available.
 

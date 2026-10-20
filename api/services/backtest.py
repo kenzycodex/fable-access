@@ -30,10 +30,24 @@ Honesty rules (docs/ENGINE-GOVERNANCE.md):
 * Every metric carries the number of labelled rows behind it, with a warning
   below MIN_SAMPLE.
 
+Terms added by a release (the first-transfer amount weights, the anomaly
+model) were not recorded on decisions made before it. For those rows they are
+rebuilt here, from the stored amount, channel, cold-start signal and the
+customer's confirmed history before the decision, and the rows are counted as
+"rebuilt". Under the live weights a rebuilt term adds exactly what the old
+decision had, so replay fidelity is unchanged.
+
+Each report also says which change moves which decisions: every group of
+changes on the Engine page (for example "First transfers (no history)" or
+"Anomaly model") is replayed on its own against the live values, with
+examples. Changes can interact, so the groups need not add up to the total.
+
 Read-only. Nothing here writes to the database.
 """
 from __future__ import annotations
 
+import bisect
+import copy
 import json
 import re
 from collections import Counter, defaultdict
@@ -47,6 +61,7 @@ from eval.harness import metrics
 WINDOWS = (30, 60, 90)
 MIN_SAMPLE = 30
 MAX_ROWS = 250_000
+EXAMPLES = 5
 ACTIONS = ("PASS", "FLAG", "BLOCK")
 SPIKE_RELATIVE = 0.25
 SPIKE_ABSOLUTE = 0.02
@@ -204,6 +219,133 @@ def legacy_parts(signals: list[str], ref: dict, channel: str | None = None) -> d
     return parts
 
 
+# ── Terms a release added, rebuilt for rows scored before it ────────────────
+
+def _keys_in(parts: dict) -> set[str]:
+    return {k for t in parts.get("terms") or [] for k in (t[0] or {})}
+
+
+class _History:
+    """Each customer's confirmed history, read once, for rebuilding the anomaly
+    term as it would have been computed when a past transfer was scored."""
+
+    def __init__(self):
+        self._by_user: dict[str, tuple[list[str], list[float], list[int]]] = {}
+
+    def before(self, user_id: str, at: str) -> tuple[list[float], list[int]]:
+        if user_id not in self._by_user:
+            with cursor() as cur:
+                cur.execute(
+                    """SELECT datetime(created_at) AS ts, amount, hour_of_day FROM customer_history
+                       WHERE user_id = ? AND confirmed_legitimate = 1 ORDER BY datetime(created_at)""",
+                    (user_id,),
+                )
+                rows = cur.fetchall()
+            self._by_user[user_id] = ([r["ts"] for r in rows], [r["amount"] for r in rows],
+                                      [r["hour_of_day"] if r["hour_of_day"] is not None else 12 for r in rows])
+        stamps, amounts, hours = self._by_user[user_id]
+        start = (datetime.fromisoformat(at) - timedelta(days=90)).strftime("%Y-%m-%d %H:%M:%S")
+        lo, hi = bisect.bisect_left(stamps, start), bisect.bisect_left(stamps, at)
+        return amounts[lo:hi], hours[lo:hi]
+
+
+def complete_parts(parts: dict, row: dict, signals: list[str], history: _History | None) -> tuple[dict, bool]:
+    """Add the terms a release introduced to a row scored before it. Returns
+    the parts and whether anything was rebuilt. With `history` None the anomaly
+    term is left alone (it is only rebuilt when a change weighs it)."""
+    keys = _keys_in(parts)
+    rebuilt = False
+    parts = {**parts, "terms": [list(t) for t in parts.get("terms") or []]}
+    names = [x.partition(":")[0] for x in signals or []]
+
+    # First-transfer amount: priced only on a cold start, full weight with no
+    # history anywhere, half with a population norm (as the analyzer does).
+    if not keys & set(engine_config.FIRST_AMOUNT_KEYS) and "cold_start" in names:
+        amount = float(row.get("amount") or 0)
+        tier = next((key for floor, key in engine_config.FIRST_AMOUNT_TIERS if amount >= floor), None)
+        if tier:
+            cold = next(x for x in signals if x.startswith("cold_start"))
+            factor = 0.5 if "norms" in cold else 1.0
+            parts["terms"].append(W.term({tier: factor}, rounded=True))
+            rebuilt = True
+
+    # Anomaly: the previous model's fixed points become its weighted term, and
+    # the current model's value is computed from the history before the row.
+    if "ml_anomaly_previous" not in keys and "ml_anomaly" not in keys:
+        boost = next((_boost(x) for x in signals or [] if x.startswith("ml_anomaly")), None)
+        if boost is not None:
+            for t in parts["terms"]:
+                if not t[0] and abs(t[1] - boost) < 1e-6:
+                    t[0], t[1] = {"ml_anomaly_previous": boost / 0.10}, 0.0
+                    if len(t) < 5:
+                        t.extend([0] * (4 - len(t)) + [0.02])
+                    else:
+                        t[4] = 0.02
+                    rebuilt = True
+                    break
+    if history is not None and "ml_anomaly" not in _keys_in(parts) and row.get("user_id") and row.get("ts"):
+        from agents.shield.anomaly import GATE, current_anomaly
+
+        amounts, hours = history.before(row["user_id"], row["ts"])
+        value = current_anomaly(amounts, hours, float(row.get("amount") or 0), int(row.get("hour_of_day") or 12))
+        if value > 0:
+            parts["terms"].append(W.term({"ml_anomaly": value}, gate=GATE))
+            rebuilt = True
+    return parts, rebuilt
+
+
+# ── Which change moves which decision ───────────────────────────────────────
+
+def change_groups(before: dict, after: dict) -> list[dict]:
+    """The differences between two parameter sets, grouped as the Engine page
+    groups weights; every threshold falls under "Thresholds"."""
+    group_of = {key: name for name, items in engine_config.WEIGHT_GROUPS for key, _, _ in items}
+    groups: dict[str, list[dict]] = {}
+    for c in engine_config.changes(before, after):
+        kind, key = c["path"].split(".")[:2]
+        name = group_of.get(key, key) if kind == "weights" else "Thresholds"
+        groups.setdefault(name, []).append(c)
+    return [{"group": name, "changes": items} for name, items in groups.items()]
+
+
+def only(before: dict, changes: list[dict]) -> dict:
+    """`before` with just these changes applied."""
+    out = copy.deepcopy(engine_config.normalise(before))
+    for c in changes:
+        parts = c["path"].split(".")
+        if parts[0] == "weights":
+            out["weights"][parts[1]] = c["to"]
+        else:
+            out["thresholds"].setdefault(parts[1], {})[parts[2]] = c["to"]
+    return out
+
+
+def attribute(rows: list[dict], before: dict, after: dict) -> list[dict]:
+    """For each group of changes, the decisions it moves on its own.
+
+    `rows` carry "parts", "channel", "institution_id", and for examples "id"
+    and "amount"; "action" is the decision under `before` when already known.
+    """
+    out = []
+    for g in change_groups(before, after):
+        params = only(before, g["changes"])
+        moved, examples = Counter(), []
+        changed = 0
+        for r in rows:
+            score_b, action_b = W.replay(r["parts"], r["channel"], r["institution_id"], before)
+            score_a, action_a = W.replay(r["parts"], r["channel"], r["institution_id"], params)
+            if action_a != action_b:
+                changed += 1
+                moved[f"{action_b} to {action_a}"] += 1
+                if len(examples) < EXAMPLES:
+                    examples.append({"id": r.get("id"), "institution_id": r["institution_id"], "channel": r["channel"],
+                                     "amount": r.get("amount"), "before": action_b, "after": action_a,
+                                     "score_before": score_b, "score_after": score_a})
+        out.append({"group": g["group"], "changes": g["changes"], "changed": changed,
+                    "moves": dict(moved), "examples": examples})
+    return out
+
+
 # ── The replay ───────────────────────────────────────────────────────────────
 
 def _rows(since: str, institution: str | None):
@@ -214,8 +356,8 @@ def _rows(since: str, institution: str | None):
         params.append(institution)
     with cursor() as cur:
         cur.execute(
-            f"""SELECT id, institution_id, channel, action_taken, shield_signals, score_parts,
-                       review_outcome, status
+            f"""SELECT id, institution_id, user_id, amount, hour_of_day, datetime(created_at) AS ts, channel,
+                       action_taken, shield_signals, score_parts, review_outcome, status
                 FROM transactions WHERE {where} ORDER BY created_at DESC LIMIT {MAX_ROWS}""",
             params,
         )
@@ -304,7 +446,12 @@ def replay(params: dict, days: int = 30, institution: str | None = None, now: da
     reference = _reference_weights()
 
     matrix = {b: {a: 0 for a in ACTIONS} for b in ACTIONS}
-    exact = approximate = skipped = fidelity = 0
+    exact = approximate = skipped = fidelity = rebuilt = 0
+    groups = change_groups(current, draft)
+    # The anomaly term is rebuilt from history only when a change weighs it:
+    # it reads each customer's history once, which is the slow part.
+    history = _History() if any(g["group"] == "Anomaly model" for g in groups) else None
+    kept: list[dict] = []
     by_channel: dict[str, list] = defaultdict(list)
     by_bank: dict[str, list] = defaultdict(list)
     labelled: dict[str, list] = {"fraud": [], "legitimate": [], "ghost_cancelled": []}
@@ -331,6 +478,12 @@ def replay(params: dict, days: int = 30, institution: str | None = None, now: da
             skipped += 1
             continue
         try:
+            signals_now = json.loads(row.get("shield_signals") or "[]")
+        except ValueError:
+            signals_now = []
+        parts, was_rebuilt = complete_parts(parts, row, signals_now if isinstance(signals_now, list) else [], history)
+        rebuilt += was_rebuilt
+        try:
             _, before = W.replay(parts, row["channel"], row["institution_id"], current)
             _, after = W.replay(parts, row["channel"], row["institution_id"], draft)
         except (KeyError, TypeError, ValueError):
@@ -340,6 +493,8 @@ def replay(params: dict, days: int = 30, institution: str | None = None, now: da
         approximate += not is_exact
         fidelity += before == row["action_taken"]
         matrix[before][after] += 1
+        kept.append({"id": row["id"], "institution_id": row["institution_id"], "channel": row["channel"],
+                     "amount": row.get("amount"), "parts": parts})
         pair = (before, after)
         pairs.append(pair)
         by_channel[row["channel"] or "unknown"].append(pair)
@@ -382,7 +537,8 @@ def replay(params: dict, days: int = 30, institution: str | None = None, now: da
         "run_at": now.strftime("%Y-%m-%d %H:%M:%S"),
         "params_hash": engine_config.params_hash(params),
         "rows": {"replayed": replayed, "exact": exact, "approximate": approximate, "skipped": skipped,
-                 "fidelity": fidelity, "truncated": replayed + skipped >= MAX_ROWS},
+                 "rebuilt": rebuilt, "fidelity": fidelity, "truncated": replayed + skipped >= MAX_ROWS},
+        "by_change": attribute(kept, current, draft),
         "matrix": matrix,
         "overall": overall,
         "by_channel": channels,

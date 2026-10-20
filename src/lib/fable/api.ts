@@ -1,15 +1,14 @@
-// Client for the Fable backend — the FastAPI service in api/ (Shield's
-// scikit-learn ML + GPT-4o explanations, SQLite persistence). Every call
-// degrades gracefully: if the API is unreachable the store falls back to the
-// built-in client engine (scoring.ts), so the demo never breaks.
+// Client for the Fable backend, the FastAPI service in api/. Every decision is
+// the server's: when the API cannot be reached the caller is told so, and
+// nothing is scored or held in the browser.
 //
-// Point NEXT_PUBLIC_FABLE_API_URL at the deployed API (e.g. Railway) in prod;
+// Point NEXT_PUBLIC_FABLE_API_URL at the deployed API in production; it
 // defaults to the local FastAPI dev server.
 
 import type { BehavioralProfile } from "./biometrics";
 import type { DeviceFingerprint } from "./fingerprint";
 import { TRUSTED_CITY_M, type GeoLocation } from "./geolocation";
-import { cacheBaseline, CHANNEL_LABELS } from "./scoring";
+import { CHANNEL_LABELS } from "./constants";
 import type { SessionContext } from "./session";
 import { activeInstitution, activeUserId, authHeaders } from "./tenant";
 import type { Channel, ReviewOutcome, ReviewState, RiskAction, ScoreResult, Signal, Transaction, TransactionInput } from "./types";
@@ -171,7 +170,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   time_anomaly: "Unusual time",
   channel_risk: "Higher-risk channel",
   scam_pattern: "Scam-script match",
-  ml_anomaly: "ML anomaly",
+  ml_anomaly: "Unusual for this customer",
   device_anomaly: "Unrecognized device",
   location_anomaly: "Location anomaly",
   session_freshness: "Fresh session",
@@ -185,7 +184,7 @@ const SIGNAL_WEIGHTS: Record<string, number> = {
   time_anomaly: 0.12,
   channel_risk: 0.18,
   scam_pattern: 0.15,
-  ml_anomaly: 0.08,
+  ml_anomaly: 0.1,
   device_anomaly: 0.18,
   location_anomaly: 0.22,
   session_freshness: 0.12,
@@ -283,11 +282,20 @@ function localIsoTimestamp(): string {
   );
 }
 
-/** POST /v1/shield/analyze — real Shield scoring (ML + rules + LLM explanation).
- * `sdk` carries the real collected context; omitted fields degrade gracefully. */
-/** Replay options. A queued offline transfer must be scored as the customer
- * and institution it was made for, not whoever is active now, and carries a
- * stable reference so the server recognises a retry. */
+/** Fable could not be reached (network error, timeout, or a server error), so
+ * no decision was made. Nothing was sent; the customer should try again. */
+export class FableUnavailableError extends Error {
+  constructor(message = "We couldn't reach Fable to check this transfer, so it hasn't been sent. Please try again.") {
+    super(message);
+    this.name = "FableUnavailableError";
+  }
+}
+
+/** POST /v1/shield/analyze: Fable's decision on a transfer. `sdk` carries the
+ * collected context; omitted fields are simply absent. */
+/** Options for a scoring call. `clientReference` is stable across retries of
+ * one transfer, so the server returns the decision it already made instead of
+ * booking a second one. */
 export interface ReplayOptions {
   clientReference?: string;
   userId?: string;
@@ -344,11 +352,8 @@ export async function shieldAnalyze(
         country_code: location?.country_code ?? null,
         location_source: location?.source ?? null,
         typing_speed_ms: behavior?.typing_speed_ms ?? null,
-        keypress_count: behavior?.keypress_count ?? null,
         paste_detected: behavior?.paste_detected ?? null,
         pasted_fields: behavior?.pasted_fields ?? null,
-        pointer_avg_velocity: behavior?.pointer_avg_velocity ?? null,
-        scroll_direction_changes: behavior?.scroll_direction_changes ?? null,
         time_to_first_input_seconds: behavior?.time_to_first_input_seconds ?? null,
         time_to_submit_seconds: behavior?.time_to_submit_seconds ?? null,
         client_timestamp: localIsoTimestamp(),
@@ -357,14 +362,11 @@ export async function shieldAnalyze(
   });
 
   // Not routed through fetchJson: a 422 here means the account cannot cover
-  // the transfer, which is a different outcome from the API being
-  // unreachable. Collapsing the two would send it to the local engine and
-  // score a transfer that can never execute.
-  //
-  // The timeout is generous because the AI explainer can be slow on a cold
-  // call, and a real score should not be pushed down to the fallback engine.
+  // the transfer, which is a different outcome from the API being unreachable.
+  // The decision never waits for the AI write-up, so a long wait here means
+  // the API is in trouble; 15 seconds is the most a customer should be kept.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25_000);
+  const timer = setTimeout(() => controller.abort(), 15_000);
   let raw: Response;
   try {
     raw = await fetch(`${API_BASE}/v1/shield/analyze`, {
@@ -392,8 +394,7 @@ export async function shieldAnalyze(
         detail.message ?? "Insufficient funds for this transfer.",
       );
     }
-    // A validation problem: let the caller fall back to the local engine rather
-    // than reporting a wrong reason to the customer.
+    // A validation problem, not an empty wallet: report it as one.
     throw new Error("Shield rejected the transfer payload (422 validation).");
   }
   if (!raw.ok) throw new Error(`Fable API ${raw.status} on /v1/shield/analyze`);
@@ -461,27 +462,11 @@ interface ApiGhostResponse {
 
 /** POST /v1/ghost/create — real cooling-window container. */
 export async function ghostCreate(txn: Transaction): Promise<{ id: string; expiresAt: number; windowSeconds: number }> {
+  // Only the decision's id: the server takes the hold's risk, signals and
+  // explanation from the decision it stored, never from the browser.
   const res = await fetchJson<ApiGhostResponse>("/v1/ghost/create", {
     method: "POST",
-    body: JSON.stringify({
-      user_id: activeUserId(),
-      institution_id: activeInstitution(),
-      transaction: {
-        amount: txn.amount,
-        recipient_id: txn.recipientName.toLowerCase(),
-        recipient_name: txn.recipientName,
-        recipient_account: txn.recipientToken ? "" : txn.recipientAccount,
-        recipient_token: txn.recipientToken ?? null,
-        recipient_bank: txn.recipientBank,
-        narration: txn.narration,
-        channel: CHANNEL_TO_API[txn.channel],
-      },
-      risk_score: txn.riskScore,
-      explanation: txn.explanation,
-      // The signals travel with the container so release can demand a stronger
-      // factor when the hold was caused by identity signals, not just amount.
-      signals: txn.signals.map((sig) => sig.code),
-    }),
+    body: JSON.stringify({ user_id: activeUserId(), transaction_id: txn.id }),
   });
   return {
     id: res.ghost_id,
@@ -496,6 +481,15 @@ export class StepUpRequiredError extends Error {
   constructor(readonly level: string, message: string) {
     super(message);
     this.name = "StepUpRequiredError";
+  }
+}
+
+/** The hold's cooling window closed before it was released, so nothing was
+ * sent and the money stayed with the customer. */
+export class GhostExpiredError extends Error {
+  constructor(message = "This hold expired, so the money stayed in your account. Start the transfer again if you still want to send it.") {
+    super(message);
+    this.name = "GhostExpiredError";
   }
 }
 
@@ -520,11 +514,45 @@ export async function ghostResolve(
       detail.message ?? "Verification required before this transfer can be released.",
     );
   }
+  if (res.status === 410) throw new GhostExpiredError();
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const detail = body?.detail;
-    throw new Error(typeof detail === "string" ? detail : `Fable API ${res.status} on ghost/${endpoint}`);
+    throw new Error(
+      typeof detail === "string"
+        ? detail
+        : typeof detail?.message === "string"
+          ? detail.message
+          : "We couldn't reach Fable just now. Your money is still held. Please try again.",
+    );
   }
+}
+
+/** A sandbox test customer's inbox: the codes and notices they would have
+ * received. The server refuses this for a live institution. */
+export function sandboxInbox(userId: string): Promise<{
+  items: {
+    id: number;
+    kind: "code" | "notice";
+    channel: string | null;
+    destination: string | null;
+    subject: string | null;
+    body: string | null;
+    code: string | null;
+    purpose: string | null;
+    created_at: string;
+  }[];
+}> {
+  return fetchJson(`/v1/sandbox/inbox/${encodeURIComponent(userId)}`);
+}
+
+/** Ask the bank to verify the customer another way and release the hold.
+ * For a customer whose factors cannot reach the release level. */
+export async function ghostRequestRelease(ghostId: string): Promise<{ status: string; expires_at?: string }> {
+  return fetchJson(`/v1/ghost/${encodeURIComponent(ghostId)}/request-release`, {
+    method: "POST",
+    body: JSON.stringify({ user_id: activeUserId() }),
+  });
 }
 
 /** Ghost container detail, including the signals that justified the hold. */
@@ -532,7 +560,8 @@ export function ghostDetail(ghostId: string): Promise<{
   ghost_id: string;
   risk_score: number | null;
   signals?: string[];
-  status: string;
+  status: "HELD" | "RELEASE_REQUESTED" | "RELEASED" | "CANCELLED" | "EXPIRED";
+  expires_at?: string;
 }> {
   return fetchJson(`/v1/ghost/${ghostId}`);
 }
@@ -568,6 +597,8 @@ export interface ApiTransactionRow {
   reviewed_by?: string | null;
   reviewed_at?: string | null;
   engine_version?: number | null;
+  /** On review-queue rows: the status of the hold opened from this decision. */
+  hold_status?: string | null;
 }
 
 function prettyRecipient(id: string | null, account: string | null): string {
@@ -617,6 +648,7 @@ export function mapApiRow(r: ApiTransactionRow): Transaction {
     customerName: r.customer_name || prettyUserId(r.user_id),
     userId: r.user_id ?? undefined,
     engineVersion: r.engine_version ?? null,
+    holdStatus: r.hold_status ?? null,
     remote: true,
     review: r.review_state
       ? {
@@ -834,9 +866,12 @@ export interface AgentsOverview {
     thresholds: { block: number; flag: number };
   };
   ghost: {
+    /** "active", "degraded" (expiry stalled or hold webhooks failing) or "off". */
     status: string;
+    detail?: string;
     containers_created: number;
     cancelled: number;
+    expired?: number;
     released: number;
     held: number;
     cancellation_rate: number;
@@ -1156,23 +1191,7 @@ export async function customerOverview(
     } | null;
   }>(`/v1/sandbox/overview/${encodeURIComponent(userId)}?limit=${limit}${tenantParam(institution)}`);
 
-  // Cache the real baseline so the offline engine scores this customer against
-  // their own history rather than a single hardcoded average shared by
-  // everyone. Refreshed on every home-screen load, which is the last point the
-  // API was known to be reachable.
-  const sb = res.scoring_baseline;
-  cacheBaseline(
-    userId,
-    sb
-      ? {
-          avgAmount: sb.avg_amount,
-          typicalHours: sb.typical_hours,
-          knownRecipients: sb.known_recipients,
-          transactionCount: sb.transaction_count,
-          tenureDiscount: sb.tenure_discount,
-        }
-      : null,
-  );
+
 
   return {
     balance: res.balance,
@@ -1291,12 +1310,29 @@ export interface SecurityStatus {
   pin_locked_until: string | null;
   failed_attempts: number;
   two_factor_enabled: boolean;
+  /** False when the customer chose not to share their location. */
+  location_shared?: boolean;
   passkey_count: number;
   passkeys?: { credential_id: string; device_label: string | null; created_at: string; last_used_at: string | null }[];
   contact_email: string | null;
   contact_phone: string | null;
   email_set: boolean;
   phone_set: boolean;
+  /** A new email waiting for its confirmation code (masked). */
+  pending_email?: string | null;
+  /** A new phone number waiting for its confirmation code (masked). */
+  pending_phone?: string | null;
+  /** Codes go by email only; no SMS provider is connected. */
+  sms_available?: boolean;
+}
+
+/** A contact change that needs the code sent to the new address or number. */
+export interface ContactVerification {
+  channel?: "email" | "sms";
+  challenge_id: string;
+  destination: string;
+  sandbox_inbox?: boolean;
+  debug_code?: string;
 }
 
 /** Digits to expect when a customer enters their existing PIN. Falls back to 4
@@ -1319,9 +1355,9 @@ export function securityStatus(userId: string): Promise<SecurityStatus> {
  * `currentPin` is required once a PIN exists (gated so codes can't be rerouted). */
 export async function setContact(
   userId: string,
-  input: { email?: string | null; phone?: string | null; currentPin?: string | null },
+  input: { email?: string | null; phone?: string | null; currentPin?: string | null; stepupToken?: string | null },
   institution: string | null,
-): Promise<SecurityStatus> {
+): Promise<SecurityStatus & { verification?: ContactVerification; verifications?: ContactVerification[] }> {
   const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/contact`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -1330,11 +1366,26 @@ export async function setContact(
       phone: input.phone ?? null,
       institution_id: institution,
       current_pin: input.currentPin ?? null,
+      stepup_token: input.stepupToken ?? null,
     }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(typeof body?.detail === "string" ? body.detail : "Could not save your contact details.");
+  }
+  return (await res.json()) as SecurityStatus & { verification?: ContactVerification; verifications?: ContactVerification[] };
+}
+
+/** Confirm a new email with the code that was sent to it. */
+export async function confirmContact(userId: string, challengeId: string, code: string): Promise<SecurityStatus> {
+  const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/contact/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ challenge_id: challengeId, code }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.detail === "string" ? body.detail : "That code didn't work.");
   }
   return (await res.json()) as SecurityStatus;
 }
@@ -1344,11 +1395,12 @@ export async function setPin(
   pin: string,
   currentPin: string | null,
   institution: string | null,
+  stepupToken?: string | null,
 ): Promise<SecurityStatus> {
   const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/pin`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ pin, current_pin: currentPin, institution_id: institution }),
+    body: JSON.stringify({ pin, current_pin: currentPin, institution_id: institution, stepup_token: stepupToken ?? null }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -1357,11 +1409,42 @@ export async function setPin(
   return (await res.json()) as SecurityStatus;
 }
 
-export function setTwoFactor(userId: string, enabled: boolean, currentPin?: string | null): Promise<SecurityStatus> {
-  return fetchJson<SecurityStatus>(`/v1/accounts/${encodeURIComponent(userId)}/security/two-factor`, {
+export async function setTwoFactor(
+  userId: string,
+  enabled: boolean,
+  currentPin?: string | null,
+  stepupToken?: string | null,
+): Promise<SecurityStatus> {
+  const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/two-factor`, {
     method: "POST",
-    body: JSON.stringify({ enabled, current_pin: currentPin ?? null }),
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ enabled, current_pin: currentPin ?? null, stepup_token: stepupToken ?? null }),
   });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.detail === "string" ? body.detail : "Could not change this setting.");
+  }
+  return (await res.json()) as SecurityStatus;
+}
+
+/** Whether the customer's location is used. Turning it off needs a factor they
+ * already have; turning it back on needs nothing. */
+export async function setLocationSharing(
+  userId: string,
+  share: boolean,
+  currentPin?: string | null,
+  stepupToken?: string | null,
+): Promise<SecurityStatus> {
+  const res = await fetch(`${API_BASE}/v1/accounts/${encodeURIComponent(userId)}/security/location`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ share, current_pin: currentPin ?? null, stepup_token: stepupToken ?? null }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body?.detail === "string" ? body.detail : "Could not change this setting.");
+  }
+  return (await res.json()) as SecurityStatus;
 }
 
 /** Thrown when a transfer exceeds available funds. Carries the shortfall so

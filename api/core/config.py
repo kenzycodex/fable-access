@@ -27,6 +27,25 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM = os.getenv("SMTP_FROM", "Fable Provisioning <no-reply@fable.ng>")
+# These, and the SMS settings below, can also be set from the operator console
+# (core/secrets.MANAGED). The environment still wins; code should read them
+# through core/integrations.py, not these constants, so a console change applies.
+
+# --- SMS (codes and short alerts) ---
+# "none" or a provider in services/sms.py. With none, SMS is unavailable and
+# the product says so; nothing ever claims an SMS was sent.
+SMS_PROVIDER = os.getenv("SMS_PROVIDER", "none").strip().lower() or "none"
+SMS_SENDER_ID = os.getenv("SMS_SENDER_ID", "Fable")
+TERMII_BASE_URL = os.getenv("TERMII_BASE_URL", "https://api.ng.termii.com")
+# Africa's Talking. Its free sandbox uses the username "sandbox" and its own
+# base URL; messages sent there appear in the Africa's Talking simulator, not
+# on a real phone. "live" uses the production API.
+AFRICASTALKING_USERNAME = os.getenv("AFRICASTALKING_USERNAME", "sandbox")
+AFRICASTALKING_ENV = os.getenv("AFRICASTALKING_ENV", "sandbox").strip().lower() or "sandbox"
+AFRICASTALKING_URLS = {
+    "sandbox": "https://api.sandbox.africastalking.com",
+    "live": "https://api.africastalking.com",
+}
 
 # --- Security / ops (all optional; safe demo defaults) ---
 # Comma-separated API keys. If set, protected endpoints require
@@ -42,6 +61,7 @@ RATE_LIMIT_WINDOW = int(os.getenv("FABLE_RATE_LIMIT_WINDOW", "60"))
 
 # CORS allowed origins. "*" for the demo; set a comma-separated list in prod.
 _raw_origins = os.getenv("FABLE_CORS_ORIGINS", "*")
+CORS_ORIGINS_RAW = _raw_origins.strip() or "*"
 CORS_ORIGINS = ["*"] if _raw_origins.strip() == "*" else [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 # Optional Sentry error monitoring.
@@ -79,6 +99,10 @@ ALLOW_DEBUG_OTP = (
 # python -c "import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
 SECRETS_KEY = os.getenv("FABLE_SECRETS_KEY", "").strip()
 SECRETS_KEY_ID = os.getenv("FABLE_SECRETS_KEY_ID", "k1").strip() or "k1"
+# Earlier master keys, still able to open values sealed under them during a
+# rotation: "kid:base64key", comma-separated. scripts/rewrap_secrets.py moves
+# values to the current key; then this can be emptied.
+SECRETS_KEY_PREVIOUS = os.getenv("FABLE_SECRETS_KEY_PREVIOUS", "").strip()
 # Break-glass: "off" makes the console read-only for keys.
 SECRETS_WRITE = os.getenv("FABLE_SECRETS_WRITE", "on").strip().lower() not in ("off", "0", "false", "no")
 # Model names an operator may choose, beyond the built-in allowlist.
@@ -137,6 +161,21 @@ if PIN_PEPPER:
 STEPUP_TOKEN_TTL_SECONDS = _env_int("FABLE_STEPUP_TOKEN_TTL_SECONDS", 600)
 OTP_TTL_SECONDS = _env_int("FABLE_OTP_TTL_SECONDS", 600)
 OTP_MAX_ATTEMPTS = _env_int("FABLE_OTP_MAX_ATTEMPTS", 5)
+
+# A contact (email or phone) added or changed within this many hours cannot be
+# the factor that releases held money: pointing codes at an address the
+# attacker controls is the first move of a session takeover.
+CONTACT_SETTLE_HOURS = _env_int("FABLE_CONTACT_SETTLE_HOURS", 24)
+# The same rule for sandbox banks, whose money is simulated and whose test
+# customers are set up minutes before they are used. A factor set up after a
+# hold still never releases it.
+SANDBOX_CONTACT_SETTLE_MINUTES = _env_int("FABLE_SANDBOX_CONTACT_SETTLE_MINUTES", 0, minimum=0)
+
+# Ghost: how far back an older client's /v1/ghost/create (no transaction_id) is
+# matched to the customer's own recent block, and how long a hold waits once
+# the customer has asked their bank to verify them and release it.
+GHOST_LEGACY_MATCH_MINUTES = _env_int("GHOST_LEGACY_MATCH_MINUTES", 60)
+GHOST_RELEASE_REQUEST_HOURS = _env_int("GHOST_RELEASE_REQUEST_HOURS", 24)
 
 # --- KYC / liveness provider ---
 # Unset here. With no provider the identity_check tier resolves to the
@@ -220,3 +259,6 @@ TENURE_DISCOUNT_MAX = _env_float("FABLE_TENURE_DISCOUNT_MAX", 0.08)
 TENURE_FULL_AT = _env_int("FABLE_TENURE_FULL_AT", 120)
 # How long a paid recipient stays "known" rather than new.
 RECIPIENT_MEMORY_DAYS = _env_int("FABLE_RECIPIENT_MEMORY_DAYS", 540)
+# How long personal data is kept (services/retention.py).
+RETENTION_DAYS = _env_int("FABLE_RETENTION_DAYS", 1825)
+RETENTION_DETAIL_DAYS = _env_int("FABLE_RETENTION_DETAIL_DAYS", 730)

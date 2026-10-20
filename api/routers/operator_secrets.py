@@ -155,6 +155,46 @@ def test(name: str, request: Request):
     return secret_admin.test_active(op, name)
 
 
+class TestSend(BaseModel):
+    to: str = Field(min_length=3, max_length=254)
+
+
+@router.post("/integrations/test-email")
+def test_email(body: TestSend, request: Request):
+    """Send a test email with the mail settings in force, to check them end to
+    end. Audited; the response never contains a setting's value."""
+    from services import audit, mailer
+
+    op = operators.require(request, "platform_admin")
+    _limited(op)
+    if "@" not in body.to:
+        raise HTTPException(status_code=422, detail="Enter an email address.")
+    if not mailer.configured():
+        return {"sent": False, "message": "Mail isn't set up: add the mail username and password first."}
+    sent = mailer.send(body.to, "Fable test email",
+                       "This is a test email from the Fable operator console. Mail is set up correctly.")
+    audit.record("platform.test_email", None, operator=op["email"], sent=sent)
+    return {"sent": sent, "message": "Sent. Check the inbox." if sent else "The mail server refused it. Check the settings."}
+
+
+@router.post("/integrations/test-sms")
+def test_sms(body: TestSend, request: Request):
+    """Send a test SMS through the configured provider. Audited."""
+    from services import audit, sms
+
+    op = operators.require(request, "platform_admin")
+    _limited(op)
+    if not sms.configured():
+        return {"sent": False, "message": "SMS isn't set up: choose a provider and add its API key first."}
+    result = sms.send(body.to, "This is a test SMS from the Fable operator console.")
+    audit.record("platform.test_sms", None, operator=op["email"], sent=result.sent)
+    via = sms.describe()
+    sandbox_note = " It appears in the Africa's Talking sandbox simulator, not on a real phone." if "sandbox" in via else ""
+    return {"sent": result.sent, "provider": via,
+            "message": (f"Sent through {via}.{sandbox_note}" if result.sent
+                        else f"{via} did not accept it ({result.detail}).")}
+
+
 # ── Operator passkeys ────────────────────────────────────────────────────────
 
 class PasskeyFinish(BaseModel):

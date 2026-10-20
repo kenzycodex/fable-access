@@ -8,14 +8,12 @@ invites its owner, who then sets everything else up in their own console.
 import logging
 import re
 import secrets
-import smtplib
 import time
-from email.message import EmailMessage
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from core import config, operators, totp
+from core import operators, totp
 from core.db import cursor, row_to_dict, slugify_institution
 from core.tenancy import get_institution, register_institution
 from core.utils import hash_password, needs_rehash, verify_password
@@ -544,24 +542,15 @@ class NewOperator(BaseModel):
 
 
 def _send_operator_invite(email: str, inviter: str, link: str) -> None:
-    if not config.SMTP_USERNAME or not config.SMTP_PASSWORD:
-        return
-    msg = EmailMessage()
-    msg["Subject"] = "You've been invited to operate Fable"
-    msg["From"] = config.SMTP_FROM
-    msg["To"] = email
-    msg.set_content(
+    from services import mailer
+
+    # The invite stays valid if this fails; it can be re-sent.
+    mailer.send(
+        email, "You've been invited to operate Fable",
         f"{inviter} invited you to the Fable operator platform.\n\n"
         f"Set your password to accept: {link}\n\n"
-        "You will set up an authenticator app the first time you sign in. This link expires in 3 days."
+        "You will set up an authenticator app the first time you sign in. This link expires in 3 days.",
     )
-    try:
-        with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT, timeout=10) as server:
-            server.starttls()
-            server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
-            server.send_message(msg)
-    except Exception as exc:  # noqa: BLE001 - the invite stays valid; it can be re-sent
-        logger.warning("Failed to send operator invite to %s: %s", email, exc)
 
 
 def invite_operator(email: str, name: str | None, role: str, invited_by: str) -> tuple[str, str]:
@@ -592,14 +581,18 @@ def invite_operator(email: str, name: str | None, role: str, invited_by: str) ->
             (token_hash(token), email, int(time.time()) + operators.INVITE_TTL_SECONDS),
         )
     operators.record(audit.OPERATOR_INVITED, invited_by, operator_email=email, role=role)
-    return email, f"{config.FRONTEND_URL.rstrip('/')}/operator/accept?token={token}"
+    from core import integrations
+
+    return email, f"{integrations.frontend_url()}/operator/accept?token={token}"
 
 
 @router.post("/team", status_code=201)
 def add_operator(body: NewOperator, request: Request, background: BackgroundTasks):
     op = operators.require(request, "platform_owner")
     email, link = invite_operator(body.email, body.name, body.role, op["email"])
-    emailed = bool(config.SMTP_USERNAME and config.SMTP_PASSWORD)
+    from services import mailer
+
+    emailed = mailer.configured()
     background.add_task(_send_operator_invite, email, op["email"], link)
     return {**operators.public(operators.get(email)), "emailed": emailed, "invite_link": None if emailed else link}
 

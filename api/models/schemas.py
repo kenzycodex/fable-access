@@ -77,11 +77,13 @@ class Context(BaseModel):
     country: Optional[str] = None
     country_code: Optional[str] = None
     location_source: Optional[str] = None  # "gps" | "ip" | "unavailable"
-    # Behavioral biometrics
+    # Behavioural signals. Paste and time to submit are scored; typing speed is
+    # stored as context for analysts and not scored.
     typing_speed_ms: Optional[float] = None
-    keypress_count: Optional[int] = None
     paste_detected: Optional[bool] = None
     pasted_fields: Optional[list[str]] = None
+    # Accepted from older clients and ignored: never stored or scored.
+    keypress_count: Optional[int] = None
     pointer_avg_velocity: Optional[float] = None
     scroll_direction_changes: Optional[int] = None
     time_to_first_input_seconds: Optional[float] = None
@@ -89,6 +91,12 @@ class Context(BaseModel):
     # Device-local time (Shield judges time-of-day against this, not server UTC)
     client_timestamp: Optional[str] = None
     client_timezone: Optional[str] = None
+    # A NIP response code the bank's server observed on the rail (a retry after
+    # a failed attempt, or an integration that already spoke to NIBSS). Only
+    # honoured from the bank's API key, never from a browser session: code 34
+    # forces a block, so the party being scored must not be able to set it.
+    nip_source: Optional[Literal["rail"]] = None
+    nip_response_code: Optional[str] = Field(None, pattern=r"^[0-9A-Za-z]{2}$")
 
 
 class ShieldAnalyzeRequest(BaseModel):
@@ -114,7 +122,7 @@ class ShieldAnalyzeResponse(BaseModel):
     # Total time spent in the handler. Kept for continuity with earlier
     # responses; it is NOT the number the latency budget is written against.
     latency_ms: float
-    # Time to reach the verdict: funds check, twelve signal layers, scoring.
+    # Time to reach the verdict: funds check, every signal, scoring.
     # This is the figure the sub-200ms budget governs, because it is the only
     # part a payment rail has to wait for.
     decision_ms: float
@@ -142,11 +150,15 @@ class ShieldExplanationResponse(BaseModel):
 
 class GhostCreateRequest(BaseModel):
     user_id: str
-    transaction: Transaction
-    risk_score: float
-    explanation: str = ""
+    # The stored decision to hold. Its risk, signals and explanation are used.
+    transaction_id: Optional[str] = None
+    # Deprecated. Accepted from older clients only to find their recent block
+    # when no transaction_id is sent; never used for the hold's risk.
+    transaction: Optional[Transaction] = None
+    # Deprecated and ignored: the stored decision decides these.
+    risk_score: Optional[float] = None
+    explanation: Optional[str] = None
     institution_id: Optional[str] = None
-    # Why Shield held it — decides how strong the release factor must be.
     signals: list[str] = Field(default_factory=list)
 
 

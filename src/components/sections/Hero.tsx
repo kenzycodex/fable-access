@@ -68,7 +68,7 @@ export function Hero({ tone = "white", breadcrumb, eyebrow, title, subtitle, cta
                 alt={image.alt}
                 width={image.width}
                 height={image.height}
-                priority
+                loading="eager"
                 className="h-auto w-full"
               />
             </div>

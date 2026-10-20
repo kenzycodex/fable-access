@@ -1,8 +1,10 @@
 """Agent-level analytics for the institution dashboard's Agents section.
 
 Lets a risk team see each Fable agent as an operational unit: what Copilot has
-learned per customer, how Shield's 12-signal pipeline is deciding, and what
-Ghost has contained — all straight from SQLite, no synthetic numbers.
+learned per customer, how Shield's signals are deciding, and what Ghost has
+contained — all straight from SQLite, no synthetic numbers. Each agent's status
+is real: Ghost reads "off" when the institution switched it off and "degraded"
+when hold expiry has stopped running or its webhooks are failing.
 """
 from datetime import datetime, timezone
 
@@ -25,7 +27,8 @@ def _cooling(institution: str) -> dict:
         "low_risk_minutes": p["hold_low_minutes"],
     }
 
-from agents.copilot.baseline import format_hours, get_user_baseline
+from agents.copilot.baseline import COLD_START_PREMIUM, format_hours, get_user_baseline
+from core import engine_config
 from core.db import cursor, loads, row_to_dict
 from core.tenancy import tenant_for_console
 from intelligence.context import tenant_clause
@@ -33,34 +36,87 @@ from intelligence.context import tenant_clause
 router = APIRouter(prefix="/v1/agents", tags=["agents"])
 
 
-# The Shield pipeline, as configuration the dashboard can render. Weights are
-# the maximum boost each layer can contribute.
-SHIELD_PIPELINE = [
-    {"step": 1, "code": "amount_anomaly", "label": "Amount anomaly", "max_weight": 0.40,
-     "description": "Progressive boost when the amount is 3x/5x/10x the user's personal average."},
-    {"step": 2, "code": "new_recipient", "label": "New recipient", "max_weight": 0.20,
-     "description": "First transfer to this account in the user's 90-day history."},
-    {"step": 3, "code": "time_anomaly", "label": "Time anomaly", "max_weight": 0.12,
-     "description": "Device-local hour outside the user's typical active hours."},
-    {"step": 4, "code": "channel_risk", "label": "Channel risk", "max_weight": 0.25,
-     "description": "NIBSS fraud-incidence weights per channel (USSD highest)."},
-    {"step": 5, "code": "nip_code", "label": "NIP response code", "max_weight": 0.95,
-     "description": "NIBSS instant-payment risk codes; code 34 is an automatic block."},
-    {"step": 6, "code": "scam_pattern", "label": "Scam pattern (narration)", "max_weight": 0.25,
-     "description": "English + Pidgin scam-script matching. Deliberately de-prioritized (x0.5) — most users skip narration."},
-    {"step": 7, "code": "ml_anomaly", "label": "ML anomaly (Isolation Forest)", "max_weight": 0.10,
-     "description": "Unsupervised deviation from the user's own amount/hour history."},
-    {"step": 8, "code": "device_anomaly", "label": "Device anomaly", "max_weight": 0.18,
-     "description": "Unrecognized device fingerprint; weight scales with transfer size."},
-    {"step": 9, "code": "location_anomaly", "label": "Location anomaly", "max_weight": 0.22,
-     "description": "Transacting outside known cities, strongest when outside the home country."},
-    {"step": 10, "code": "session_freshness", "label": "Session freshness", "max_weight": 0.12,
-     "description": "Large transfer within 30 seconds of login."},
-    {"step": 11, "code": "behavioral_anomaly", "label": "Behavioral anomaly", "max_weight": 0.15,
-     "description": "Pasted account number and near-zero hesitation on a large amount."},
-    {"step": 12, "code": "timezone_mismatch", "label": "Timezone mismatch", "max_weight": 0.08,
-     "description": "Device timezone disagrees with the user's usual timezone."},
+def _ghost_status(institution: str | None) -> dict:
+    """Whether Ghost is doing its job for this institution right now."""
+    from core.tenancy import disabled_agents
+    from services import scheduler
+
+    if "ghost" in disabled_agents(institution):
+        return {"status": "off", "detail": "Switched off for your institution."}
+    sched = scheduler.status()
+    if sched["enabled"] and "ghost_expiry" in sched["stale"]:
+        return {"status": "degraded", "detail": "Hold expiry has not run recently. Holds may outlive their window."}
+    try:
+        with cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM webhook_outbox WHERE institution_id = ? AND status = 'failed' "
+                "AND event LIKE 'containment.%' AND created_at >= datetime('now', '-1 day')",
+                (institution,),
+            )
+            failed = cur.fetchone()["n"]
+    except Exception:  # noqa: BLE001 - no outbox table on a very old database
+        failed = 0
+    if failed:
+        return {"status": "degraded",
+                "detail": f"{failed} hold update{'s' if failed != 1 else ''} could not be delivered to your webhook today."}
+    return {"status": "active", "detail": ""}
+
+
+# The Shield pipeline, as the dashboard renders it: every signal, in the order
+# the analyzer adds them, with the most each can add under the engine version
+# in force (not a hardcoded copy that drifts from the weights).
+_PIPELINE = [
+    ("amount_anomaly", "Amount anomaly", lambda w: w["amount_50x"],
+     "How far above the customer's own normal: tiers from 3x up to 50x."),
+    ("cold_start", "No history yet", lambda w: COLD_START_PREMIUM,
+     "A customer without three past transfers is judged against this bank's customers as a whole."),
+    ("first_transfer_amount", "First transfer amount", lambda w: w["first_amount_20m"],
+     "With no history to compare, the amount itself is priced in tiers from NGN 100k to NGN 20m."),
+    ("new_recipient", "New recipient", lambda w: w["new_recipient"],
+     "First transfer to this account in the customer's remembered history."),
+    ("time_anomaly", "Unusual time", lambda w: w["time_anomaly"],
+     "Device-local hour outside the customer's usual hours."),
+    ("channel_risk", "Channel risk", lambda w: max(v for k, v in w.items() if k.startswith("channel_")),
+     "Weights per channel informed by NIBSS fraud data: internet banking highest, branch lowest."),
+    ("nip_code", "NIP response code", lambda w: 0.95,
+     "NIBSS instant-payment risk codes from the bank's own rail; code 34 always blocks."),
+    ("scam_pattern", "Scam script (narration)", lambda w: _scam_max(),
+     "English and Pidgin scam-script matching, deliberately halved: most customers leave narration blank."),
+    ("ml_anomaly", "Unusual for this customer", lambda w: max(w.get("ml_anomaly", 0), w.get("ml_anomaly_previous", 0)),
+     "How far the amount and hour together sit from the customer's own past transfers."),
+    ("device_anomaly", "Unrecognised device", lambda w: w["device_anomaly_large"],
+     "A device fingerprint the customer has not used before; more for a large transfer."),
+    ("location_anomaly", "Location", lambda w: max(w["location_country"], w["location_city_large"], w["location_city"]),
+     "A new city, or outside the home country."),
+    ("session_freshness", "Fresh session", lambda w: w["session_freshness"],
+     "A large transfer seconds after signing in."),
+    ("behavioral_anomaly", "Pasted and rushed", lambda w: w["behavioral_paste"] + w["behavioral_fast"],
+     "Account number pasted, and submitted with almost no hesitation, on a large amount."),
+    ("timezone_mismatch", "Timezone mismatch", lambda w: w["timezone_mismatch"],
+     "The device's timezone differs from the customer's usual one."),
+    ("failed_verification", "Failed checks", lambda w: w["failed_verification_high"],
+     "Recent failed PIN, passkey or code attempts."),
+    ("velocity", "Burst of transfers", lambda w: w["velocity_high"],
+     "Several live transfers in a few minutes."),
 ]
+
+
+def _scam_max() -> float:
+    from agents.shield.analyzer import NARRATION_WEIGHT_SCALE
+    from agents.shield.patterns import NIGERIAN_SCAM_PATTERNS
+
+    top = max((p["risk_weight"] for p in NIGERIAN_SCAM_PATTERNS), default=0.0)
+    return round(top * NARRATION_WEIGHT_SCALE, 3)
+
+
+def shield_pipeline() -> list[dict]:
+    w = engine_config.active()["params"]["weights"]
+    out = []
+    for i, (code, label, top, description) in enumerate(_PIPELINE, start=1):
+        out.append({"step": i, "code": code, "label": label, "max_weight": round(float(top(w)), 3),
+                    "description": description})
+    return out
+
 
 
 @router.get("/overview")
@@ -88,7 +144,7 @@ def overview(request: Request, institution: str | None = Query(None)):
         # Devices and locations belong to the tenant's own customers, so scope
         # them through the transactions table rather than counting globally.
         cur.execute(
-            f"""SELECT COUNT(*) AS n FROM device_profiles
+            f"""SELECT COUNT(*) AS n FROM customer_devices
                 WHERE user_id IN (SELECT DISTINCT user_id FROM transactions{where})""",
             params,
         )
@@ -115,6 +171,8 @@ def overview(request: Request, institution: str | None = Query(None)):
     passed = by_action.get("PASS", 0)
     ghost_created = sum(g["count"] for g in ghost_rows.values())
     ghost_cancelled = ghost_rows.get("CANCELLED", {}).get("count", 0)
+    ghost_expired = ghost_rows.get("EXPIRED", {}).get("count", 0)
+    ghost = _ghost_status(institution)
 
     return {
         "copilot": {
@@ -135,21 +193,25 @@ def overview(request: Request, institution: str | None = Query(None)):
             "block_rate": round(blocked / total_tx, 4) if total_tx else 0,
             "flag_rate": round(flagged / total_tx, 4) if total_tx else 0,
             "avg_risk_score": round(avg_score, 3),
-            "signal_layers": len(SHIELD_PIPELINE),
+            "signal_layers": len(_PIPELINE),
             "thresholds": _thresholds(institution),
         },
         "ghost": {
-            "status": "active",
+            "status": ghost["status"],
+            "detail": ghost["detail"],
             "containers_created": ghost_created,
             "cancelled": ghost_cancelled,
+            "expired": ghost_expired,
             "released": ghost_rows.get("RELEASED", {}).get("count", 0),
-            "held": ghost_rows.get("HELD", {}).get("count", 0),
+            "held": ghost_rows.get("HELD", {}).get("count", 0) + ghost_rows.get("RELEASE_REQUESTED", {}).get("count", 0),
             "cancellation_rate": round(ghost_cancelled / ghost_created, 4) if ghost_created else 0,
-            "money_saved_ngn": ghost_rows.get("CANCELLED", {}).get("amount", 0),
+            # Money that stayed with the customer: cancelled, or nobody released it.
+            "money_saved_ngn": ghost_rows.get("CANCELLED", {}).get("amount", 0)
+            + ghost_rows.get("EXPIRED", {}).get("amount", 0),
         },
         "watch": {
-            "status": "coming_soon",
-            "description": "Continuous account monitoring between transactions.",
+            "status": "planned",
+            "description": "Monitoring between transfers. Planned, not built.",
         },
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -267,7 +329,7 @@ def shield_decisions(request: Request, limit: int = Query(25, ge=1, le=200), ins
     friction = by_action.get("FLAG", 0) + by_action.get("BLOCK", 0)
     return {
         "decisions": rows,
-        "pipeline": SHIELD_PIPELINE,
+        "pipeline": shield_pipeline(),
         "thresholds": _thresholds(institution),
         "accuracy": {
             "transactions_scored": total,

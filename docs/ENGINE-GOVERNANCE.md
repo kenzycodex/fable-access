@@ -29,6 +29,19 @@ Each bank's own risk policy (its base thresholds and hold windows, set in its co
 2. Otherwise, the live version approved on the Engine page.
 3. Otherwise, the built-in defaults.
 
+### Weights added after a version was approved
+
+A weight introduced by a release is read, for any version stored before it existed, as the value that reproduces the old behaviour (`LEGACY_FILL` in `core/engine_config.py`), so shipping code never changes a decision. Introducing a weight is exempt from the one-version step limit; moving it afterwards is not. The release offers the new values once as a system draft, for an owner to backtest, propose, shadow and promote:
+
+- **First transfers (no history):** amount tiers from NGN 100k to NGN 20m. Old versions read them as 0.
+- **Anomaly model:** `ml_anomaly` (the nearest-neighbour model, 0.10 by default) and `ml_anomaly_previous` (the retiring Isolation Forest). Old versions read them as 0 and 0.10, which is exactly how they scored.
+
+Decisions made before a release did not record its terms. The backtest rebuilds them for those rows and counts them as "rebuilt": the first-transfer term from the stored amount and the cold-start signal, the previous anomaly model's fixed points as its weighted term, and the current anomaly model from the customer's confirmed history before the decision (as it stands now, so a transfer confirmed later counts as confirmed). Under the live values a rebuilt term adds exactly what the decision had, so replay fidelity is unchanged.
+
+### What each change does
+
+A draft can carry several changes, like the release draft's first-transfer weights and anomaly model. The backtest and the shadow comparison both replay each group of changes (as the Engine page groups weights; all thresholds are one group) on its own against the live values, and show how many decisions it moves, in which direction, with up to five examples. Changes can interact, so the groups need not add up to the draft's total.
+
 On first boot, version 1 is seeded from the values in force at that moment (the environment over the code defaults), so shipping the Engine page changed no decision. Backtests, shadow and live scoring all use the effective values: the environment first, then the version. Every backtest report lists which keys came from the environment.
 
 ## The procedure
@@ -56,7 +69,7 @@ Shadow and promotion refuse any version whose stored parameters no longer match 
 
 ## The backtest
 
-Shield's score is additive. Since the Engine page shipped, every decision stores *how* its score was built (`transactions.score_parts`): which weight each signal used and by what coefficient, plus the fixed contributions (cold start, channel risk, scam pattern, ML anomaly, NIP code), the tenure discount and the NIP-34 override. The live engine and the backtest add those parts with the same function (`agents/shield/weights.py`), so re-scoring a stored decision under other weights is exact by construction.
+Shield's score is additive. Since the Engine page shipped, every decision stores *how* its score was built (`transactions.score_parts`): which weight each signal used and by what coefficient, plus the fixed contributions (cold start, channel risk, scam pattern, NIP code), the tenure discount and the NIP-34 override. The anomaly signal is stored as each model's 0..1 value against its weight (`ml_anomaly`, `ml_anomaly_previous`), so either model replays; decisions made before that stored it as a fixed contribution. The live engine and the backtest add those parts with the same function (`agents/shield/weights.py`), so re-scoring a stored decision under other weights is exact by construction.
 
 Each report compares two replays of the same rows: under the live parameters ("now") and under the draft. That isolates the draft's own effect: an unchanged draft reports zero changed decisions. How faithfully "now" reproduces what was actually decided is reported separately.
 
@@ -133,3 +146,25 @@ The mapping is to frameworks, not quoted clauses.
 * **CBN Risk-Based Cybersecurity Framework 2024 and CBN guidance on governance and change control.** Separation of duties, change approval, audit trail.
 * **ISO/IEC 27001:2022.** A.8.32 (change management), A.5.3 (segregation of duties), A.8.15 (logging).
 * **Model risk management practice** (for example, the SR 11-7 principles): evidence before a change, independent review, monitoring in parallel before use, and the ability to revert.
+
+## What every decision records
+
+| Recorded | Where | What for |
+|---|---|---|
+| Engine version and a hash of its parameters plus the detection settings | `transactions.engine_version`, `engine_params_hash` | Which rules decided, exactly |
+| How the score was built, term by term | `transactions.score_parts` | Exact replay under any other weights (backtest, shadow) |
+| The shadow version's verdict, when one runs | `transactions.shadow_version`, `shadow_action`, `shadow_score` | The shadow comparison |
+| The feature snapshot | `decision_features` (`agents/shield/features.py`) | Training and backtesting a later per-customer model on what was known at the time |
+
+The snapshot also records the Copilot and Ghost code versions and the
+institution's hold windows in force. Ghost's hold windows and the flag and
+block lines per institution are the bank's risk policy (owner-only, audited);
+detection settings such as the velocity window and recipient memory are
+operator settings changed through approval with a cooling-off period, two-person when there are two owners (docs/SECRETS.md).
+
+Labels are kept apart and never mixed: an analyst's outcome
+(`review_outcome`: fraud or legitimate), a customer cancelling a hold
+(`status = cancelled`, a weaker signal), and no outcome. The
+`decision_dataset` view joins each snapshot to its decision and current label
+for training; the label is never copied into the snapshot because it changes
+afterwards.

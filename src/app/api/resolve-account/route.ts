@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { findBank, paystackKey, PaystackError, resolveAccount, type PaystackFailure } from "@/lib/paystack";
+import { guardLookup } from "@/lib/routeGuard";
 
 // With PAYSTACK_SECRET_KEY set (.env.local), this resolves real account
 // holders via the Paystack NUBAN lookup (free on test keys). Without a key it
@@ -36,6 +37,10 @@ function hashAccountToName(accountNumber: string): string {
 }
 
 export async function POST(request: Request) {
+  // A signed-in console session, and rate limits: this lookup reveals an
+  // account holder's name and spends the Paystack quota.
+  const refused = await guardLookup(request);
+  if (refused) return NextResponse.json({ error: refused.error }, { status: refused.status });
   try {
     const { accountNumber, bankCode } = await request.json();
 

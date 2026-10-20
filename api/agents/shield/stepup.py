@@ -114,8 +114,8 @@ SUCCESS_MARKER = "_verified_ok_"
 def record_failure(user_id: str, kind: str, reason: str) -> None:
     with cursor() as cur:
         cur.execute(
-            "INSERT INTO stepup_failures (user_id, kind, reason) VALUES (?, ?, ?)",
-            (user_id, kind, reason),
+            "INSERT INTO stepup_failures (user_id, kind, reason, institution_id) VALUES (?, ?, ?, ?)",
+            (user_id, kind, reason, _institution_of(user_id)),
         )
     audit.record(audit.STEPUP_FAILED, user_id, factor=kind, reason=reason)
 
@@ -166,46 +166,193 @@ def recent_failure_count(user_id: str, within_minutes: int = 60) -> int:
         return cur.fetchone()["n"]
 
 
-def issue_token(user_id: str, level: str, purpose: str | None, reference: str | None) -> dict:
+def _token_key(token: str) -> str:
+    """How a token is stored: a SHA-256 of it, never the token itself.
+
+    Tokens used to be stored as issued, so anyone who could read the database
+    (or a backup of it) could lift a live token and release a hold with it.
+    The token is 192 random bits, so an unsalted hash is enough: there is
+    nothing to guess, and a lookup by hash is a lookup by index, which leaks no
+    timing about the value either.
+    """
+    return "h:" + hashlib.sha256(token.encode()).hexdigest()
+
+
+def issue_token(user_id: str, level: str, purpose: str | None, reference: str | None,
+                factors: dict | None = None, institution_id: str | None = None) -> dict:
+    """Mint a single-use proof that `factors` were just verified.
+
+    `factors` maps each factor that was proved ("pin", "passkey", "otp") to
+    when that factor was enrolled (None when the record predates the
+    timestamp). A release checks it, so a factor set up after money was
+    contained proves nothing about who the customer is.
+    """
     token = f"su_{secrets.token_urlsafe(24)}"
     with cursor() as cur:
         cur.execute(
-            """INSERT INTO stepup_tokens (token, user_id, level, purpose, reference, expires_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (token, user_id, level, purpose, reference, _expiry(TOKEN_TTL_SECONDS)),
+            """INSERT INTO stepup_tokens
+               (token, user_id, level, purpose, reference, expires_at, factors, institution_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (_token_key(token), user_id, level, purpose, reference, _expiry(TOKEN_TTL_SECONDS),
+             json.dumps(factors or {}), institution_id or _institution_of(user_id)),
         )
     # Issuing a token means a factor was just satisfied — record the success so
     # the failed-verification signal resets for the next transfer.
     record_success(user_id)
-    audit.record(audit.STEPUP_PASSED, user_id, level=level, purpose=purpose)
+    audit.record(audit.STEPUP_PASSED, user_id, level=level, purpose=purpose,
+                 factors=sorted((factors or {}).keys()))
     return {"token": token, "level": level, "expires_in": TOKEN_TTL_SECONDS}
 
 
-def verify_token(token: str | None, user_id: str, purpose: str | None = None, reference: str | None = None) -> str | None:
-    """Return the assurance level a token proves, or None if it proves nothing.
+def _institution_of(user_id: str) -> str | None:
+    with cursor() as cur:
+        cur.execute("SELECT institution_id FROM customers WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+    return row["institution_id"] if row else None
 
-    Binding is checked, not just existence: a token for another user, another
-    purpose or another reference is worthless here.
+
+def token_info(token: str | None, user_id: str, purpose: str | None = None,
+               reference: str | None = None) -> dict | None:
+    """The live token's level and factors, or None if it proves nothing.
+
+    Binding is checked, not just existence: a token for another customer,
+    another purpose or another reference is worthless here. A token minted
+    without a reference used to match every reference, so a PIN proved for one
+    transfer could approve a different one; when the caller names a purpose or
+    reference, the token must carry exactly that one.
     """
     if not token:
         return None
     with cursor() as cur:
-        cur.execute("SELECT * FROM stepup_tokens WHERE token = ?", (token,))
+        cur.execute("SELECT * FROM stepup_tokens WHERE token = ?", (_token_key(token),))
         row = row_to_dict(cur.fetchone())
     if not row:
         return None
     if row["user_id"] != user_id or row["consumed"] or _expired(row["expires_at"]):
         return None
-    if purpose and row["purpose"] and row["purpose"] != purpose:
+    if purpose and row["purpose"] != purpose:
         return None
-    if reference and row["reference"] and row["reference"] != reference:
+    if reference and row["reference"] != reference:
         return None
-    return row["level"]
+    try:
+        factors = json.loads(row.get("factors") or "{}")
+    except (TypeError, ValueError):
+        factors = {}
+    return {"level": row["level"], "factors": factors if isinstance(factors, dict) else {},
+            "purpose": row["purpose"], "reference": row["reference"]}
 
 
-def consume_token(token: str) -> None:
+def verify_token(token: str | None, user_id: str, purpose: str | None = None, reference: str | None = None) -> str | None:
+    """The assurance level a token proves, or None if it proves nothing."""
+    info = token_info(token, user_id, purpose, reference)
+    return info["level"] if info else None
+
+
+def consume_token(token: str) -> bool:
+    """Spend a token. True only for the call that spent it, so two requests
+    racing with the same token cannot both succeed."""
+    if not token:
+        return False
     with cursor() as cur:
-        cur.execute("UPDATE stepup_tokens SET consumed = 1 WHERE token = ?", (token,))
+        cur.execute("UPDATE stepup_tokens SET consumed = 1 WHERE token = ? AND consumed = 0",
+                    (_token_key(token),))
+        return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# When each factor was put in place
+# ---------------------------------------------------------------------------
+
+def _parse_time(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        when = datetime.fromisoformat(str(value).replace(" ", "T"))
+    except (TypeError, ValueError):
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+
+
+def factor_enrolled_at(user_id: str, factor: str, credential_id: str | None = None,
+                       channel: str = "email") -> str | None:
+    """When a factor was set up, as an ISO string, or None if not recorded.
+
+    None is treated as long-standing: the timestamp columns arrived after the
+    factors did, and refusing every older factor would lock customers out for
+    a schema change rather than a security event.
+    """
+    with cursor() as cur:
+        if factor == "passkey":
+            if credential_id:
+                cur.execute("SELECT created_at FROM user_credentials WHERE credential_id = ? AND user_id = ?",
+                            (credential_id, user_id))
+            else:
+                cur.execute("SELECT MIN(created_at) AS created_at FROM user_credentials WHERE user_id = ?",
+                            (user_id,))
+            row = cur.fetchone()
+            return row["created_at"] if row else None
+        cur.execute("SELECT pin_set_at, contact_email_set_at, contact_phone_verified_at FROM user_security "
+                    "WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+    if not row:
+        return None
+    if factor == "pin":
+        return row["pin_set_at"]
+    if factor == "otp":
+        return row["contact_phone_verified_at"] if channel == "sms" else row["contact_email_set_at"]
+    return None
+
+
+def contact_settle_window(user_id: str | None = None) -> timedelta:
+    """How long a newly added or changed contact must exist before a code sent
+    to it can release held money. A session-riding attacker's first move is to
+    point codes at an address they control.
+
+    A sandbox bank's customers hold simulated money, and its test customers are
+    usually set up minutes before they are used, so the sandbox has its own,
+    shorter window (default none). The rule that a factor set up after the hold
+    never counts applies everywhere.
+    """
+    from core.secrets import setting
+
+    if user_id:
+        from core.tenancy import institution_mode
+
+        if institution_mode(_institution_of(user_id)) != "live":
+            try:
+                return timedelta(minutes=int(setting("FABLE_SANDBOX_CONTACT_SETTLE_MINUTES")))
+            except Exception:  # noqa: BLE001 - a missing setting falls back to the default
+                return timedelta(minutes=config.SANDBOX_CONTACT_SETTLE_MINUTES)
+    try:
+        return timedelta(hours=int(setting("FABLE_CONTACT_SETTLE_HOURS")))
+    except Exception:  # noqa: BLE001
+        return timedelta(hours=config.CONTACT_SETTLE_HOURS)
+
+
+def factors_predate(factors: dict, cutoff: datetime | None,
+                    user_id: str | None = None) -> tuple[bool, list[str]]:
+    """Whether every proved factor was in place before `cutoff`.
+
+    A one-time code also has to go to a contact that has settled: one added or
+    changed within the settle window counts as new, whenever the hold began.
+    With no cutoff (nothing is held) only the settle rule applies.
+    Returns (ok, the factors that do not count).
+    """
+    late = []
+    settle = _now() - contact_settle_window(user_id)
+    for name, enrolled in (factors or {}).items():
+        when = _parse_time(enrolled)
+        if when is None:
+            continue
+        if name == "otp":
+            limit = settle if cutoff is None else min(cutoff, settle)
+        elif cutoff is None:
+            continue
+        else:
+            limit = cutoff
+        if when >= limit:
+            late.append(name)
+    return not late, late
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +404,10 @@ def begin_registration(user_id: str, display_name: str, institution_id: str | No
             # Platform authenticator + resident key = the phone's own
             # fingerprint/face, which is the device-bound property we want.
             resident_key=ResidentKeyRequirement.PREFERRED,
-            user_verification=UserVerificationRequirement.PREFERRED,
+            # Required, not preferred: a passkey that only proves the device is
+            # present (no fingerprint, face or device PIN) is possession of the
+            # phone, which is exactly what a thief has.
+            user_verification=UserVerificationRequirement.REQUIRED,
         ),
     )
     challenge_id = _store_challenge(
@@ -282,6 +432,7 @@ def complete_registration(user_id: str, challenge_id: str, credential: dict, dev
             expected_challenge=_unb64(stored["payload"]),
             expected_rp_id=RP_ID,
             expected_origin=EXPECTED_ORIGINS,
+            require_user_verification=True,
         )
     except Exception as exc:
         record_failure(user_id, "webauthn_register", type(exc).__name__)
@@ -291,6 +442,13 @@ def complete_registration(user_id: str, challenge_id: str, credential: dict, dev
 
     credential_id = base64.urlsafe_b64encode(verified.credential_id).decode().rstrip("=")
     with cursor() as cur:
+        # A credential id that already belongs to someone else is refused. This
+        # was INSERT OR REPLACE, so a replayed registration could move another
+        # customer's passkey row to this one.
+        cur.execute("SELECT user_id FROM user_credentials WHERE credential_id = ?", (credential_id,))
+        owner = cur.fetchone()
+        if owner and owner["user_id"] != user_id:
+            raise ValueError("That passkey is already registered to another account.")
         cur.execute(
             """INSERT OR REPLACE INTO user_credentials
                (credential_id, user_id, institution_id, public_key, sign_count, device_label)
@@ -307,12 +465,13 @@ def complete_registration(user_id: str, challenge_id: str, credential: dict, dev
         # Trust the device this passkey was enrolled on, so Shield stops treating
         # transfers from it as coming from an unrecognized device.
         if device_fingerprint:
+            # Trusted for this customer only. This used to move the global
+            # device row to whoever enrolled last.
             cur.execute(
-                """INSERT INTO device_profiles (fingerprint_id, user_id, trusted, last_seen)
-                   VALUES (?, ?, 1, datetime('now'))
-                   ON CONFLICT(fingerprint_id) DO UPDATE SET
-                     user_id = excluded.user_id, trusted = 1, last_seen = datetime('now')""",
-                (device_fingerprint, user_id),
+                """INSERT INTO customer_devices (fingerprint_id, user_id, institution_id, trusted, last_seen)
+                   VALUES (?, ?, ?, 1, datetime('now'))
+                   ON CONFLICT(user_id, fingerprint_id) DO UPDATE SET trusted = 1, last_seen = datetime('now')""",
+                (device_fingerprint, user_id, institution_id or _institution_of(user_id)),
             )
     return {"credential_id": credential_id, "device_label": device_label or "This device"}
 
@@ -331,7 +490,7 @@ def begin_authentication(user_id: str, purpose: str, reference: str | None) -> d
         allow_credentials=[
             PublicKeyCredentialDescriptor(id=base64url_to_bytes(c["credential_id"])) for c in creds
         ],
-        user_verification=UserVerificationRequirement.PREFERRED,
+        user_verification=UserVerificationRequirement.REQUIRED,
     )
     challenge_id = _store_challenge(
         user_id, "webauthn_auth", _b64(options.challenge), purpose, reference, CHALLENGE_TTL_SECONDS
@@ -367,6 +526,9 @@ def complete_authentication(user_id: str, challenge_id: str, credential: dict) -
             expected_origin=EXPECTED_ORIGINS,
             credential_public_key=_unb64(cred_row["public_key"]),
             credential_current_sign_count=cred_row["sign_count"] or 0,
+            # Money moves on this assertion, so the authenticator must have
+            # checked the person (biometric or device PIN), not just presence.
+            require_user_verification=True,
         )
     except Exception as exc:
         record_failure(user_id, "webauthn_auth", type(exc).__name__)
@@ -379,7 +541,8 @@ def complete_authentication(user_id: str, challenge_id: str, credential: dict) -
             (verified.new_sign_count, _now().isoformat(), raw_id),
         )
 
-    return {"purpose": stored["purpose"], "reference": stored["reference"]}
+    return {"purpose": stored["purpose"], "reference": stored["reference"],
+            "credential_id": raw_id, "enrolled_at": cred_row.get("created_at")}
 
 
 # ---------------------------------------------------------------------------
@@ -394,47 +557,44 @@ def _hash_otp(code: str, challenge_id: str) -> str:
 def send_otp(user_id: str, purpose: str, reference: str | None,
              email: str | None = None, phone: str | None = None,
              channel: str = "email") -> dict:
+    """Create a one-time code and deliver it on one channel (services/delivery).
+
+    A sandbox bank's codes also land in its sandbox inbox, so delivery counts as
+    done there. For a live bank, a code that could not be delivered is a failed
+    factor: it is never handed back to the caller."""
+    from services import delivery
+
     code = f"{secrets.randbelow(1_000_000):06d}"
     challenge_id = f"chl_{secrets.token_hex(12)}"
+    channel = "sms" if channel == "sms" and phone else "email"
     with cursor() as cur:
         cur.execute(
             """INSERT INTO stepup_challenges
-               (challenge_id, user_id, kind, payload, purpose, reference, expires_at)
-               VALUES (?, ?, 'otp', ?, ?, ?, ?)""",
-            (challenge_id, user_id, _hash_otp(code, challenge_id), purpose, reference, _expiry(OTP_TTL_SECONDS)),
+               (challenge_id, user_id, kind, payload, purpose, reference, expires_at, channel, institution_id)
+               VALUES (?, ?, 'otp', ?, ?, ?, ?, ?, ?)""",
+            (challenge_id, user_id, _hash_otp(code, challenge_id), purpose, reference, _expiry(OTP_TTL_SECONDS),
+             channel, _institution_of(user_id)),
         )
 
-    if channel == "sms" and phone:
-        delivered = _deliver_otp_sms(phone, code)
-        destination = _mask_phone(phone)
-    else:
-        channel = "email"
-        delivered = _deliver_otp_email(email or "", code)
-        destination = _mask_email(email or "")
-
+    sent = delivery.send_code(user_id, channel, phone if channel == "sms" else (email or ""), code, purpose,
+                              reference)
     out = {
         "challenge_id": challenge_id,
-        "delivered": delivered,
-        "channel": channel,
-        "destination": destination,
+        "delivered": sent["delivered"],
+        "channel": sent["channel"],
+        "destination": sent["destination"],
         # Kept for the existing client field; the masked destination above is
         # the channel-agnostic name.
-        "email": destination,
+        "email": sent["destination"],
+        # True for a sandbox bank: the code is in the sandbox inbox, shown in
+        # the demo app as a labelled sandbox code.
+        "sandbox_inbox": sent["sandbox"],
     }
-    if not delivered:
-        # An undeliverable code is a FAILED factor, not a weaker one.
-        #
-        # This used to attach the plaintext code to the response whenever
-        # delivery failed — and with no SMS provider wired and SMTP usually
-        # unset, delivery fails by default. That handed the out-of-band factor
-        # to whoever held the session, which is precisely the attacker the
-        # out-of-band tier exists to stop: `assurance.py` defines it as "a code
-        # delivered to the registered address, so possession of the device is
-        # not possession of the channel". Returning it in the response collapses
-        # passkey_and_otp to passkey, and pin+otp to pin.
-        #
-        # It is now gated on an explicit opt-in that is never set in production,
-        # and never on delivery failure alone.
+    if not sent["delivered"]:
+        # An undeliverable code is a FAILED factor, not a weaker one. Returning
+        # it in the response would hand the out-of-band factor to whoever
+        # holds the session. FABLE_ALLOW_DEBUG_OTP is a local-development
+        # opt-in that production refuses.
         if config.ALLOW_DEBUG_OTP:
             out["debug_code"] = code
         else:
@@ -442,55 +602,6 @@ def send_otp(user_id: str, purpose: str, reference: str | None,
                 "We couldn't send your code right now. Try another way to verify."
             )
     return out
-
-
-def _mask_phone(phone: str) -> str:
-    digits = "".join(c for c in phone if c.isdigit())
-    if len(digits) < 4:
-        return "your registered number"
-    return f"{'•' * max(len(digits) - 4, 3)}{digits[-4:]}"
-
-
-def _deliver_otp_sms(phone: str, code: str) -> bool:
-    """Send the code by SMS. No provider is configured in this environment
-    (Termii/Twilio would slot in here), so this returns False and the caller
-    surfaces the code as a debug fallback — the same honest path email uses."""
-    if not getattr(config, "SMS_PROVIDER_KEY", ""):
-        return False
-    return False  # provider wiring goes here
-
-
-def _mask_email(email: str) -> str:
-    name, _, domain = email.partition("@")
-    if not domain:
-        return "your registered address"
-    shown = name[:2] if len(name) > 2 else name[:1]
-    return f"{shown}{'•' * max(len(name) - len(shown), 2)}@{domain}"
-
-
-def _deliver_otp_email(email: str, code: str) -> bool:
-    if not config.SMTP_USERNAME or not config.SMTP_PASSWORD:
-        return False
-    import smtplib
-    from email.message import EmailMessage
-
-    msg = EmailMessage()
-    msg["Subject"] = f"Your Fable verification code: {code}"
-    msg["From"] = config.SMTP_FROM
-    msg["To"] = email
-    msg.set_content(
-        f"Your verification code is {code}. It expires in 10 minutes.\n\n"
-        "If you did not request this, someone may be trying to move money from your account. "
-        "Do not share this code with anyone, including staff."
-    )
-    try:
-        with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT) as server:
-            server.starttls()
-            server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
-            server.send_message(msg)
-        return True
-    except Exception:
-        return False
 
 
 def verify_otp(user_id: str, challenge_id: str, code: str) -> dict:
@@ -515,4 +626,5 @@ def verify_otp(user_id: str, challenge_id: str, code: str) -> dict:
         raise ValueError("That code isn't right.")
 
     _consume_challenge(challenge_id)
-    return {"purpose": stored["purpose"], "reference": stored["reference"]}
+    return {"purpose": stored["purpose"], "reference": stored["reference"],
+            "channel": stored.get("channel") or "email"}

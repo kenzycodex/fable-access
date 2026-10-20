@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -77,6 +78,27 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     device = payload.device.model_dump() if payload.device else {}
     context = payload.context.model_dump() if payload.context else {}
 
+    # A NIP code is evidence from the payment rail, so only the bank's own
+    # server (its API key) may report one. From a console or browser session
+    # it is dropped, and noted.
+    if context.get("nip_source") or context.get("nip_response_code"):
+        if request.state.caller.get("role") != "service":
+            import logging
+
+            logging.getLogger("fable.shield").warning(
+                "Ignored a NIP response code sent without the institution's API key.")
+            context["nip_source"] = None
+            context["nip_response_code"] = None
+
+    # A customer who chose not to share their location: none of it is scored
+    # or stored, whatever the app sent.
+    from core import security as _security
+
+    if _security.location_opted_out(payload.user_id):
+        for key in ("latitude", "longitude", "accuracy_m", "city", "region", "country", "country_code",
+                    "location_source"):
+            context[key] = None
+
     # Server-observed client IP as a fallback when the SDK didn't send one.
     if not device.get("ip") and request.client:
         device["ip"] = request.client.host
@@ -93,10 +115,10 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
 
     apply_token(transaction, request.state.customer["id"])
 
-    # A replayed offline transfer must be recognised, not re-scored. Returning
-    # the original decision keeps the customer's history and the console
-    # consistent no matter how many times the client retries.
-    if payload.client_reference:
+    # A retried transfer (same client_reference at this bank) is recognised,
+    # not re-scored. Returning the original decision keeps the customer's
+    # history and the console consistent however many times the client retries.
+    def _replayed():
         from core.db import cursor, loads
 
         with cursor() as cur:
@@ -106,20 +128,26 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
                 (institution_id, payload.client_reference),
             )
             existing = cur.fetchone()
-        if existing:
-            replay_ms = round((time.perf_counter() - start) * 1000, 2)
-            return ShieldAnalyzeResponse(
-                risk_score=existing["risk_score"] or 0.0,
-                risk_level=existing["risk_level"] or "LOW",
-                action=existing["action_taken"] or "PASS",
-                signals=loads(existing["shield_signals"], []) or [],
-                explanation="Previously scored offline; synced without rescoring.",
-                latency_ms=replay_ms,
-                decision_ms=replay_ms,
-                explanation_source="template",
-                transaction_id=existing["id"],
-                engine_version=existing["engine_version"],
-            )
+        if not existing:
+            return None
+        replay_ms = round((time.perf_counter() - start) * 1000, 2)
+        return ShieldAnalyzeResponse(
+            risk_score=existing["risk_score"] or 0.0,
+            risk_level=existing["risk_level"] or "LOW",
+            action=existing["action_taken"] or "PASS",
+            signals=loads(existing["shield_signals"], []) or [],
+            explanation="This transfer was already scored; this is the decision made then.",
+            latency_ms=replay_ms,
+            decision_ms=replay_ms,
+            explanation_source="template",
+            transaction_id=existing["id"],
+            engine_version=existing["engine_version"],
+        )
+
+    if payload.client_reference:
+        already = _replayed()
+        if already:
+            return already
 
     # Funds are checked before scoring, for two reasons. Scoring a transfer
     # that cannot execute burns an LLM call for nothing, and a
@@ -152,6 +180,21 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     decision_ms = round((time.perf_counter() - start) * 1000, 2)
     transaction_id = f"txn_{uuid.uuid4().hex[:12]}"
 
+    # The feature snapshot, from what scoring saw. Built before this decision
+    # is written, so the velocity counts in it exclude the transfer itself, as
+    # scoring's did. Never able to change the decision.
+    snapshot = None
+    seen = result.pop("_seen", None)
+    if seen is not None:
+        try:
+            from agents.shield import features
+
+            snapshot = features.build(payload.user_id, institution_id, transaction, device, context, seen, result)
+        except Exception as exc:  # noqa: BLE001
+            import logging
+
+            logging.getLogger("fable.features").warning("Feature snapshot failed: %s", exc)
+
     # A template explanation means no cached prose existed for this decision
     # shape, so a proper write-up is queued off the request path below. It has
     # to be queued *after* the row exists: the worker updates the transaction
@@ -159,28 +202,41 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     explanation_source = result.get("explanation_source", "template")
     pending = explanation_source == "template" and result["action"] != "PASS" and llm_available()
 
-    log_transaction(
-        user_id=payload.user_id,
-        transaction_id=transaction_id,
-        transaction=transaction,
-        device_fingerprint=device.get("fingerprint_id"),
-        risk_score=result["risk_score"],
-        risk_level=result["risk_level"],
-        action_taken=result["action"],
-        signals=result["signals"],
-        confirmed_legitimate=(result["action"] == "PASS"),
-        device=device,
-        context=context,
-        institution_id=institution_id,
-        client_reference=payload.client_reference,
-        latency_ms=round((time.perf_counter() - start) * 1000, 2),
-        decision_ms=decision_ms,
-        explanation=result["explanation"],
-        explanation_source=explanation_source,
-        score_parts=result.get("score_parts"),
-        engine_version=result.get("engine_version"),
-        engine_params_hash=result.get("engine_params_hash"),
-    )
+    try:
+        log_transaction(
+            user_id=payload.user_id,
+            transaction_id=transaction_id,
+            transaction=transaction,
+            device_fingerprint=device.get("fingerprint_id"),
+            risk_score=result["risk_score"],
+            risk_level=result["risk_level"],
+            action_taken=result["action"],
+            signals=result["signals"],
+            confirmed_legitimate=(result["action"] == "PASS"),
+            device=device,
+            context=context,
+            institution_id=institution_id,
+            client_reference=payload.client_reference,
+            latency_ms=round((time.perf_counter() - start) * 1000, 2),
+            decision_ms=decision_ms,
+            explanation=result["explanation"],
+            explanation_source=explanation_source,
+            score_parts=result.get("score_parts"),
+            engine_version=result.get("engine_version"),
+            engine_params_hash=result.get("engine_params_hash"),
+        )
+    except sqlite3.IntegrityError:
+        # Two requests with the same client_reference raced: the other one
+        # stored its decision first. Answer with that one.
+        already = _replayed() if payload.client_reference else None
+        if already:
+            return already
+        raise
+
+    if snapshot is not None:
+        from agents.shield import features
+
+        features.store(transaction_id, payload.user_id, institution_id, snapshot)
 
     # The live decision is committed. Only now, and never able to change it,
     # the shadow version (if one is running) scores the same signals.
@@ -199,23 +255,25 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
             )
         except Exception:  # noqa: BLE001 — a notification must never fail a decision
             pass
-        webhooks.emit(
-            institution_id,
-            "transaction.blocked" if result["action"] == "BLOCK" else "transaction.flagged",
-            {
-                "id": transaction_id,
-                "user_id": payload.user_id,
-                "customer_ref": customer_ref,
-                "amount": transaction.get("amount"),
-                "recipient_account": transaction.get("recipient_account"),
-                "recipient_bank": transaction.get("recipient_bank"),
-                "channel": transaction.get("channel"),
-                "risk_score": result["risk_score"],
-                "action_taken": result["action"],
-                "signals": list(result["signals"]),
-                "explanation": result["explanation"],
-            },
-        )
+    # Every decision is an event, including a pass: a bank that waits on the
+    # webhook rather than the response needs to hear about all three.
+    webhooks.emit(
+        institution_id,
+        {"BLOCK": "transaction.blocked", "FLAG": "transaction.flagged"}.get(result["action"], "transaction.passed"),
+        {
+            "id": transaction_id,
+            "user_id": payload.user_id,
+            "customer_ref": customer_ref,
+            "amount": transaction.get("amount"),
+            "recipient_account": transaction.get("recipient_account"),
+            "recipient_bank": transaction.get("recipient_bank"),
+            "channel": transaction.get("channel"),
+            "risk_score": result["risk_score"],
+            "action_taken": result["action"],
+            "signals": list(result["signals"]),
+            "explanation": result["explanation"],
+        },
+    )
 
     # Row is committed; the write-up worker now has something to update. It
     # also populates the cache, so the next decision of this shape resolves

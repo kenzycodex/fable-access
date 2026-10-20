@@ -8,6 +8,7 @@ import {
   EnvelopeSimple,
   Fingerprint,
   LockKey,
+  MapPin,
   ShieldCheck,
 } from "@phosphor-icons/react";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
@@ -26,15 +27,26 @@ import {
   inputClass,
 } from "@/components/app-kit";
 import {
+  confirmContact,
   newPinLengthOf,
   pinLengthOf,
   securityStatus,
   setPin as apiSetPin,
   setContact as apiSetContact,
+  setLocationSharing as apiSetLocationSharing,
   setTwoFactor as apiSetTwoFactor,
+  type ContactVerification,
   type SecurityStatus,
 } from "@/lib/fable/api";
-import { PasskeyError, registerPasskey, passkeySupported } from "@/lib/fable/webauthn";
+import {
+  PasskeyError,
+  registerPasskey,
+  passkeySupported,
+  stepUpRequirement,
+  type StepUpRequirement,
+} from "@/lib/fable/webauthn";
+import { StepUpDialog } from "@/components/demo/StepUpDialog";
+import { SandboxCode } from "@/components/demo/SandboxCode";
 import { useCopilotBaseline } from "@/lib/fable/useBackend";
 
 const CHANNEL_NAMES: Record<string, string> = {
@@ -203,7 +215,8 @@ function VerificationSetup({
           supported={supported}
           onDone={refresh}
         />
-        <TwoFactorRow status={status} userId={userId} onDone={refresh} />
+        <TwoFactorRow status={status} userId={userId} institutionId={institutionId} onDone={refresh} />
+        <LocationRow status={status} userId={userId} institutionId={institutionId} onDone={refresh} />
       </div>
     </Card>
   );
@@ -341,6 +354,75 @@ function PinField({
   );
 }
 
+/**
+ * How a security change proves it is the customer. With a PIN, the PIN. With
+ * no PIN but another factor (a device or a confirmed email), a quick check
+ * with that factor. With nothing set up yet, nothing: the first factor is
+ * free to add, and factors added that way never release money already held.
+ */
+type GateKind = "none" | "pin" | "token";
+
+function gateKind(status: SecurityStatus | null): GateKind {
+  if (status?.pin_set) return "pin";
+  if (status?.email_set || (status?.passkey_count ?? 0) > 0) return "token";
+  return "none";
+}
+
+function TokenGate({
+  userId,
+  institutionId,
+  token,
+  onToken,
+}: {
+  userId: string;
+  institutionId: string | null;
+  token: string | null;
+  onToken: (token: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [requirement, setRequirement] = useState<StepUpRequirement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function start() {
+    setError(null);
+    try {
+      setRequirement(await stepUpRequirement({ userId, purpose: "security_change" }));
+      setOpen(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start verification.");
+    }
+  }
+
+  if (token) {
+    return (
+      <p className="flex items-center justify-center gap-1.5 text-[12px] font-semibold text-emerald-600">
+        <CheckCircle size={14} weight="fill" /> Verified
+      </p>
+    );
+  }
+  return (
+    <>
+      <Button variant="secondary" full onClick={start}>
+        Verify it&apos;s you first
+      </Button>
+      {error && <Notice tone="danger">{error}</Notice>}
+      <StepUpDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        onVerified={(t) => {
+          setOpen(false);
+          onToken(t);
+        }}
+        requirement={requirement}
+        userId={userId}
+        institutionId={institutionId}
+        purpose="security_change"
+        reference={null}
+      />
+    </>
+  );
+}
+
 function PinRow({
   status,
   userId,
@@ -358,28 +440,31 @@ function PinRow({
   const [current, setCurrent] = useState("");
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [token, setToken] = useState<string | null>(null);
   const { busy, error, ok, run } = useAction();
 
   const isSet = !!status?.pin_set;
+  const gate = gateKind(status);
   const newLength = newPinLengthOf(status);
   const currentLength = pinLengthOf(status);
 
-  const ready =
-    pin.length === newLength && confirm === pin && (!isSet || current.length === currentLength);
+  const proved = isSet ? current.length === currentLength : gate === "token" ? !!token : true;
+  const ready = pin.length === newLength && confirm === pin && proved;
 
   function close() {
     setOpen(false);
     setCurrent("");
     setPin("");
     setConfirm("");
+    setToken(null);
   }
 
   function save() {
     void run(async () => {
-      await apiSetPin(userId, pin, isSet ? current : null, institutionId);
+      await apiSetPin(userId, pin, isSet ? current : null, institutionId, token);
       close();
       onDone();
-    }, "PIN saved.");
+    }, "PIN saved. We've let you know by email.");
   }
 
   return (
@@ -397,10 +482,13 @@ function PinRow({
       {open && (
         <div className="flex flex-col gap-5 rounded-2xl bg-d-surface-2/60 p-4">
           {isSet && <PinField label="Current PIN" length={currentLength} value={current} onChange={setCurrent} autoFocus />}
-          <PinField label={isSet ? "New PIN" : "Choose a PIN"} length={newLength} value={pin} onChange={setPin} autoFocus={!isSet} />
+          {!isSet && gate === "token" && (
+            <TokenGate userId={userId} institutionId={institutionId} token={token} onToken={setToken} />
+          )}
+          <PinField label={isSet ? "New PIN" : "Choose a PIN"} length={newLength} value={pin} onChange={setPin} autoFocus={!isSet && gate === "none"} />
           <PinField label="Confirm PIN" length={newLength} value={confirm} onChange={setConfirm} />
           {confirm.length === newLength && confirm !== pin && (
-            <p className="text-center text-[12px] text-red-500">The PINs don&apos;t match.</p>
+            <p className="text-center text-[12px] text-red-500" role="alert">The PINs don&apos;t match.</p>
           )}
           <Button full loading={busy} disabled={!ready} onClick={save}>
             Save PIN
@@ -411,6 +499,7 @@ function PinRow({
           <Feedback error={error} ok={ok} />
         </div>
       )}
+      {!open && <Feedback error={null} ok={ok} />}
     </RowShell>
   );
 }
@@ -430,45 +519,125 @@ function ContactRow({
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
+  const [token, setToken] = useState<string | null>(null);
+  const [verifications, setVerifications] = useState<ContactVerification[]>([]);
+  const [sentAt, setSentAt] = useState(0);
+  const [code, setCode] = useState("");
+  const verification = verifications[0] ?? null;
   const { busy, error, ok, run } = useAction();
-  const hasContact = !!status?.email_set || !!status?.phone_set;
-  const needsPin = !!status?.pin_set;
+  const gate = gateKind(status);
   const pinLength = pinLengthOf(status);
+  const emailValid = !email || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
+  const proved = gate === "pin" ? pin.length === pinLength : gate === "token" ? !!token : true;
+
+  function reset() {
+    setEmail("");
+    setPhone("");
+    setPin("");
+    setToken(null);
+    setCode("");
+    setVerifications([]);
+  }
 
   function save() {
     void run(async () => {
-      await apiSetContact(userId, { email: email || null, phone: phone || null, currentPin: needsPin ? pin : null }, institutionId);
-      setEmail("");
-      setPhone("");
+      const askedAt = Date.now();
+      const res = await apiSetContact(
+        userId,
+        { email: email.trim() || null, phone: phone.trim() || null, currentPin: gate === "pin" ? pin : null, stepupToken: token },
+        institutionId,
+      );
       setPin("");
-      setOpen(false);
+      setToken(null);
       onDone();
-    }, "Saved.");
+      const pending = res.verifications ?? (res.verification ? [res.verification] : []);
+      if (pending.length) {
+        // A new email or phone only takes effect once its own code is entered.
+        setVerifications(pending);
+        setSentAt(askedAt);
+        return;
+      }
+      reset();
+      setOpen(false);
+    }, email || phone ? "We sent a code. Enter it to finish." : "Saved.");
   }
+
+  function confirmCode(entered: string) {
+    if (!verification || entered.length < 6) return;
+    void run(async () => {
+      await confirmContact(userId, verification.challenge_id, entered);
+      setCode("");
+      const rest = verifications.slice(1);
+      onDone();
+      if (rest.length) {
+        // Both an email and a phone were changed: confirm the next one.
+        setVerifications(rest);
+        return;
+      }
+      reset();
+      setOpen(false);
+    }, "Confirmed. Whoever had the previous contact has been told about the change.");
+  }
+
+  const confirmed = [status?.email_set ? status.contact_email : null, status?.phone_set ? status.contact_phone : null]
+    .filter(Boolean)
+    .join(" · ");
+  const description = status?.pending_email || status?.pending_phone
+    ? `Waiting for you to confirm ${status.pending_email ?? status.pending_phone}`
+    : confirmed || "Add an email so we can send you codes";
 
   return (
     <RowShell
       icon={<EnvelopeSimple size={18} weight="bold" />}
       title="Where codes are sent"
-      description={hasContact ? (status?.contact_email ?? status?.contact_phone ?? "") : "Add an email so we can send you codes"}
+      description={description}
       state={
         <div className="flex items-center gap-3">
-          <StatePill ok={hasContact} okText="Added" offText="None" />
+          <StatePill ok={!!status?.email_set || !!status?.phone_set} okText="Confirmed" offText="None" />
           <LinkButton onClick={() => setOpen((o) => !o)}>{open ? "Close" : "Edit"}</LinkButton>
         </div>
       }
     >
-      {open && (
+      {open && !verification && (
         <div className="flex flex-col gap-4 rounded-2xl bg-d-surface-2/60 p-4">
-          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" inputMode="email" placeholder="Email for codes" className={inputClass} aria-label="Email for codes" />
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" inputMode="tel" placeholder="Phone (optional, e.g. 0803...)" className={inputClass} aria-label="Phone number" />
-          {needsPin && <PinField label="Confirm with your PIN" length={pinLength} value={pin} onChange={setPin} />}
-          <Button loading={busy} disabled={(!email && !phone) || (needsPin && pin.length < pinLength)} onClick={save}>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" inputMode="email" autoComplete="email" placeholder="Email for codes" className={inputClass} aria-label="Email for codes" aria-invalid={!emailValid} />
+          {!emailValid && <p className="text-[12px] text-red-500" role="alert">Enter a valid email address.</p>}
+          {status?.sms_available ? (
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" inputMode="tel" autoComplete="tel" placeholder="Phone for codes by SMS (optional, e.g. 0803...)" className={inputClass} aria-label="Phone number" />
+          ) : (
+            <p className="text-[12px] leading-relaxed text-d-faint">
+              Codes are sent by email. SMS codes aren&apos;t available at this bank yet.
+            </p>
+          )}
+          <p className="text-[12px] leading-relaxed text-d-faint">
+            A new email or phone only starts receiving codes after you enter the code we send to it.
+          </p>
+          {gate === "pin" && <PinField label="Confirm with your PIN" length={pinLength} value={pin} onChange={setPin} />}
+          {gate === "token" && <TokenGate userId={userId} institutionId={institutionId} token={token} onToken={setToken} />}
+          <Button loading={busy} disabled={(!email && !phone) || !emailValid || !proved} onClick={save}>
             Save
           </Button>
-          <Feedback error={error} ok={ok} />
+          <Feedback error={error} ok={null} />
         </div>
       )}
+      {open && verification && (
+        <div className="flex flex-col items-center gap-3 rounded-2xl bg-d-surface-2/60 p-4">
+          <p className="text-center text-[13px] text-d-muted">
+            Enter the code we sent {verification.channel === "sms" ? "by SMS " : ""}to{" "}
+            <span className="font-semibold text-d-text">{verification.destination}</span>.
+          </p>
+          {verification.sandbox_inbox && <SandboxCode userId={userId} since={sentAt} />}
+          {verification.debug_code && (
+            <Notice>
+              Local development: no mail server is configured, so the code is shown here:{" "}
+              <span className="font-mono font-bold">{verification.debug_code}</span>
+            </Notice>
+          )}
+          <PinInput length={6} value={code} onChange={setCode} onComplete={confirmCode} label="6-digit code" masked={false} autoFocus disabled={busy} />
+          <Feedback error={error} ok={null} />
+        </div>
+      )}
+      {!open && <Feedback error={null} ok={ok} />}
     </RowShell>
   );
 }
@@ -490,20 +659,23 @@ function PasskeyRow({
 }) {
   const [open, setOpen] = useState(false);
   const [pin, setPin] = useState("");
+  const [token, setToken] = useState<string | null>(null);
   const { busy, error, ok, note, run } = useAction();
   const count = status?.passkey_count ?? 0;
-  const needsPin = !!status?.pin_set;
+  const gate = gateKind(status);
   const pinLength = pinLengthOf(status);
 
-  function add(enteredPin?: string) {
+  function add(enteredPin?: string, stepupToken?: string | null) {
     void run(async () => {
-      await registerPasskey(userId, displayName, institutionId, needsPin ? (enteredPin ?? pin) : null);
+      await registerPasskey(userId, displayName, institutionId, gate === "pin" ? (enteredPin ?? pin) : null, stepupToken ?? token);
       setPin("");
+      setToken(null);
       setOpen(false);
       onDone();
     }, "Device added.", () => {
       // "Already added" means the list on screen was stale: refresh it.
       setPin("");
+      setToken(null);
       setOpen(false);
       onDone();
     });
@@ -518,7 +690,7 @@ function PasskeyRow({
         supported ? (
           <div className="flex items-center gap-3">
             <StatePill ok={count > 0} okText={`${count} added`} offText="None" />
-            <LinkButton onClick={() => (needsPin ? setOpen((o) => !o) : add())} disabled={busy}>
+            <LinkButton onClick={() => (gate !== "none" ? setOpen((o) => !o) : add())} disabled={busy}>
               {busy ? "..." : open ? "Close" : "Add device"}
             </LinkButton>
           </div>
@@ -527,7 +699,7 @@ function PasskeyRow({
         )
       }
     >
-      {needsPin && open && (
+      {gate === "pin" && open && (
         <div className="flex flex-col gap-4 rounded-2xl bg-d-surface-2/60 p-4">
           <PinField
             label="Confirm with your PIN to trust a new device"
@@ -540,22 +712,105 @@ function PasskeyRow({
           />
         </div>
       )}
+      {gate === "token" && open && (
+        <div className="flex flex-col gap-4 rounded-2xl bg-d-surface-2/60 p-4">
+          <TokenGate
+            userId={userId}
+            institutionId={institutionId}
+            token={token}
+            onToken={(t) => {
+              setToken(t);
+              add(undefined, t);
+            }}
+          />
+        </div>
+      )}
       <Feedback error={error} ok={ok} note={note} />
     </RowShell>
   );
 }
 
-function TwoFactorRow({ status, userId, onDone }: { status: SecurityStatus | null; userId: string; onDone: () => void }) {
+/** Whether the customer's location is used to spot unusual transfers. Off
+ * needs a factor they already have, so a stolen session cannot switch it off
+ * before a transfer from somewhere new; on needs nothing. */
+function LocationRow({
+  status,
+  userId,
+  institutionId,
+  onDone,
+}: {
+  status: SecurityStatus | null;
+  userId: string;
+  institutionId: string | null;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pin, setPin] = useState("");
+  const { busy, error, run } = useAction();
+  const on = status?.location_shared !== false;
+  const gate = gateKind(status);
+  const pinLength = pinLengthOf(status);
+
+  function change(enteredPin?: string, stepupToken?: string | null) {
+    void run(async () => {
+      await apiSetLocationSharing(userId, !on, on && gate === "pin" ? (enteredPin ?? pin) : null, stepupToken ?? null);
+      setPin("");
+      setOpen(false);
+      onDone();
+    }, "");
+  }
+
+  return (
+    <RowShell
+      icon={<MapPin size={18} weight="bold" />}
+      title="Use my location"
+      description={on ? "A transfer from a new city gets an extra check" : "Off: a transfer from somewhere new is not noticed"}
+      state={<Toggle on={on} label="Use my location" onChange={() => (on && gate !== "none" ? setOpen((o) => !o) : change())} />}
+    >
+      {on && gate === "pin" && open && (
+        <div className="flex flex-col gap-4 rounded-2xl bg-d-surface-2/60 p-4">
+          <PinField
+            label="Confirm with your PIN to turn off"
+            length={pinLength}
+            value={pin}
+            onChange={setPin}
+            onComplete={(v) => change(v)}
+            autoFocus
+            disabled={busy}
+          />
+        </div>
+      )}
+      {on && gate === "token" && open && (
+        <div className="flex flex-col gap-4 rounded-2xl bg-d-surface-2/60 p-4">
+          <TokenGate userId={userId} institutionId={institutionId} token={null} onToken={(t) => change(undefined, t)} />
+        </div>
+      )}
+      <Feedback error={error} ok={null} />
+    </RowShell>
+  );
+}
+
+function TwoFactorRow({
+  status,
+  userId,
+  institutionId,
+  onDone,
+}: {
+  status: SecurityStatus | null;
+  userId: string;
+  institutionId: string | null;
+  onDone: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [pin, setPin] = useState("");
   const { busy, error, run } = useAction();
   const on = !!status?.two_factor_enabled;
-  const needsPin = !!status?.pin_set;
+  const gate = gateKind(status);
   const pinLength = pinLengthOf(status);
 
-  function toggle(enteredPin?: string) {
+  function toggle(enteredPin?: string, stepupToken?: string | null) {
     void run(async () => {
-      await apiSetTwoFactor(userId, !on, needsPin ? (enteredPin ?? pin) : null);
+      await apiSetTwoFactor(userId, !on, gate === "pin" ? (enteredPin ?? pin) : null, stepupToken ?? null);
       setPin("");
       setOpen(false);
       onDone();
@@ -565,11 +820,11 @@ function TwoFactorRow({ status, userId, onDone }: { status: SecurityStatus | nul
   return (
     <RowShell
       icon={<DeviceMobile size={18} weight="bold" />}
-      title="Always ask for a code"
+      title="Always ask me to verify"
       description="Extra check on every flagged transfer"
-      state={<Toggle on={on} label="Always ask for a code" onChange={() => (needsPin ? setOpen((o) => !o) : toggle())} />}
+      state={<Toggle on={on} label="Always ask me to verify" onChange={() => (gate !== "none" ? setOpen((o) => !o) : toggle())} />}
     >
-      {needsPin && open && (
+      {gate === "pin" && open && (
         <div className="flex flex-col gap-4 rounded-2xl bg-d-surface-2/60 p-4">
           <PinField
             label={on ? "Confirm with your PIN to turn off" : "Confirm with your PIN to turn on"}
@@ -580,6 +835,11 @@ function TwoFactorRow({ status, userId, onDone }: { status: SecurityStatus | nul
             autoFocus
             disabled={busy}
           />
+        </div>
+      )}
+      {gate === "token" && open && (
+        <div className="flex flex-col gap-4 rounded-2xl bg-d-surface-2/60 p-4">
+          <TokenGate userId={userId} institutionId={institutionId} token={null} onToken={(t) => toggle(undefined, t)} />
         </div>
       )}
       <Feedback error={error} ok={null} />

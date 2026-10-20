@@ -8,8 +8,8 @@ export const tfoSubNav = [
 ];
 
 export const pipelineIntro = {
-  title: "One Call, Three Agents, In Order",
-  body: "Every transfer routes through the same pipeline: Copilot checks it against the user's baseline first. If it doesn't match, Shield scores it across fourteen signal layers. If a user overrides a Shield block anyway, Ghost holds the money instead of losing it.",
+  title: "Three Agents, In Order",
+  body: "Every transfer routes through the same pipeline: Copilot supplies the user's baseline, Shield scores the transfer against sixteen signals, and if a user still wants a blocked transfer sent, Ghost holds it for a cooling window. A clean transfer is one call; a flagged one adds a short verification flow.",
   image: { src: "/images/solutions/legacy-solutions.png", alt: "The Fable agent pipeline", width: 1024, height: 840 },
 };
 
@@ -20,12 +20,12 @@ export const agentCards: IconCard[] = [
     body: "Learns a per-user behavioral baseline from day one: who they pay, when, how much, and which devices. A transfer that matches clears with zero added friction.",
   },
   {
-    title: "Shield — Fourteen Signal Layers",
-    body: "Amount, recipient, timing, channel, device, location, session and behavioural signals, scored against that customer's own baseline and explained in plain language, inside a 200ms budget.",
+    title: "Shield — Sixteen Signals",
+    body: "Amount, recipient, timing, channel, device, location, session and behavioural signals, scored against that customer's own baseline and explained in plain language, within a 200ms decision budget.",
   },
   {
     title: "Ghost — Cooling Window",
-    body: "Routes an overridden block into a disposable holding account instead of letting the transfer clear outright, so even a fully-scammed user has a way back.",
+    body: "Holds an overridden block for a cooling window instead of letting it clear, so even a fully-scammed user has a way back. The bank holds the funds and acts on Fable's webhook.",
   },
 ];
 
@@ -64,6 +64,6 @@ export const apiResponseExample = `{
 }`;
 
 export const latencyStats = [
-  { value: "<200ms", label: "Decision budget for every scored transfer, explanation prose excluded" },
+  { value: "200ms", label: "Decision budget per scored transfer, measured on every call (no load test published yet)" },
   { value: "10s", label: "NIP's clearing window; Fable uses a fraction of it" },
 ];

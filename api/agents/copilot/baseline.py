@@ -8,6 +8,7 @@ import os
 import statistics
 from datetime import datetime, timedelta
 
+from core import privacy
 from core.db import cursor, require_institution_id, row_to_dict
 from core.utils import utcnow
 
@@ -54,14 +55,21 @@ COLD_START_PREMIUM = 0.15
 POPULATION_MIN_TRANSACTIONS = 20
 
 
+# Timestamps in customer_history come in more than one text form: decisions
+# are written as Python isoformat ("2026-10-16T12:00:00.123"), imports as UTC
+# with an offset ("...+00:00"), and anything defaulted by SQLite with a space
+# ("2026-10-16 12:00:00"). Compared as raw strings, a space sorts before "T",
+# so rows on the cutoff day fell on the wrong side of the window. Every cutoff
+# below is compared through SQLite's datetime(), which reads all three.
+
 def get_user_baseline(user_id: str) -> dict | None:
     ninety_days_ago = (utcnow() - timedelta(days=90)).isoformat()
 
     with cursor() as cur:
         cur.execute(
             """SELECT * FROM customer_history
-               WHERE user_id = ? AND created_at >= ? AND confirmed_legitimate = 1
-               ORDER BY created_at ASC""",
+               WHERE user_id = ? AND datetime(created_at) >= datetime(?) AND confirmed_legitimate = 1
+               ORDER BY datetime(created_at) ASC, created_at ASC""",
             (user_id, ninety_days_ago),
         )
         rows = [row_to_dict(r) for r in cur.fetchall()]
@@ -80,7 +88,7 @@ def get_user_baseline(user_id: str) -> dict | None:
     with cursor() as cur:
         cur.execute(
             """SELECT DISTINCT recipient_account FROM customer_history
-               WHERE user_id = ? AND created_at >= ? AND confirmed_legitimate = 1
+               WHERE user_id = ? AND datetime(created_at) >= datetime(?) AND confirmed_legitimate = 1
                  AND recipient_account IS NOT NULL AND recipient_account != ''""",
             (user_id, recipient_cutoff),
         )
@@ -94,7 +102,7 @@ def get_user_baseline(user_id: str) -> dict | None:
     # shouldn't be flagged as coming from a stranger.
     with cursor() as cur:
         cur.execute(
-            "SELECT fingerprint_id FROM device_profiles WHERE user_id = ? AND trusted = 1",
+            "SELECT fingerprint_id FROM customer_devices WHERE user_id = ? AND trusted = 1",
             (user_id,),
         )
         devices |= {r["fingerprint_id"] for r in cur.fetchall() if r["fingerprint_id"]}
@@ -163,7 +171,7 @@ def _device_trust(user_id: str) -> dict[str, float]:
     try:
         with cursor() as cur:
             cur.execute(
-                "SELECT fingerprint_id, trust_score, times_seen FROM device_profiles WHERE user_id = ?",
+                "SELECT fingerprint_id, trust_score, times_seen FROM customer_devices WHERE user_id = ?",
                 (user_id,),
             )
             return {
@@ -183,7 +191,7 @@ def get_population_baseline(institution_id: str | None) -> dict | None:
     judging it against nothing: without this, six of the twelve layers
     silently skipped and a new account could move almost any amount.
     """
-    where = "WHERE confirmed_legitimate = 1 AND created_at >= ?"
+    where = "WHERE confirmed_legitimate = 1 AND datetime(created_at) >= datetime(?)"
     params: list = [(utcnow() - timedelta(days=90)).isoformat()]
     if institution_id:
         where += " AND institution_id = ?"
@@ -236,7 +244,7 @@ def get_user_history_arrays(user_id: str) -> tuple[list[float], list[int]]:
     with cursor() as cur:
         cur.execute(
             """SELECT amount, hour_of_day FROM customer_history
-               WHERE user_id = ? AND created_at >= ? AND confirmed_legitimate = 1""",
+               WHERE user_id = ? AND datetime(created_at) >= datetime(?) AND confirmed_legitimate = 1""",
             (user_id, ninety_days_ago),
         )
         rows = cur.fetchall()
@@ -326,9 +334,9 @@ def log_transaction(
                 1 if confirmed_legitimate else 0,
                 1 if is_seed else 0,
                 ts,
-                device.get("ip"),
-                context.get("latitude"),
-                context.get("longitude"),
+                privacy.truncate_ip(device.get("ip")),
+                privacy.coarse(context.get("latitude")),
+                privacy.coarse(context.get("longitude")),
                 context.get("city"),
                 context.get("country"),
                 context.get("location_source"),
@@ -383,17 +391,23 @@ def record_device_profile(user_id: str, device: dict) -> None:
     if device.get("screen_width") and device.get("screen_height"):
         screen = f"{device['screen_width']}x{device['screen_height']}"
 
+    if not device.get("fingerprint_id"):
+        return
     with _cursor() as cur:
+        # One row per customer and device: another customer's traffic from the
+        # same device never raises this customer's trust in it.
         cur.execute(
-            """INSERT INTO device_profiles
-               (fingerprint_id, user_id, platform, os, browser, screen, gpu, language, timezone, touch_support)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(fingerprint_id) DO UPDATE SET
+            """INSERT INTO customer_devices
+               (fingerprint_id, user_id, institution_id, platform, os, browser, screen, gpu, language, timezone,
+                touch_support)
+               VALUES (?, ?, (SELECT institution_id FROM customers WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(user_id, fingerprint_id) DO UPDATE SET
                  last_seen = datetime('now'),
                  times_seen = times_seen + 1,
                  trust_score = min(1.0, trust_score + 0.05)""",
             (
                 device.get("fingerprint_id"),
+                user_id,
                 user_id,
                 device.get("platform"),
                 device.get("os"),
@@ -413,15 +427,16 @@ def record_location(user_id: str, context: dict) -> None:
 
     with _cursor() as cur:
         cur.execute(
-            """INSERT INTO user_locations (user_id, latitude, longitude, city, region, country, source)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO user_locations (user_id, latitude, longitude, city, region, country, source, institution_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT institution_id FROM customers WHERE id = ?))""",
             (
                 user_id,
-                context.get("latitude"),
-                context.get("longitude"),
+                privacy.coarse(context.get("latitude")),
+                privacy.coarse(context.get("longitude")),
                 context.get("city"),
                 context.get("region"),
                 context.get("country"),
                 context.get("location_source"),
+                user_id,
             ),
         )

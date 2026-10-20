@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { use, useState } from "react";
 import {
   ArrowLeft,
@@ -51,6 +52,7 @@ type Tab = "overview" | "team" | "assistant" | "activity" | "data";
 type Danger = "suspend" | "clear" | "delete" | "invite" | null;
 
 export default function OperatorInstitutionPage({ params }: { params: Promise<{ id: string }> }) {
+  const router = useRouter();
   const { id } = use(params);
   const session = useOperatorSession();
   const { data, error, isLoading, mutate } = useInstitution(id);
@@ -170,7 +172,7 @@ export default function OperatorInstitutionPage({ params }: { params: Promise<{ 
         id={id}
         name={i.name}
         onClose={() => setDialog(null)}
-        onDone={(gone) => (gone ? window.location.assign("/operator/institutions") : mutate())}
+        onDone={(gone) => (gone ? router.push("/operator/institutions") : mutate())}
       />
     </>
   );

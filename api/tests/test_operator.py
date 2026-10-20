@@ -53,22 +53,28 @@ def _sign_in(client, email=OWNER, password=PASSWORD) -> dict:
 
 
 def test_first_sign_in_enrols_an_authenticator_and_codes_cannot_be_replayed(client):
-    from core import operators, totp
+    import secrets
 
-    first = client.post("/operator/auth/login", json={"email": OWNER, "password": PASSWORD}).json()
+    from core import operators, totp
+    from scripts.create_operator import create
+
+    # Its own operator, never signed in, whatever ran before this test.
+    email = f"enrol-{secrets.token_hex(4)}@fable.test"
+    create(email, "New Operator", "platform_owner", PASSWORD)
+    first = client.post("/operator/auth/login", json={"email": email, "password": PASSWORD}).json()
     assert first["step"] == "enroll" and first["otpauth_uri"].startswith("otpauth://totp/")
     code = totp.code_at(first["secret"], totp.current_step())
     ok = client.post("/operator/auth/verify", json={"challenge": first["challenge"], "code": code})
     assert ok.status_code == 200
-    assert operators.get(OWNER)["totp_enabled"] == 1
-    assert operators.get(OWNER)["totp_secret"] != first["secret"]  # stored sealed, not in the clear
+    assert operators.get(email)["totp_enabled"] == 1
+    assert operators.get(email)["totp_secret"] != first["secret"]  # stored sealed, not in the clear
 
-    again = client.post("/operator/auth/login", json={"email": OWNER, "password": PASSWORD}).json()
+    again = client.post("/operator/auth/login", json={"email": email, "password": PASSWORD}).json()
     assert again["step"] == "mfa" and "secret" not in again
     replay = client.post("/operator/auth/verify", json={"challenge": again["challenge"], "code": code})
     assert replay.status_code == 401
 
-    assert client.post("/operator/auth/login", json={"email": OWNER, "password": "wrong-password"}).status_code == 401
+    assert client.post("/operator/auth/login", json={"email": email, "password": "wrong-password"}).status_code == 401
 
 
 def test_operator_and_console_sessions_never_stand_in_for_each_other(client):
@@ -207,6 +213,8 @@ def test_only_a_platform_owner_changes_ask_fable_limits_and_every_change_is_reco
     create("limits-support@fable.test", "Support", "support", PASSWORD)
     with cursor() as cur:
         cur.execute("UPDATE operators SET totp_enabled = 1 WHERE email = 'limits-support@fable.test'")
+        # Start from the defaults, whatever an earlier test left behind.
+        cur.execute("DELETE FROM platform_settings WHERE key LIKE 'assistant.%'")
     support = {"X-Fable-Operator": operators.issue_session("limits-support@fable.test", 0)["token"]}
     owner = _sign_in(client)
 
@@ -219,8 +227,8 @@ def test_only_a_platform_owner_changes_ask_fable_limits_and_every_change_is_reco
     saved = client.put("/operator/assistant", headers=owner, json={"per_person_per_minute": 4, "ai_enabled": False})
     assert saved.status_code == 200 and saved.json()["settings"]["per_person_per_minute"] == 4
     audit = client.get("/operator/audit", headers=owner).json()["events"]
-    assert audit[0]["event_type"] == "platform.assistant_changed"
-    assert audit[0]["payload"]["changes"]["per_person_per_minute"] == {"from": 6, "to": 4}
+    changed = [e for e in audit if e["event_type"] == "platform.assistant_changed"]
+    assert changed and changed[0]["payload"]["changes"]["per_person_per_minute"] == {"from": 6, "to": 4}
 
     with cursor() as cur:
         cur.execute("DELETE FROM platform_settings WHERE key LIKE 'assistant.%'")

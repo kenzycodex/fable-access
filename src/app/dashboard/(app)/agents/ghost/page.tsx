@@ -19,6 +19,7 @@ const STATUS_TONE: Record<string, "warning" | "success" | "neutral"> = {
   HELD: "warning",
   CANCELLED: "success",
   RELEASED: "neutral",
+  EXPIRED: "success",
 };
 
 export default function GhostAgentPage() {

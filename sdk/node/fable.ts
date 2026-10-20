@@ -136,15 +136,16 @@ export class Fable {
     });
   }
 
-  /** Which factor a flagged transfer needs before it can proceed. */
-  stepUpRequirement(userId: string, verdict: Pick<Verdict, "risk_score" | "signals" | "action">) {
-    return this.request<{ level: string }>("POST", "/v1/stepup/requirement", {
-      user_id: userId,
-      risk_score: verdict.risk_score,
-      signals: verdict.signals,
-      action: verdict.action,
-      purpose: "transfer",
-    });
+  /**
+   * Which factor a flagged transfer needs, and which steps this customer can
+   * do. The level comes from Fable's stored decision for the transaction.
+   */
+  stepUpRequirement(userId: string, verdict: Pick<Verdict, "transaction_id">) {
+    return this.request<{ level: string; steps?: string[]; can_request_release?: boolean }>(
+      "POST",
+      "/v1/stepup/requirement",
+      { user_id: userId, purpose: "transfer", reference: verdict.transaction_id },
+    );
   }
 
   /** Approve a flagged transfer once the customer has passed the factor. */
@@ -155,20 +156,22 @@ export class Fable {
     });
   }
 
-  /** Hold a blocked transfer the customer insists on, so the money stays recoverable. */
-  hold(input: { userId: string; riskScore: number; signals: string[]; explanation?: string; transaction: TransferInput }) {
+  /**
+   * Hold a blocked transfer the customer insists on, so the money stays
+   * recoverable. The hold is opened from the stored decision. Your system
+   * keeps the funds until a containment.released, .cancelled or .expired
+   * webhook says what to do with them.
+   */
+  hold(userId: string, transactionId: string) {
     return this.request<{ ghost_id: string; cooling_window_minutes: number; expires_at: string }>("POST", "/v1/ghost/create", {
-      user_id: input.userId,
-      risk_score: input.riskScore,
-      signals: input.signals,
-      explanation: input.explanation ?? "",
-      transaction: {
-        amount: input.transaction.amount,
-        recipient_account: input.transaction.recipientAccount,
-        recipient_name: input.transaction.recipientName,
-        channel: input.transaction.channel ?? "mobile_app",
-      },
+      user_id: userId,
+      transaction_id: transactionId,
     });
+  }
+
+  /** The customer cannot produce the proof a release needs and asks the bank to release it. */
+  requestRelease(ghostId: string, userId: string) {
+    return this.request("POST", `/v1/ghost/${encodeURIComponent(ghostId)}/request-release`, { user_id: userId });
   }
 
   cancelHold(ghostId: string, userId: string) {

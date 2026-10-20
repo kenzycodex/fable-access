@@ -1,5 +1,7 @@
 # Fable API — FastAPI backend
-FROM python:3.12-slim
+# The base image is pinned by digest, so a rebuild cannot silently pick up a
+# different Python or OS layer. Update the digest deliberately.
+FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf
 
 # Logs appear immediately, and no .pyc clutter in the image.
 ENV PYTHONUNBUFFERED=1 \
@@ -7,12 +9,18 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install deps first for layer caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install deps first for layer caching, at the exact versions in the lock.
+COPY requirements.lock .
+RUN pip install --no-cache-dir -r requirements.lock
+
+# Run as an unprivileged user. /data (the SQLite volume) must be writable by
+# it: on an existing server, run once `sudo chown -R 10001:10001 data` next to
+# docker-compose.yml before the first deploy of this image.
+RUN groupadd --system --gid 10001 fable && useradd --system --uid 10001 --gid fable --no-create-home fable     && mkdir -p /data && chown fable:fable /data
 
 # Copy source
-COPY . .
+COPY --chown=fable:fable . .
+USER fable
 
 # Railway/Render inject $PORT; default to 8010 for local `docker run`
 ENV PORT=8010

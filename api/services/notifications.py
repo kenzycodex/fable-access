@@ -16,10 +16,7 @@ send is recorded so the console can show that the customer was not reachable,
 which is itself worth knowing.
 """
 import logging
-import smtplib
-from email.message import EmailMessage
 
-from core import config
 from core.db import cursor
 
 logger = logging.getLogger("fable.notifications")
@@ -43,22 +40,9 @@ def record(user_id: str, institution_id: str | None, kind: str, title: str,
 
 
 def _send_email(to: str, subject: str, body: str) -> bool:
-    if not (config.SMTP_USERNAME and config.SMTP_PASSWORD):
-        return False
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = config.SMTP_FROM
-    msg["To"] = to
-    msg.set_content(body)
-    try:
-        with smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT, timeout=10) as server:
-            server.starttls()
-            server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
-            server.send_message(msg)
-        return True
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Notification email to %s failed: %s", to, exc)
-        return False
+    from services import mailer
+
+    return mailer.send(to, subject, body)
 
 
 def notify_decision(user_id: str, institution_id: str | None, transaction_id: str,
@@ -113,6 +97,38 @@ def mark_read(user_id: str) -> int:
         return cur.rowcount
 
 
+def _deliver(user_id: str, institution_id: str | None, kind: str, title: str, body: str,
+             reference: str | None = None, sms_text: str | None = None,
+             extra_emails: tuple[str, ...] = ()) -> None:
+    """Send a notice on the customer's own channels and record it in-app.
+
+    Email carries the full notice; a short SMS goes too where `sms_text` is
+    given, the customer has a confirmed phone and a provider is configured. A
+    sandbox bank's notices also land in its sandbox inbox (services/delivery).
+    The in-app record says which channel was used and whether it was actually
+    delivered, so nothing claims an email or SMS that never went out.
+    """
+    from core import security
+    from services import delivery
+
+    contact = security.get_contact(user_id)
+    email = contact.get("email")
+    sent = delivery.notify(user_id, institution_id, title, body, email=email,
+                           sms_text=sms_text, phone=contact.get("phone"))
+    for extra in {e for e in extra_emails if e and e != email}:
+        _send_email(extra, title, body)
+    if sent["sms"]:
+        channel, delivered = "sms", True
+    elif email:
+        channel, delivered = "email", sent["email"]
+    else:
+        channel, delivered = "in_app", True
+    record(user_id, institution_id, kind, title, body, reference=reference, channel=channel, delivered=delivered)
+    if not delivered:
+        logger.info("A %s notice for %s was not delivered out-of-band; the customer will only see it in-app.",
+                    kind, user_id)
+
+
 def notify_containment(user_id: str, institution_id: str | None, ghost_id: str,
                        amount: float, recipient: str | None, cooling_minutes: int,
                        explanation: str) -> None:
@@ -123,8 +139,6 @@ def notify_containment(user_id: str, institution_id: str | None, ghost_id: str,
     money is already protected, so a delivery problem degrades the warning, not
     the containment.
     """
-    from core import security
-
     title = "We're holding a transfer on your account"
     body = (
         f"Fable has paused a transfer of NGN {amount:,.0f}"
@@ -137,26 +151,72 @@ def notify_containment(user_id: str, institution_id: str | None, ghost_id: str,
         "Nobody from your bank or from Fable will ever ask you for your PIN, "
         "your one-time code, or to move money to a 'safe account'."
     )
+    sms_text = (f"Your bank is holding a NGN {amount:,.0f} transfer for {cooling_minutes} min. "
+                "Not you? Open your app and cancel. Never share your PIN or codes.")
+    _deliver(user_id, institution_id, "containment", title, body, reference=ghost_id, sms_text=sms_text)
 
-    contact = security.get_contact(user_id)
-    destination = contact.get("email")
-    delivered = False
-    channel = "in_app"
 
-    if destination:
-        channel = "email"
-        delivered = _send_email(destination, title, body)
-    elif contact.get("phone"):
-        # No SMS provider is wired (Termii/Twilio would slot in here), so this
-        # is recorded as undelivered rather than pretended.
-        channel = "sms"
-        delivered = False
+_SECURITY_COPY = {
+    "pin_set": ("A transaction PIN was set", "A transaction PIN was set on your account."),
+    "pin_changed": ("Your transaction PIN was changed", "Your transaction PIN was changed."),
+    "pin_reset": ("Your transaction PIN was reset",
+                  "Your bank reset your transaction PIN. You will choose a new one the next time you verify a transfer."),
+    "email_changed": ("Your verification email was changed",
+                      "The email address that receives your verification codes was changed."),
+    "phone_changed": ("Your phone number was changed", "The phone number that receives your codes was changed."),
+    "passkey_added": ("A device was added", "A new device was added for fingerprint or face confirmation."),
+    "two_factor_changed": ("Your verification preference changed",
+                           "Your 'always ask me to verify' setting was changed."),
+    "location_off": ("Location checks were turned off",
+                     "Your location is no longer used to spot unusual transfers."),
+}
 
-    record(user_id, institution_id, "containment", title, body,
-           reference=ghost_id, channel=channel, delivered=delivered)
 
-    if not delivered:
-        logger.info(
-            "Containment alert for %s (%s) was not delivered out-of-band; "
-            "the customer will only see it in-app.", user_id, ghost_id,
-        )
+def notify_security_change(user_id: str, institution_id: str | None, change: str,
+                           also_email: str | None = None) -> None:
+    """Tell the customer a security setting changed, in-app and on their channels.
+
+    `also_email` is the previous address when the email itself changed, so the
+    person who owned the account before the change hears about it: a takeover
+    that reroutes codes must not be silent to the real customer.
+    """
+    title, lead = _SECURITY_COPY.get(change, ("Your security settings changed", "A security setting was changed."))
+    body = (
+        f"{lead}\n\nIf this was you, there is nothing to do.\n"
+        "If it was NOT you, contact your bank straight away and do not approve any transfer you did not start."
+    )
+    _deliver(user_id, institution_id, "security", title, body,
+             sms_text=f"{lead} Not you? Contact your bank now.", extra_emails=(also_email,) if also_email else ())
+
+
+def notify_hold_ended(user_id: str, institution_id: str | None, ghost_id: str, amount: float,
+                      status: str, by: str) -> None:
+    """Tell the customer how a hold ended."""
+    staff = by.startswith("staff:")
+    copy = {
+        "RELEASED": ("Your held transfer was sent",
+                     f"The NGN {amount:,.0f} transfer we were holding has been released"
+                     + (" by your bank after it confirmed with you." if staff else " after you verified it.")),
+        "CANCELLED": ("Your held transfer was cancelled",
+                      f"The NGN {amount:,.0f} transfer we were holding was cancelled"
+                      + (" by your bank." if staff else ".") + " The money stayed in your account."),
+        "EXPIRED": ("Your held transfer was not sent",
+                    f"The NGN {amount:,.0f} transfer we were holding was not confirmed in time, so it was not "
+                    "sent. The money stayed in your account."),
+    }
+    title, lead = copy.get(status, ("Your held transfer changed", "A held transfer changed."))
+    body = lead + "\n\nIf you did not expect this, contact your bank straight away."
+    _deliver(user_id, institution_id, "containment", title, body, reference=ghost_id)
+
+
+def notify_release_requested(user_id: str, institution_id: str | None, ghost_id: str, amount: float,
+                             hours: int) -> None:
+    """Confirm to the customer that their bank has been asked to verify them."""
+    title = "We've asked your bank to verify you"
+    body = (
+        f"You asked your bank to release the NGN {amount:,.0f} transfer we are holding. Someone from the bank "
+        f"may contact you on the number they have on file. The money stays held for up to {hours} hours and "
+        "is returned to you if nobody releases it.\n\n"
+        "Nobody from your bank or from Fable will ever ask you for your PIN or a one-time code."
+    )
+    _deliver(user_id, institution_id, "containment", title, body, reference=ghost_id)

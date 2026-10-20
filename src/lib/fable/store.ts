@@ -6,16 +6,18 @@
 // the demo shows up in the dashboard's Transaction Explorer, live, even across
 // two browser tabs (via the storage event).
 //
-// When the Fable API (api/ at the repo root) is running, the mutating actions
-// below call it first — real Shield scoring, Ghost containers, and SQLite
-// persistence — and mirror the result here so the UI stays reactive. When the
-// API is unreachable, the pure client-side engine (scoring.ts) takes over, so
-// the demo never breaks.
+// Every decision comes from the Fable API. The mutating actions below call it
+// (Shield scoring, Ghost holds, step-up) and mirror the result here so the UI
+// stays reactive. When the API cannot be reached, nothing is decided in the
+// browser: the transfer is not sent and the customer is asked to try again.
+// There used to be a browser copy of Shield that scored transfers while the
+// API was down and showed the result as a Fable decision; it was not one, and
+// it is gone.
 
 import { useSyncExternalStore } from "react";
 import {
-  apiAvailable,
   approveTransfer,
+  FableUnavailableError,
   finalizeTransaction,
   ghostCreate as apiGhostCreate,
   ghostResolve,
@@ -23,8 +25,6 @@ import {
   InsufficientFundsError,
   type SdkTelemetry,
 } from "./api";
-import { scoreTransaction } from "./scoring";
-import { enqueue, startAutoSync } from "./syncQueue";
 import { getTenant, subscribeTenant } from "./tenant";
 import type {
   GhostContainer,
@@ -160,10 +160,21 @@ function mutate(fn: (state: StoreState) => StoreState): StoreState {
   return next;
 }
 
+/** Browser data from the old offline engine: a queue of transfers to replay
+ * and cached baselines it scored against. Replaying a queued transfer now would
+ * book a decision the customer was never shown, so both are simply dropped. */
+function dropOfflineLeftovers(): void {
+  try {
+    window.localStorage.removeItem("fable_sync_queue");
+    window.localStorage.removeItem("fable_baseline_cache");
+  } catch {
+    // storage unavailable: nothing to clean
+  }
+}
+
 function subscribe(cb: () => void): () => void {
   if (!canUseDom()) return () => {};
-  // Replay anything captured while the API was unreachable.
-  const stopAutoSync = startAutoSync();
+  dropOfflineLeftovers();
   const onChange = () => {
     snapshotCache = read();
     cb();
@@ -186,7 +197,6 @@ function subscribe(cb: () => void): () => void {
     window.removeEventListener(CHANGE_EVENT, onChange);
     window.removeEventListener("storage", onStorage);
     unsubscribeTenant();
-    stopAutoSync();
   };
 }
 
@@ -208,48 +218,31 @@ const uid = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.ran
 // Public actions
 // ---------------------------------------------------------------------------
 
-/** Score a transfer and stash it as the pending decision. Uses the Fable API
- * (real Shield scoring + persistence) when reachable, the client-side engine
- * otherwise. `sdk` carries the real collected device/location/session/
- * behavioral context. Returns the scored transaction so the caller can navigate. */
-export async function submitTransfer(input: TransactionInput, sdk?: Partial<SdkTelemetry>): Promise<Transaction> {
-  let id = uid("txn");
-  let remote = false;
-  let result = null as ReturnType<typeof scoreTransaction> | null;
-
-  if (await apiAvailable()) {
-    try {
-      const api = await shieldAnalyze(input, sdk);
-      id = api.transactionId;
-      remote = true;
-      result = api;
-    } catch (err) {
-      // A declined-for-funds transfer must not fall through to the local
-      // engine. The account genuinely cannot cover it, and scoring it anyway
-      // would let the demo bank complete a transfer the ledger refused.
-      if (err instanceof InsufficientFundsError) throw err;
-      result = null; // otherwise the API is unreachable; score locally
-    }
+/** Score a transfer with Fable and stash the decision as pending. `sdk`
+ * carries the collected device, location, session and behavioural context.
+ *
+ * `clientReference` makes the call idempotent: the transfer page passes the
+ * same reference for every retry of one transfer, so a double tap or a retry
+ * after a dropped response returns the decision already made instead of a
+ * second one.
+ *
+ * Throws InsufficientFundsError when the account cannot cover it, and
+ * FableUnavailableError when Fable cannot be reached; in both cases nothing is
+ * sent and nothing is decided in the browser. */
+export async function submitTransfer(
+  input: TransactionInput,
+  sdk?: Partial<SdkTelemetry>,
+  clientReference?: string,
+): Promise<Transaction> {
+  let result;
+  try {
+    result = await shieldAnalyze(input, sdk, clientReference ? { clientReference } : undefined);
+  } catch (err) {
+    if (err instanceof InsufficientFundsError) throw err;
+    throw new FableUnavailableError();
   }
-
-  if (!result) {
-    // Offline. The local engine keeps the bank usable, but the decision would
-    // otherwise never leave the browser: the institution's console wouldn't
-    // see the transfer and Copilot wouldn't learn from it. Queue it so the
-    // server receives it once the API is reachable again.
-    // Scored against this customer's own cached baseline, not a shared
-    // constant. Without the user id the engine has nothing to look up and
-    // falls back to treating it as cold start.
-    result = scoreTransaction(input, getTenant().customerId);
-    const tenant = getTenant();
-    enqueue({
-      reference: id,
-      institutionId: tenant.institutionId,
-      userId: tenant.customerId ?? "",
-      input,
-      sdk: sdk ?? null,
-    });
-  }
+  const id = result.transactionId;
+  const remote = true;
 
   const txn: Transaction = {
     ...result,
@@ -353,94 +346,35 @@ export function recordCredit(amount: number, source: string): Transaction {
 export async function approvePending(stepupToken?: string | null): Promise<Transaction | null> {
   const txn = read().pending;
   if (!txn) return null;
-  const tenant = getTenant();
-  const userId = tenant.customerId ?? "";
+  const userId = getTenant().customerId ?? "";
 
   // Deliberately not swallowed: a step-up refusal must reach the UI so it can
   // run the factor rather than silently marking the transfer sent.
-  // A transfer scored offline has no row on the server, so approving it by id
-  // returns 404 — which surfaced to the customer as "Could not send this
-  // transfer (404)" on a flag they were trying to verify.
-  //
-  // Sync it first. The server rescores with all fourteen layers and returns the
-  // id it actually stored, which is the id the approval has to reference. This
-  // also means the server's verdict wins: if it decides the transfer is worse
-  // than the local engine thought, the customer is told rather than the
-  // decision being silently discarded.
-  let id = txn.id;
-  if (!txn.remote) {
-    const api = await shieldAnalyze(
-      {
-        amount: txn.amount,
-        recipient: { name: txn.recipientName, bank: txn.recipientBank,
-                     bankCode: "",
-                     accountNumber: txn.recipientToken ? "" : txn.recipientAccount, known: false,
-                     token: txn.recipientToken },
-        narration: txn.narration,
-        channel: txn.channel,
-      },
-      undefined,
-      { clientReference: txn.id, userId, institutionId: tenant.institutionId },
-    );
-    id = api.transactionId;
-    if (api.action === "BLOCK") {
-      // The server is stricter than the local engine was. Route to containment
-      // rather than completing a transfer the engine would have blocked.
-      mutate((s) => ({ ...s, pending: s.pending ? { ...s.pending, ...api, id, remote: true } : null }));
-      throw new Error("This transfer needs containment rather than verification.");
-    }
-    mutate((s) => ({ ...s, pending: s.pending ? { ...s.pending, id, remote: true } : null }));
-  }
-
-  await approveTransfer(id, userId, stepupToken);
+  await approveTransfer(txn.id, userId, stepupToken);
   return resolvePending("completed");
 }
 
-/** Route the pending transfer into a Ghost cooling window. Creates the real
- * container in the Fable API when reachable (its risk-based cooling window
- * wins), otherwise a local 15-minute one. */
-export async function createGhost(windowSeconds = 15 * 60): Promise<GhostContainer | null> {
+/** Hold the pending (blocked) transfer for a cooling window. The hold lives on
+ * the server, opened from Fable's stored decision; its length comes from that
+ * decision. If the server cannot be reached the error reaches the screen and
+ * nothing is held: there is no browser-only hold any more, because one could
+ * never actually hold money. */
+export async function createGhost(): Promise<GhostContainer | null> {
   const txn = read().pending;
   if (!txn) return null;
-
-  let ghost: GhostContainer | null = null;
-  // A remote transfer's hold must live on the server, because that is where it
-  // will be released. This used to gate on a separate /health probe first, so a
-  // single flaky probe made the hold local — and then release hit the server
-  // with an id it had never seen and 409'd. The create call's own catch already
-  // handles a genuine outage, so try it directly and only fall back to a local
-  // hold when the create itself fails.
-  if (txn.remote) {
-    try {
-      const api = await apiGhostCreate(txn);
-      ghost = {
-        id: api.id,
-        transactionId: txn.id,
-        amount: txn.amount,
-        recipientName: txn.recipientName,
-        recipientBank: txn.recipientBank,
-        expiresAt: api.expiresAt,
-        windowSeconds: api.windowSeconds,
-        status: "held",
-        remote: true,
-      };
-    } catch {
-      ghost = null; // fall through to the local container
-    }
-  }
-  if (!ghost) {
-    ghost = {
-      id: uid("ghost"),
-      transactionId: txn.id,
-      amount: txn.amount,
-      recipientName: txn.recipientName,
-      recipientBank: txn.recipientBank,
-      expiresAt: Date.now() + windowSeconds * 1000,
-      windowSeconds,
-      status: "held",
-    };
-  }
-  mutate((s) => ({ ...s, ghosts: [ghost!, ...s.ghosts] }));
+  const api = await apiGhostCreate(txn);
+  const ghost: GhostContainer = {
+    id: api.id,
+    transactionId: txn.id,
+    amount: txn.amount,
+    recipientName: txn.recipientName,
+    recipientBank: txn.recipientBank,
+    expiresAt: api.expiresAt,
+    windowSeconds: api.windowSeconds,
+    status: "held",
+    remote: true,
+  };
+  mutate((s) => ({ ...s, ghosts: [ghost, ...s.ghosts.filter((g) => g.id !== ghost.id)] }));
   return ghost;
 }
 
@@ -448,9 +382,10 @@ export function getActiveGhost(): GhostContainer | null {
   return read().ghosts.find((g) => g.status === "held") ?? null;
 }
 
-export function cancelGhost(ghostId: string): void {
-  const ghost = read().ghosts.find((g) => g.id === ghostId);
-  if (ghost?.remote) void ghostResolve(ghostId, "cancel").catch(() => {});
+/** Cancel a hold. The money stays with the customer. Waits for the server so
+ * the screen never says "cancelled" for a hold the server still has. */
+export async function cancelGhost(ghostId: string): Promise<void> {
+  await ghostResolve(ghostId, "cancel");
   mutate((s) => ({
     ...s,
     ghosts: s.ghosts.map((g) => (g.id === ghostId ? { ...g, status: "cancelled" } : g)),
@@ -458,26 +393,19 @@ export function cancelGhost(ghostId: string): void {
   resolvePending("cancelled");
 }
 
+/** Mark a hold the server says has ended on its own (expired). */
+export function markGhostEnded(ghostId: string, status: "expired" | "cancelled" | "released"): void {
+  mutate((s) => ({
+    ...s,
+    ghosts: s.ghosts.map((g) => (g.id === ghostId ? { ...g, status } : g)),
+  }));
+  if (read().pending) resolvePending(status === "released" ? "released" : "cancelled");
+}
+
 /** Release money out of containment. Requires proof of a completed step-up
  * factor when the container is remote — the server refuses otherwise, and the
  * caller is expected to run the factor and retry with a token. */
 export async function confirmGhost(ghostId: string, stepupToken?: string | null): Promise<void> {
-  const ghost = read().ghosts.find((g) => g.id === ghostId);
-
-  // Releasing always goes through the server, including for a container that
-  // was created locally while the API was down. Skipping the call for local
-  // containers meant the step-up gate never ran and release was free — the
-  // containment guarantee disappeared exactly when the connection was worst,
-  // which is not a state a scammer has to work hard to produce.
-  //
-  // If identity cannot be verified, the money does not move. Cancelling stays
-  // available and still returns it immediately.
-  if (!ghost?.remote && !(await apiAvailable())) {
-    throw new Error(
-      "Releasing needs a connection so we can verify it's you. Your money stays held, and you can cancel to get it back now.",
-    );
-  }
-
   // Deliberately not swallowed: a refusal must reach the UI so it can run
   // the factor, rather than silently marking the transfer released locally.
   await ghostResolve(ghostId, "confirm", stepupToken);
@@ -495,22 +423,26 @@ export function setTransparency(patch: Partial<TransparencyState>): void {
 
 /** Sign the console in, holding the signed token /auth/login issued.
  *
- * The cookie used to be the literal string "1", and Next's middleware checked
- * only that it existed — so `document.cookie = "fable_auth=1"` in any console
- * granted access. It now holds the real token, which the middleware can
- * actually inspect, and which every API call presents so the server derives
- * the tenant from a verified identity.
+ * The token itself lives in this store and is sent as a header on every API
+ * call; the server derives the bank from it. The `fable_auth` cookie exists
+ * only so the Next route guard (src/proxy.ts) can send a signed-out visitor to
+ * the login page before rendering. It used to hold the whole session token,
+ * readable by any script on the page; it now holds only the token's public
+ * part (bank and expiry) with no signature, so reading it gives nothing that
+ * can call the API. The guard is a convenience, not a security boundary: the
+ * API checks the real token on every request.
  *
- * It is not httpOnly, deliberately: the console and the API are on different
- * origins, so this is read by JS to set an Authorization header rather than
- * being sent as ambient authority. That is also why there is no CSRF surface
- * here — a cross-site request cannot attach a header it cannot read.
+ * It cannot be httpOnly because it is written by this script; SameSite=Strict
+ * keeps it off cross-site navigations.
  */
 export function login(institutionId?: string | null, token?: string | null, expiresAt?: number | null): void {
   if (canUseDom() && token) {
     const maxAge = expiresAt ? Math.max(expiresAt - Math.floor(Date.now() / 1000), 0) : 43200;
     const secure = window.location.protocol === "https:" ? "; Secure" : "";
-    document.cookie = `fable_auth=${encodeURIComponent(token)}; path=/; max-age=${maxAge}; SameSite=Lax${secure}`;
+    // "<payload>.ui": the same two-part shape the guard reads, without the
+    // signature that makes a token usable.
+    const marker = `${token.split(".")[0]}.ui`;
+    document.cookie = `fable_auth=${encodeURIComponent(marker)}; path=/; max-age=${maxAge}; SameSite=Strict${secure}`;
   }
   mutate((s) => ({
     ...s,

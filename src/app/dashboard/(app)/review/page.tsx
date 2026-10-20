@@ -181,6 +181,7 @@ function CaseRow({ txn: t, active, me, onOpen }: { txn: Transaction; active: boo
         </span>
         <span className="flex shrink-0 flex-col items-end gap-1.5">
           <span className="text-[14px] font-bold tabular-nums text-d-text">{formatRiskScore(t.riskScore)}</span>
+          {t.holdStatus === "RELEASE_REQUESTED" && <Badge tone="warning">Release requested</Badge>}
           <Badge tone={state === "resolved" && t.review?.outcome === "fraud" ? "danger" : STATE_TONE[state]}>
             {state === "resolved" && t.review?.outcome
               ? t.review.outcome === "fraud"

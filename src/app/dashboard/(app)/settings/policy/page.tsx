@@ -25,6 +25,8 @@ const FIELDS: (keyof PolicyFields)[] = [
   "hold_high_minutes",
   "hold_medium_minutes",
   "hold_low_minutes",
+  "hold_on_flag",
+  "analysts_can_release",
 ];
 
 function PolicyForm({ data, onSaved }: { data: PolicyResponse; onSaved: (next: PolicyResponse) => void }) {
@@ -118,13 +120,40 @@ function PolicyForm({ data, onSaved }: { data: PolicyResponse; onSaved: (next: P
           </div>
 
           <div className="mt-8 border-t border-d-border pt-6">
-            <CardHeader title="Ghost hold windows" subtitle="How long a contained transfer stays recoverable before it is cancelled and the money returned." />
+            <CardHeader title="Ghost hold windows" subtitle="How long a held transfer waits for the customer. If they do not release it in time it expires and nothing is sent." />
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Minutes label="Score 0.9 or more" value={form.hold_high_minutes} def={data.defaults.hold_high_minutes} disabled={!canManage} onChange={(v) => set("hold_high_minutes", v)} />
               <Minutes label="Score 0.7 to 0.9" value={form.hold_medium_minutes} def={data.defaults.hold_medium_minutes} disabled={!canManage} onChange={(v) => set("hold_medium_minutes", v)} />
               <Minutes label="Below 0.7" value={form.hold_low_minutes} def={data.defaults.hold_low_minutes} disabled={!canManage} onChange={(v) => set("hold_low_minutes", v)} />
             </div>
             {!holdsOk && <Notice tone="danger" className="mt-4">Riskier transfers must be held at least as long as less risky ones.</Notice>}
+            <label className="mt-5 flex items-start gap-3 text-[13px] text-d-muted">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 accent-[var(--brand-primary,#7c3aed)]"
+                checked={form.hold_on_flag === 1}
+                disabled={!canManage}
+                onChange={(e) => set("hold_on_flag", e.target.checked ? 1 : 0)}
+              />
+              <span>
+                <span className="font-semibold text-d-text">Offer a hold for flagged transfers too.</span> Off by default:
+                a flagged transfer is verified and sent, and only a blocked one can be held.
+              </span>
+            </label>
+            <label className="mt-3 flex items-start gap-3 text-[13px] text-d-muted">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 accent-[var(--brand-primary,#7c3aed)]"
+                checked={form.analysts_can_release === 1}
+                disabled={!canManage}
+                onChange={(e) => set("analysts_can_release", e.target.checked ? 1 : 0)}
+              />
+              <span>
+                <span className="font-semibold text-d-text">Let analysts release held transfers.</span> Off by default:
+                only owners can. Every release needs a note of how the customer was verified and is recorded under the
+                person&apos;s name.
+              </span>
+            </label>
           </div>
 
           {canManage && (
@@ -195,9 +224,12 @@ const LABELS: Record<keyof PolicyFields, string> = {
   hold_high_minutes: "Hold, score 0.9+",
   hold_medium_minutes: "Hold, score 0.7 to 0.9",
   hold_low_minutes: "Hold, below 0.7",
+  hold_on_flag: "Holds for flagged transfers",
+  analysts_can_release: "Analysts can release holds",
 };
 
 function fmt(k: keyof PolicyFields, v: number) {
+  if (k === "hold_on_flag" || k === "analysts_can_release") return v ? "On" : "Off";
   return k.endsWith("threshold") ? v.toFixed(2) : `${v} min`;
 }
 
@@ -208,6 +240,8 @@ function pick(p: PolicyFields): PolicyFields {
     hold_high_minutes: p.hold_high_minutes,
     hold_medium_minutes: p.hold_medium_minutes,
     hold_low_minutes: p.hold_low_minutes,
+    hold_on_flag: p.hold_on_flag ? 1 : 0,
+    analysts_can_release: p.analysts_can_release ? 1 : 0,
   };
 }
 

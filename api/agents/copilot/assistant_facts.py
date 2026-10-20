@@ -151,7 +151,9 @@ def gather(institution_id: str | None) -> dict:
                 "score": round(float(r["risk_score"] or 0), 2),
                 "action": r["action_taken"],
                 "signals": _signal_names(loads(r["shield_signals"], []) or []),
-                "at": r["created_at"],
+                # To the hour: enough to talk about "this morning's block",
+                # not enough to match one transfer in the bank's own logs.
+                "at": _to_hour(r["created_at"]),
                 "review_state": r["review_state"],
             }
             for r in cur.fetchall()
@@ -202,6 +204,12 @@ def change(current: int, previous: int) -> str:
     if pct == 0:
         return "flat"
     return f"{'up' if pct > 0 else 'down'} {abs(pct)}%"
+
+
+def _to_hour(value: str | None) -> str:
+    """'2026-10-16T14:37:09' -> '2026-10-16 14:00'."""
+    text = (value or "").replace("T", " ")
+    return f"{text[:13]}:00" if len(text) >= 13 else text
 
 
 def grounding(f: dict) -> str:

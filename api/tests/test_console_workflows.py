@@ -19,7 +19,6 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("FABLE_DB_PATH", os.path.join(tempfile.mkdtemp(), "workflows.db"))
 os.environ.setdefault("FABLE_SESSION_SECRET", "test-secret")
-os.environ.setdefault("FABLE_OPERATOR_KEY", "test-operator-key")
 os.environ.setdefault("SMTP_USERNAME", "")
 
 BANK = "workbank"

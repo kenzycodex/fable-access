@@ -56,6 +56,10 @@ export default function OperatorLoginPage() {
     setError("");
     try {
       await operatorVerify(step.challenge, code);
+      // A full navigation, not router.push, for the same reason as the console
+      // sign-in: a prefetch made while signed out cached a redirect back here,
+      // and the client router would replay it. A hard navigation skips that.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.assign("/operator");
     } catch (err) {
       setError(err instanceof Error ? err.message : "That code didn't work.");

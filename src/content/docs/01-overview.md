@@ -22,7 +22,7 @@ flag for a student.
 | Agent | Responsibility |
 |---|---|
 | **Copilot** | Learns each customer's genuine habits |
-| **Shield** | Scores every transfer through 14 signal layers |
+| **Shield** | Scores every transfer against the customer's own history |
 | **Ghost** | Holds risky transfers in a recoverable cooling window |
 | **Watch** | Continuous monitoring between transactions *(not built)* |
 
@@ -32,7 +32,7 @@ flag for a student.
 Bank's server ──► POST /v1/shield/analyze
                                     │
                           ┌─────────┴─────────┐
-                     Copilot baseline    14 signal layers
+                     Copilot baseline    Shield signals
                                     │
                      PASS ──── FLAG ──── BLOCK
                                           │
@@ -41,22 +41,24 @@ Bank's server ──► POST /v1/shield/analyze
                     Institution console + webhooks
 ```
 
-Two runtimes: a Next.js frontend and a FastAPI intelligence layer. The frontend
-degrades to a local scoring engine when the API is unreachable, and queues those
-transfers for sync — so a network failure never stops a bank working.
+Two runtimes: a Next.js frontend and a FastAPI scoring service. Every decision
+is made on the server. If the service cannot be reached, the sandbox app says
+so and sends nothing; it never invents a verdict on the device.
 
 ## What is real, and what is not
 
 Being precise about this matters more than a longer feature list.
 
-**Real:** device fingerprinting, GPS/IP geolocation, behavioural biometrics,
-Paystack NUBAN resolution, WebAuthn passkeys with verified signatures, the
-14-layer scoring pipeline, multi-tenant isolation, offline sync, an analyst
-review queue, signed webhooks, console roles (owner, analyst, viewer), and risk
-thresholds and hold windows each institution can set for itself.
+**Live:** device fingerprinting, location (GPS with permission, or IP),
+typing and paste signals, Paystack NUBAN resolution, WebAuthn passkeys with
+verified signatures, the scoring pipeline with governed engine versions,
+multi-tenant isolation, Ghost holds with durable webhooks, one-time codes by
+email or SMS (Termii or Africa's Talking), an analyst review queue, console
+roles (owner, analyst, viewer), and risk thresholds and hold windows each
+institution can set for itself.
 
-**Not built:** cross-institution intelligence sharing (each institution's data is
-strictly its own today), Watch (marked "coming soon" rather than faked), SMS delivery of
-verification codes (email only today), and the liveness/face-check tier, which
-returns `501` with its provider contract rather than a fake pass. Making the strongest tier the least trustworthy would defeat
-its purpose.
+**Planned, not built:** cross-institution intelligence sharing (each
+institution's data is strictly its own today), Watch (monitoring between
+transfers), and a face or liveness check, which returns `501` with its provider
+contract rather than a fake pass. Making the strongest tier the least
+trustworthy would defeat its purpose.

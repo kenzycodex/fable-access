@@ -4,7 +4,7 @@ import os
 import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from core import config
@@ -25,14 +25,25 @@ logging.getLogger().addFilter(ScrubFilter())
 for _name in ("fable", "uvicorn", "uvicorn.error", "uvicorn.access"):
     logging.getLogger(_name).addFilter(ScrubFilter())
 
-# Optional Sentry error monitoring — only if a DSN is configured.
-if config.SENTRY_DSN:
+from core import logs  # noqa: E402
+
+logs.configure(config.ENVIRONMENT)
+
+# Optional Sentry error monitoring, only if a DSN is configured (environment,
+# or approved in the operator console; a change applies after a restart).
+from core import integrations  # noqa: E402
+
+_SENTRY_DSN = integrations.sentry_dsn()
+if _SENTRY_DSN:
     try:
         import sentry_sdk
-        sentry_sdk.init(dsn=config.SENTRY_DSN, environment=config.ENVIRONMENT, traces_sample_rate=0.1,
+        sentry_sdk.init(dsn=_SENTRY_DSN, environment=config.ENVIRONMENT, traces_sample_rate=0.1,
                         before_send=scrub_event)
     except Exception:
         pass
+
+# Read once at startup, from the environment or the console.
+CORS_ORIGINS = integrations.cors_origins()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -53,21 +64,43 @@ async def lifespan(_app: FastAPI):
         from services import engine_admin
 
         engine_config.seed_if_empty()  # version 1 = the weights and thresholds in force today
+        drafted = engine_config.seed_cold_start_draft()
+        if drafted:
+            logger.info("Engine v%s drafted with the no-history amount weights; review it on the Engine page.", drafted)
         engine_admin.sweep()
     except Exception as exc:  # noqa: BLE001 - never block startup on this
         logger.warning("Could not prepare engine versions at startup: %s", type(exc).__name__)
+    from services import scheduler
+
+    register_jobs()
+    scheduler.start()
     yield
+    scheduler.stop()
+
+
+def register_jobs() -> None:
+    """The background jobs (services/scheduler.py). Each is idempotent."""
+    from agents.ghost.account import sweep_expired
+    from services import engine_admin, retention, scheduler, webhooks
+
+    scheduler.register("ghost_expiry", 30, sweep_expired)
+    scheduler.register("webhook_outbox", 15, webhooks.drain)
+    scheduler.register("engine_sweep", 600, engine_admin.sweep)
+    scheduler.register("retention", 6 * 3600, retention.apply)
 
 
 app = FastAPI(
     lifespan=lifespan,
     title="Fable API",
-    description="AI security and intelligence infrastructure layer for African finance. "
-                "Shield stops scams in real time. Ghost contains the blast radius when a "
-                "user overrides a block. Copilot learns each user's genuine habits so safe "
-                "transfers stay frictionless.",
+    description="Behavioural fraud-risk scoring for Nigerian transfers. Copilot learns each "
+                "customer's habits, Shield scores a transfer against them before it is sent, and "
+                "Ghost holds a blocked transfer the customer insists on, where they can still cancel it.",
     version="1.0.0",
 )
+
+from core import errors  # noqa: E402
+
+errors.install(app)
 
 # Middleware runs bottom-to-top on the request path: rate limit -> auth -> latency.
 app.add_middleware(LatencyMiddleware)
@@ -75,8 +108,8 @@ app.add_middleware(APIKeyMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config.CORS_ORIGINS,
-    allow_credentials=config.CORS_ORIGINS != ["*"],
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=CORS_ORIGINS != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -116,40 +149,36 @@ if config._SESSION_SECRET_IS_EPHEMERAL:
         "Set it in production: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
     )
 
-if config.ENVIRONMENT == "production" and config.WEBAUTHN_RP_ID == "localhost":
-    logger.error(
-        "WEBAUTHN_RP_ID is still 'localhost' in production. Every passkey "
-        "registration and assertion will fail origin validation, silently "
-        "pushing all step-up onto the weaker PIN/OTP path. Set it to the "
-        "site's registered domain (no scheme, no port)."
-    )
+def production_problems(cors_origins: list[str] | None = None) -> list[str]:
+    """Settings that are unsafe in production. In production the API refuses
+    to start while any of these remain; in development they are warnings."""
+    problems = []
+    if config._SESSION_SECRET_IS_EPHEMERAL:
+        problems.append("FABLE_SESSION_SECRET is not set (sessions would die on every restart).")
+    if (cors_origins if cors_origins is not None else CORS_ORIGINS) == ["*"]:
+        problems.append("FABLE_CORS_ORIGINS is '*' (any website could call the API from a visitor's browser).")
+    if not config.PIN_PEPPER:
+        problems.append("FABLE_PIN_PEPPER is not set (PIN hashes could be guessed offline from a database copy).")
+    if config.WEBAUTHN_RP_ID == "localhost":
+        problems.append("WEBAUTHN_RP_ID is 'localhost' (every passkey would fail).")
+    if os.getenv("FABLE_WEBHOOK_ALLOW_PRIVATE", "").lower() in ("1", "true", "yes"):
+        problems.append("FABLE_WEBHOOK_ALLOW_PRIVATE is on (webhooks could reach the server's own network).")
+    return problems
+
+
+_PROBLEMS = production_problems()
+if config.ENVIRONMENT == "production" and _PROBLEMS:
+    for _problem in _PROBLEMS:
+        logger.critical("Refusing to start in production: %s", _problem)
+    raise SystemExit("Unsafe production settings: " + " ".join(_PROBLEMS))
+for _problem in _PROBLEMS:
+    logger.warning("Not safe for production: %s", _problem)
 
 if config.ENVIRONMENT == "production" and not config.SECRETS_KEY:
     logger.warning(
         "FABLE_SECRETS_KEY is not set, so integration keys can only come from .env and the "
         "operator console's Secrets page is read-only. To enable it: "
         "python -c \"import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())\""
-    )
-
-if config.ENVIRONMENT == "production" and not config.PIN_PEPPER:
-    logger.warning(
-        "FABLE_PIN_PEPPER is not set, so customer PIN hashes have no server-held "
-        "key and could be guessed offline from a copy of the database. Set it, "
-        "and keep a copy offline: losing it locks every PIN. "
-        "python -c \"import secrets; print(secrets.token_urlsafe(32))\""
-    )
-
-if config.ENVIRONMENT == "production" and config.CORS_ORIGINS == ["*"]:
-    logger.warning(
-        "FABLE_CORS_ORIGINS is '*' in production, so any website can call this "
-        "API from a visitor's browser. Set it to your frontend origins, comma-"
-        "separated (for example https://fablehq.vercel.app)."
-    )
-
-if config.ENVIRONMENT == "production" and os.getenv("FABLE_WEBHOOK_ALLOW_PRIVATE", "").lower() in ("1", "true", "yes"):
-    logger.error(
-        "FABLE_WEBHOOK_ALLOW_PRIVATE is on in production. A console user could "
-        "point a webhook at this server's own network. Turn it off."
     )
 
 _REQUIRED = {"shield", "ghost", "copilot"}
@@ -175,7 +204,7 @@ def sweep_expired_containments() -> None:
 
         swept = sweep_expired()
         if swept:
-            logger.info("Auto-cancelled %d expired Ghost container(s) at startup.", swept)
+            logger.info("Expired %d Ghost hold(s) whose window closed while the API was down.", swept)
     except Exception as exc:  # noqa: BLE001 — never block boot
         logger.warning("Could not sweep expired containments: %s", exc)
 
@@ -206,13 +235,18 @@ def note_if_no_admins() -> None:
 
 
 @app.get("/health", tags=["system"])
-def health():
-    """Liveness plus the two things that can be silently wrong.
+def health(response: Response):
+    """Liveness plus the things that can be silently wrong.
 
     A process that answers this endpoint is not necessarily a working fraud
-    engine: the scoring router can fail to import, and the scam-pattern library
-    can fail to load, both without stopping the app. Reporting "ok" in either
-    case is how a broken deploy looks healthy, so both are surfaced here.
+    engine: the scoring router can fail to import, the scam-pattern library can
+    fail to load and the database can be unreachable, all without stopping the
+    app. Any of those is "degraded" with HTTP 503, so the deploy script and the
+    container health check stop trusting the process.
+
+    Background work (the scheduler and the webhook outbox) is reported as
+    warnings with a 200: a late expiry sweep or a slow bank endpoint is worth
+    seeing, but is not a reason to restart the scoring engine.
     """
     try:
         from agents.shield.patterns import library_health
@@ -220,9 +254,49 @@ def health():
     except Exception as exc:  # noqa: BLE001 — health must never itself fail
         patterns = {"healthy": False, "errors": [f"{type(exc).__name__}: {exc}"]}
 
+    try:
+        from core.db import cursor
+
+        with cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        database = {"healthy": True}
+    except Exception as exc:  # noqa: BLE001
+        database = {"healthy": False, "error": type(exc).__name__}
+
+    warnings: list[str] = []
+    try:
+        from services import scheduler
+
+        jobs = scheduler.status()
+        if jobs["enabled"] and not jobs["running"]:
+            warnings.append("The scheduler is not running.")
+        if jobs["stale"]:
+            warnings.append("Background jobs are late: " + ", ".join(jobs["stale"]))
+    except Exception as exc:  # noqa: BLE001
+        jobs = {"error": type(exc).__name__}
+    try:
+        from services import webhooks
+
+        outbox = webhooks.outbox_status()
+        if outbox["failed"]:
+            warnings.append(f"{outbox['failed']} webhook deliveries gave up.")
+    except Exception as exc:  # noqa: BLE001
+        outbox = {"error": type(exc).__name__}
+    try:
+        from core import ai_clients
+
+        # The decision never waits for prose; without a key, templates are used.
+        explainer = {"llm_configured": ai_clients.configured(), "fallback": "templates"}
+    except Exception:  # noqa: BLE001
+        explainer = {"llm_configured": None}
+
     degraded = sorted(_REQUIRED - set(_loaded))
+    bad = bool(degraded or not patterns.get("healthy") or not database["healthy"])
+    if bad:
+        response.status_code = 503
     return {
-        "status": "degraded" if (degraded or not patterns.get("healthy")) else "ok",
+        "status": "degraded" if bad else "ok",
         "service": "fable-api",
         "version": "1.0.0",
         "environment": config.ENVIRONMENT,
@@ -230,6 +304,11 @@ def health():
         "routers": _loaded,
         "missing_required_routers": degraded,
         "pattern_library": patterns,
+        "database": database,
+        "scheduler": jobs,
+        "webhook_outbox": outbox,
+        "explainer": explainer,
+        "warnings": warnings,
     }
 
 

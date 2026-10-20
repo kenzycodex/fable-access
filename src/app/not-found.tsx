@@ -43,7 +43,7 @@ export default function NotFound() {
               alt="A friendly Fable ghost holding a map and compass, looking lost"
               width={1254}
               height={1254}
-              priority
+              loading="eager"
               sizes="(min-width: 1024px) 560px, (min-width: 640px) 420px, 300px"
               className="animate-float-orb size-full object-contain drop-shadow-[0_30px_60px_rgba(123,96,253,0.35)]"
             />

@@ -126,7 +126,7 @@ export default function ShieldAgentPage() {
                           <ContextFact label="Location" value={d.city ? `${d.city}${d.country ? `, ${d.country}` : ""} (${d.location_source ?? "?"})` : "not collected"} />
                           <ContextFact label="Auth" value={d.auth_method ?? "unknown"} />
                           <ContextFact label="Session" value={d.session_duration_seconds != null ? `${d.session_duration_seconds}s` : "-"} />
-                          <ContextFact label="Typing" value={d.typing_speed_ms != null ? `${Math.round(d.typing_speed_ms)}ms/key${d.paste_detected ? " · pasted" : ""}` : d.paste_detected ? "pasted" : "-"} />
+                          <ContextFact label="Typing (not scored)" value={d.typing_speed_ms != null ? `${Math.round(d.typing_speed_ms)}ms/key${d.paste_detected ? " · pasted" : ""}` : d.paste_detected ? "pasted" : "-"} />
                         </div>
                       </div>
                     )}

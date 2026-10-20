@@ -7,6 +7,11 @@ take it, escalate it, leave notes and resolve it as fraud or legitimate.
 Resolving labels the transaction. It does not move money: funds still move only
 through the customer's own step-up or containment flow, so an analyst account
 can never become a way to push a blocked transfer through.
+
+The one exception is a hold. An analyst can cancel a held transfer (the money
+stays with the customer). Releasing one sends the money, so it needs an owner
+and a written note saying how the customer confirmed it, and is audited under
+that person's name.
 """
 from datetime import datetime, timezone
 
@@ -16,12 +21,14 @@ from pydantic import BaseModel, Field
 from core.db import cursor, loads, row_to_dict
 from core.tenancy import require_role, tenant_for_console
 from routers.dashboard import TXN_COLUMNS, shape_rows, txn_filters
-from services import audit, webhooks
+from services import audit, policy, webhooks
 
 router = APIRouter(prefix="/v1/review", tags=["review"])
 
 STATES = ("open", "in_review", "escalated", "resolved")
 _STATE_SQL = "COALESCE(review_state, 'open')"
+_HOLD_STATUS_SQL = ("(SELECT g.status FROM ghost_containers g WHERE g.transaction_id = transactions.id "
+                    "ORDER BY g.created_at DESC LIMIT 1)")
 
 
 def _now() -> str:
@@ -77,9 +84,12 @@ def queue(
         total = cur.fetchone()["n"]
         # Escalated first, then the riskiest, then the newest: the order an
         # analyst should work them in.
+        # A customer waiting for the bank to verify them and release a hold
+        # comes first: their money is held until someone acts.
         cur.execute(
-            f"""SELECT {TXN_COLUMNS} FROM transactions {where}
-                ORDER BY CASE {_STATE_SQL} WHEN 'escalated' THEN 0 WHEN 'in_review' THEN 1
+            f"""SELECT {TXN_COLUMNS}, {_HOLD_STATUS_SQL} AS hold_status FROM transactions {where}
+                ORDER BY CASE WHEN {_HOLD_STATUS_SQL} = 'RELEASE_REQUESTED' THEN 0 ELSE 1 END,
+                         CASE {_STATE_SQL} WHEN 'escalated' THEN 0 WHEN 'in_review' THEN 1
                                            WHEN 'open' THEN 2 ELSE 3 END,
                          CASE WHEN {_STATE_SQL} = 'resolved' THEN reviewed_at END DESC,
                          risk_score DESC, created_at DESC
@@ -107,6 +117,9 @@ def counts(request: Request):
             (institution,),
         )
         by_outcome = {r["o"]: r["n"] for r in cur.fetchall()}
+        cur.execute("SELECT COUNT(*) AS n FROM ghost_containers WHERE institution_id = ? "
+                    "AND status = 'RELEASE_REQUESTED'", (institution,))
+        release_requested = cur.fetchone()["n"]
     active = sum(n for s, n in by_state.items() if s != "resolved")
     return {
         "open": by_state.get("open", 0),
@@ -116,6 +129,7 @@ def counts(request: Request):
         "active": active,
         "confirmed_fraud": by_outcome.get("fraud", 0),
         "confirmed_legitimate": by_outcome.get("legitimate", 0),
+        "release_requested": release_requested,
     }
 
 
@@ -153,18 +167,29 @@ def case_detail(txid: str, request: Request):
         )
         paid_before = cur.fetchone()["n"]
 
+        # Linked by the decision a hold was opened from. Holds opened before
+        # that link existed are matched, as before, by customer and amount.
         cur.execute(
-            """SELECT ghost_id, status, cooling_window_minutes, created_at, resolved_at
+            """SELECT ghost_id, status, amount, cooling_window_minutes, created_at, expires_at, resolved_at,
+                      resolved_by, resolution_note, transaction_id
                FROM ghost_containers
-               WHERE user_id = ? AND institution_id = ? AND amount = ?
-               ORDER BY created_at DESC LIMIT 1""",
-            (user_id, institution, case.get("amount")),
+               WHERE institution_id = ? AND (transaction_id = ?
+                     OR (transaction_id IS NULL AND user_id = ? AND amount = ?))
+               ORDER BY (transaction_id = ?) DESC, created_at DESC LIMIT 1""",
+            (institution, txid, user_id, case.get("amount"), txid),
         )
         containment = row_to_dict(cur.fetchone())
+    if containment and containment["status"] == "HELD":
+        from agents.ghost.account import get_ghost_container
 
+        # Reading a hold applies its expiry, so the case shows its true state.
+        fresh = get_ghost_container(containment["ghost_id"]) or {}
+        containment.update({k: fresh.get(k) for k in ("status", "resolved_at", "resolved_by")})
+    with cursor() as cur:
         cur.execute(
             """SELECT id, event_type, payload, created_at FROM audit_log
-               WHERE institution_id = ? AND event_type LIKE 'case.%' ORDER BY id DESC LIMIT 200""",
+               WHERE institution_id = ? AND (event_type LIKE 'case.%' OR event_type LIKE 'containment.%')
+               ORDER BY id DESC LIMIT 200""",
             (institution,),
         )
         trail = []
@@ -187,6 +212,8 @@ def case_detail(txid: str, request: Request):
         },
         "containment": containment,
         "activity": list(reversed(trail)),
+        # Whether this bank lets analysts release holds (owners always can).
+        "analysts_can_release": bool(policy.effective(institution).get("analysts_can_release")),
     }
 
 
@@ -333,3 +360,51 @@ def reopen(txid: str, request: Request):
     audit.record(audit.CASE_REOPENED, case.get("user_id"), institution_id=who["inst"],
                  transaction_id=txid, by=who["email"])
     return {"id": txid, "review_state": "open"}
+
+
+# ── Holds from the console ───────────────────────────────────────────────────
+
+class HoldActionBody(BaseModel):
+    note: str = Field("", max_length=500)
+
+
+def _case_hold(institution: str, txid: str) -> dict:
+    _case(institution, txid)
+    with cursor() as cur:
+        cur.execute("SELECT ghost_id FROM ghost_containers WHERE institution_id = ? AND transaction_id = ? "
+                    "ORDER BY created_at DESC LIMIT 1", (institution, txid))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="This transfer has no hold.")
+    return row
+
+
+@router.post("/{txid}/hold/cancel")
+def cancel_hold(txid: str, body: HoldActionBody, request: Request):
+    """Cancel a held transfer. The money stays with the customer."""
+    from agents.ghost.account import HoldError, staff_resolve
+
+    who = require_role(request, "analyst")
+    row = _case_hold(who["inst"], txid)
+    try:
+        return staff_resolve(row["ghost_id"], who["inst"], "cancel", who["email"], body.note)
+    except HoldError as exc:
+        raise HTTPException(status_code=exc.status, detail={"error": exc.code, "message": str(exc)})
+
+
+@router.post("/{txid}/hold/release")
+def release_hold(txid: str, body: HoldActionBody, request: Request):
+    """Release a held transfer after the bank confirmed it with the customer by
+    its own means. Owners, or analysts where the bank's policy allows it
+    (analysts_can_release). Always with a note, audited under the person's name."""
+    from agents.ghost.account import HoldError, staff_resolve
+    from services.policy import effective
+
+    who = require_role(request, "analyst")
+    if who["role"] != "owner" and not (who["role"] == "analyst" and effective(who["inst"]).get("analysts_can_release")):
+        raise HTTPException(status_code=403, detail="Only an owner can release a held transfer at this bank.")
+    row = _case_hold(who["inst"], txid)
+    try:
+        return staff_resolve(row["ghost_id"], who["inst"], "release", who["email"], body.note)
+    except HoldError as exc:
+        raise HTTPException(status_code=exc.status, detail={"error": exc.code, "message": str(exc)})

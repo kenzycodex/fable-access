@@ -17,14 +17,16 @@ import { Badge, Button, Notice, OutcomeBadge, RiskBadge, Skeleton } from "@/comp
 import {
   addCaseNote,
   assignCase,
+  cancelCaseHold,
   escalateCase,
   parseUtc,
+  releaseCaseHold,
   reopenCase,
   resolveCase,
   type CaseDetail as CaseDetailData,
 } from "@/lib/fable/console";
 import { formatNaira, formatRelativeTime, formatRiskScore } from "@/lib/fable/format";
-import { CHANNEL_LABELS } from "@/lib/fable/scoring";
+import { CHANNEL_LABELS } from "@/lib/fable/constants";
 import type { ReviewState } from "@/lib/fable/types";
 import { useCase, useMe, usePermissions } from "@/lib/fable/useConsole";
 
@@ -42,12 +44,25 @@ export const STATE_TONE: Record<ReviewState, "neutral" | "brand" | "danger" | "s
   resolved: "success",
 };
 
+const HOLD_LABEL: Record<string, string> = {
+  HELD: "holding the money",
+  RELEASE_REQUESTED: "the customer asked you to verify them and release it",
+  RELEASED: "released",
+  CANCELLED: "cancelled",
+  EXPIRED: "expired, not sent",
+};
+
 const EVENT_LABEL: Record<string, string> = {
   "case.assigned": "Assigned",
   "case.escalated": "Escalated",
   "case.noted": "Note added",
   "case.resolved": "Resolved",
   "case.reopened": "Reopened",
+  "containment.created": "Held by Ghost",
+  "containment.release_requested": "Customer asked the bank to release",
+  "containment.released": "Hold released",
+  "containment.cancelled": "Hold cancelled",
+  "containment.expired": "Hold expired, not sent",
 };
 
 /** Refresh everything that shows case state, after any change to a case. */
@@ -93,8 +108,9 @@ function CaseBody({ data, onClose }: { data: CaseDetailData; onClose?: () => voi
   const t = data.case;
   const review = t.review;
   const state: ReviewState = review?.state ?? "open";
-  const { canReview } = usePermissions();
+  const { canReview, canManage } = usePermissions();
   const { data: who } = useMe();
+  const [holdNote, setHoldNote] = useState("");
   const refresh = useRefreshCases();
 
   const [busy, setBusy] = useState<string | null>(null);
@@ -226,10 +242,56 @@ function CaseBody({ data, onClose }: { data: CaseDetailData; onClose?: () => voi
             />
           </div>
           {data.containment && (
-            <p className="mt-2 text-[12px] text-d-muted">
-              Ghost hold: <span className="font-semibold text-d-text">{data.containment.status.toLowerCase()}</span>
-              {data.containment.cooling_window_minutes ? ` · ${data.containment.cooling_window_minutes} min window` : ""}
-            </p>
+            <div className="mt-2 rounded-xl border border-d-border p-3 text-[12px] text-d-muted">
+              <p>
+                Ghost hold: <span className="font-semibold text-d-text">{HOLD_LABEL[data.containment.status] ?? data.containment.status.toLowerCase()}</span>
+                {data.containment.cooling_window_minutes ? ` · ${data.containment.cooling_window_minutes} min window` : ""}
+                {data.containment.resolved_by ? ` · by ${data.containment.resolved_by.replace(/^staff:/, "")}` : ""}
+              </p>
+              {data.containment.resolution_note && <p className="mt-1">Note: {data.containment.resolution_note}</p>}
+              {(data.containment.status === "HELD" || data.containment.status === "RELEASE_REQUESTED") && canReview && (
+                <div className="mt-3 flex flex-col gap-2">
+                  <label htmlFor="hold-note" className="text-[12px] font-semibold text-d-muted">
+                    Note (required to release: how the customer confirmed it)
+                  </label>
+                  <textarea
+                    id="hold-note"
+                    value={holdNote}
+                    onChange={(e) => setHoldNote(e.target.value)}
+                    rows={2}
+                    maxLength={500}
+                    className="w-full rounded-lg border border-d-border bg-d-surface px-3 py-2 text-[13px] text-d-text"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={busy === "hold-cancel"}
+                      disabled={busy !== null}
+                      onClick={() => run("hold-cancel", () => cancelCaseHold(t.id, holdNote))}
+                    >
+                      Cancel hold, keep the money with the customer
+                    </Button>
+                    {(canManage || data.analysts_can_release) && (
+                      <Button
+                        size="sm"
+                        loading={busy === "hold-release"}
+                        disabled={busy !== null || holdNote.trim().length < 10}
+                        onClick={() => run("hold-release", () => releaseCaseHold(t.id, holdNote))}
+                      >
+                        Release the transfer
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-d-faint">
+                    {canManage || data.analysts_can_release
+                      ? "Release only after confirming with the customer on the number on file. It is recorded under your name."
+                      : "Only an owner can release a held transfer at this bank."}
+                    {" "}In live mode Fable moves no money: your systems act on the webhook.
+                  </p>
+                </div>
+              )}
+            </div>
           )}
           <div className="mt-2 flex items-center gap-2 text-[12px] text-d-muted">
             Transfer status <OutcomeBadge status={t.status} />

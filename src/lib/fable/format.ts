@@ -108,3 +108,13 @@ export function formatDateTime(timestamp: number): string {
   const d = new Date(timestamp);
   return `${d.toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })}, ${d.toLocaleTimeString("en-NG", { hour: "numeric", minute: "2-digit" })}`;
 }
+
+/** A word for the amount's size, so a slipped zero is noticed before sending
+ * (₦50,000 reads "Tens of thousands"; ₦500,000 reads "Hundreds of thousands"). */
+export function amountMagnitude(n: number): string {
+  if (n < 1_000) return "";
+  const names = ["Thousands", "Tens of thousands", "Hundreds of thousands", "Millions", "Tens of millions",
+    "Hundreds of millions"];
+  const step = Math.floor(Math.log10(n)) - 3;
+  return step < names.length ? names[step] : "Billions";
+}

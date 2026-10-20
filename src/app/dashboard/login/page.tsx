@@ -8,13 +8,13 @@ import { toast } from "sonner";
 import { AuthShell, AuthSpinner, authButton, authInput } from "@/components/dashboard/AuthShell";
 import { API_BASE } from "@/lib/fable/api";
 import { login, sessionToken, useFableStore } from "@/lib/fable/store";
+import { safeNext } from "@/lib/safeNext";
 
 /** Where to go after signing in: `?next=` when it is a path on this site (the
  * sandbox app sends people here and back), otherwise the console. */
 function nextPath(): string {
   if (typeof window === "undefined") return "/dashboard";
-  const next = new URLSearchParams(window.location.search).get("next") ?? "";
-  return next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+  return safeNext(new URLSearchParams(window.location.search).get("next"));
 }
 
 export default function DashboardLoginPage() {

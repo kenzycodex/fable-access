@@ -75,9 +75,15 @@ def world():
     scored = client.post("/v1/shield/analyze", json=_transfer(client_reference="alpha-ref-1"),
                          headers=_session(A))
     assert scored.status_code == 200, scored.text
+    # A hold is opened from a stored block, never from a risk the caller sends.
+    with cursor() as cur:
+        cur.execute(
+            "INSERT INTO transactions (id, user_id, amount, recipient_account, institution_id, action_taken, "
+            "risk_score, shield_signals) VALUES ('txn_alpha_block', ?, 1000, '0123456789', ?, 'BLOCK', 0.9, '[]')",
+            (a_customer["id"], A),
+        )
     hold = client.post("/v1/ghost/create", headers=_session(A), json={
-        "user_id": SHARED_REF, "risk_score": 0.9, "explanation": "test",
-        "transaction": {"amount": 1_000, "recipient_account": "0123456789", "recipient_bank": "Test Bank"},
+        "user_id": SHARED_REF, "transaction_id": "txn_alpha_block",
     })
     assert hold.status_code == 200, hold.text
     yield {
