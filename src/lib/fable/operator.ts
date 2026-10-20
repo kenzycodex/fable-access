@@ -129,6 +129,9 @@ export const acceptOperatorInvite = (token: string, password: string, name?: str
 
 export function operatorSignOut(): void {
   setOperatorSession(null);
+  // A full page load on purpose: it drops every cached response of the session
+  // that just ended, so nothing of it is shown to whoever signs in next.
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
   window.location.assign("/operator/login");
 }
 
