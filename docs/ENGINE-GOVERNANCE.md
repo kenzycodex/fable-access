@@ -36,6 +36,13 @@ A weight introduced by a release is read, for any version stored before it exist
 - **First transfers (no history):** amount tiers from NGN 100k to NGN 20m. Old versions read them as 0.
 - **Anomaly model:** `ml_anomaly` (the nearest-neighbour model, 0.10 by default) and `ml_anomaly_previous` (the retiring Isolation Forest). Old versions read them as 0 and 0.10, which is exactly how they scored.
 
+A second release offers its own draft, separate from the first so each can be judged alone. It is based on the active version, never on a version already proposed, approved or in shadow:
+
+- **Balance drain:** `balance_drain_80` (0.10), `balance_drain_all` (0.16) and `balance_drain_combo` (0.10, on top, to a new recipient or from a new device). Old versions read them as 0.
+- **Location:** `location_place` and `location_place_large` (0.06 and 0.12) judge a new place by distance from where the customer has been (45 km), falling back to normalised city names; the name-only `location_city` weights are set to 0 in the draft. Old versions read the place weights as 0 and keep their city weights, so they score as approved.
+
+Every decision records the drain and place terms even at weight 0. Decisions before this release recorded neither, and the backtest does not rebuild them, so it under-reports both changes; the shadow run shows them in full.
+
 Decisions made before a release did not record its terms. The backtest rebuilds them for those rows and counts them as "rebuilt": the first-transfer term from the stored amount and the cold-start signal, the previous anomaly model's fixed points as its weighted term, and the current anomaly model from the customer's confirmed history before the decision (as it stands now, so a transfer confirmed later counts as confirmed). Under the live values a rebuilt term adds exactly what the decision had, so replay fidelity is unchanged.
 
 ### What each change does
