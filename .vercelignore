@@ -1,3 +1,7 @@
 # Vercel builds only the Next.js site. The FastAPI backend in api/ runs on the
 # droplet, and a Python project file there made Vercel try to build it.
-api/
+#
+# Anchored with a leading slash: without it, "api/" also matched src/app/api/,
+# so Vercel left out the site's own API routes (bank list, account-name lookup,
+# Paystack status) and every one of them answered 404.
+/api/
