@@ -35,10 +35,10 @@ export const legalContact = {
 };
 
 const EFFECTIVE = "8 October 2026";
-// PLACEHOLDER: the privacy notice changed materially (retention periods,
-// location switch, console erasure). Set this to the deploy date before
-// publishing; it is on the deployment checklist.
-const PRIVACY_EFFECTIVE = "[set to the deploy date before publishing]";
+// The privacy notice changed materially on this date (retention periods, the
+// location switch, erasure from the console), so it has its own date. Change
+// it whenever the notice changes materially again.
+const PRIVACY_EFFECTIVE = "20 October 2026";
 const VERSION = "1.0";
 
 const p = (text: string): LegalBlock => ({ type: "p", text });

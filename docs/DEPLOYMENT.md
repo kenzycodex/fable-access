@@ -558,9 +558,10 @@ find /var/www/fable/api/data -name 'backup-deploy-*.db' -mtime +7 -delete
 The same applies to any copy taken by hand or by a hosting snapshot before
 this deploy.
 
-**5. Privacy notice date.** Set the privacy notice effective date to the
-deploy date before publishing: `PRIVACY_EFFECTIVE` in `src/data/legal.ts` is
-a marked placeholder.
+**5. Privacy notice date.** The privacy notice's effective date
+(`PRIVACY_EFFECTIVE` in `src/data/legal.ts`) is set to 20 October 2026, the
+date this branch is merged and published through Vercel. Change it whenever
+the notice changes materially again.
 
 **6. The release engine draft (first-transfer weights and the new anomaly
 model).** On deploy day, on the operator console's Engine page:
