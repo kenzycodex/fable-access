@@ -47,6 +47,11 @@ def _reset(monkeypatch, google="", locationiq="", geoapify=""):
     monkeypatch.setenv("GOOGLE_MAPS_API_KEY", google)
     monkeypatch.setenv("LOCATIONIQ_API_KEY", locationiq)
     monkeypatch.setenv("GEOAPIFY_API_KEY", geoapify)
+    # An empty environment value falls through to stored keys, and another
+    # test module may have stored one in the shared database. Only the keys
+    # this test names exist.
+    keys = {"GOOGLE_MAPS_API_KEY": google, "LOCATIONIQ_API_KEY": locationiq, "GEOAPIFY_API_KEY": geoapify}
+    monkeypatch.setattr(geocoding.secrets, "get", lambda name, *a, **k: keys.get(name) or None)
     monkeypatch.setattr(geocoding, "_nominatim_last", 0.0)
     geocoding._cache.clear()
     geocoding._disabled_until.clear()
