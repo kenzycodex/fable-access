@@ -61,6 +61,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 alt="Fable"
                 width={1671}
                 height={547}
+                loading="eager"
                 className="hidden h-7 w-auto dark:block"
               />
               <Image
@@ -68,6 +69,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 alt="Fable"
                 width={1671}
                 height={547}
+                loading="eager"
                 className="block h-7 w-auto dark:hidden"
               />
             </span>

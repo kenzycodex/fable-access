@@ -39,7 +39,7 @@ export default function PlatformPage() {
             aria-hidden="true"
             width={534}
             height={577}
-            priority
+            loading="eager"
             className="h-auto w-full"
           />
         </div>

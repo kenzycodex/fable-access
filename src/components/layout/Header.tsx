@@ -76,7 +76,7 @@ export function Header() {
                 alt="Fable"
                 width={1671}
                 height={547}
-                priority
+                loading="eager"
                 className="h-[48px] w-auto transition-opacity duration-300"
               />
             ) : (
@@ -85,7 +85,7 @@ export function Header() {
                 alt="Fable"
                 width={1671}
                 height={547}
-                priority
+                loading="eager"
                 className="h-[48px] w-auto transition-opacity duration-300"
               />
             )}

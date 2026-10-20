@@ -39,7 +39,7 @@ export default function WhyFablePage() {
             aria-hidden="true"
             width={1136}
             height={1384}
-            priority
+            loading="eager"
             className="h-auto w-[88%]"
           />
         </div>
