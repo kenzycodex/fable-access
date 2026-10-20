@@ -12,7 +12,9 @@ import { SignalCard } from "@/components/demo/SignalCard";
 import { StepUpDialog } from "@/components/demo/StepUpDialog";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { shieldExplanation, StepUpRequiredError } from "@/lib/fable/api";
+import { passMessage } from "@/lib/fable/decision";
 import { formatDateTime, formatNaira, formatRiskScore } from "@/lib/fable/format";
+import type { ScoreResult } from "@/lib/fable/types";
 import {
   approvePending,
   commitPass,
@@ -82,7 +84,10 @@ export default function ResultPage() {
   if (!pending) return <PageSpinner />;
 
   if (pending.action === "PASS") {
-    return <PassResult amount={pending.amount} recipient={pending.recipientName} bank={pending.recipientBank} score={pending.riskScore} />;
+    return (
+      <PassResult amount={pending.amount} recipient={pending.recipientName} bank={pending.recipientBank}
+        score={pending.riskScore} baselineSource={pending.baselineSource ?? null} />
+    );
   }
   return <FlagBlockResult />;
 }
@@ -92,11 +97,13 @@ function PassResult({
   recipient,
   bank,
   score,
+  baselineSource,
 }: {
   amount: number;
   recipient: string;
   bank: string;
   score: number;
+  baselineSource: ScoreResult["baselineSource"];
 }) {
   const router = useRouter();
   const { href, name } = useInstitution();
@@ -138,7 +145,7 @@ function PassResult({
         <h1 className="mt-3 text-[20px] font-bold text-d-text">Transfer sent</h1>
         <p className="mt-1 text-[40px] font-bold tabular-nums leading-tight text-d-text">{formatNaira(amount)}</p>
         <p className="mx-auto mt-2 max-w-[320px] text-[13px] leading-relaxed text-d-muted">
-          This matched how you normally bank, so it went through with no extra steps.
+          {passMessage(baselineSource)}
         </p>
 
         <div className="mt-6 divide-y divide-d-border rounded-2xl bg-d-surface-2 px-4 text-left">

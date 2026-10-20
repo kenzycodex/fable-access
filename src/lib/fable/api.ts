@@ -237,6 +237,7 @@ interface ApiShieldResponse {
   decision_ms?: number;
   explanation_source?: "cache" | "template" | "llm" | "pending";
   transaction_id: string;
+  baseline_source?: "personal" | "population" | "none" | null;
 }
 
 export interface ShieldExplanation {
@@ -412,6 +413,7 @@ export async function shieldAnalyze(
     decisionMs: res.decision_ms !== undefined ? Math.round(res.decision_ms) : undefined,
     explanationSource: res.explanation_source,
     transactionId: res.transaction_id,
+    baselineSource: res.baseline_source ?? null,
   };
 }
 
