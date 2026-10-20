@@ -9,8 +9,11 @@ import { X } from "@phosphor-icons/react";
  * every banking app uses) and a centred modal from `sm` up. Locks body scroll,
  * closes on Escape and on backdrop click.
  *
- * Rendered into document.body. Opened from the sticky top bar, whose backdrop-blur
+ * Rendered into the bank's shell (the demo layout's root), not inside the
+ * component that opens it. Opened from the sticky top bar, whose backdrop-blur
  * makes it the containing block for `fixed`, the sheet was clipped to the bar.
+ * The shell is the right target, not document.body: it carries the bank's
+ * colours as CSS variables, and a sheet outside it fell back to Fable's purple.
  */
 export function DemoSheet({
   open,
@@ -41,6 +44,7 @@ export function DemoSheet({
 
   if (!open) return null;
 
+  const target = document.querySelector<HTMLElement>('.demo-shell[data-surface="app"]') ?? document.body;
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center">
       <button
@@ -80,6 +84,6 @@ export function DemoSheet({
         <div className="overflow-y-auto px-5 pb-[max(20px,env(safe-area-inset-bottom))]">{children}</div>
       </div>
     </div>,
-    document.body,
+    target,
   );
 }
