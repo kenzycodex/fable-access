@@ -51,6 +51,15 @@ async def lifespan(_app: FastAPI):
 
     The functions are defined further down; they exist by the time this runs.
     """
+    from core.storage import write_problem
+
+    problem = write_problem(config.DB_PATH)
+    if problem:
+        # One clear line instead of an OperationalError from every task below.
+        # The writes are skipped; /health reports the same problem and stays 503.
+        logger.error(problem)
+        yield
+        return
     sweep_expired_containments()
     note_if_no_admins()
     try:
@@ -256,11 +265,15 @@ def health(response: Response):
 
     try:
         from core.db import cursor
+        from core.storage import write_problem
 
         with cursor() as cur:
             cur.execute("SELECT 1")
             cur.fetchone()
-        database = {"healthy": True}
+        problem = write_problem(config.DB_PATH)
+        database = {"healthy": problem is None, "writable": problem is None}
+        if problem:
+            database["error"] = problem
     except Exception as exc:  # noqa: BLE001
         database = {"healthy": False, "error": type(exc).__name__}
 

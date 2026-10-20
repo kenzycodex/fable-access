@@ -145,13 +145,26 @@ to the droplet with a key that can only run one command,
 `api/scripts/deploy_server.sh`, installed as `/usr/local/bin/fable-deploy`. That
 script:
 
-1. takes the latest `main` (a reset, so a rewritten history never blocks it;
+1. fetches the latest `main` and, if that commit's own deploy script differs
+   from the installed one, installs it and runs it instead, so a push is
+   always deployed by its own version of this script;
+2. takes the latest `main` (a reset, so a rewritten history never blocks it;
    `.env` and the database are ignored by git and kept);
-2. backs up the database with SQLite's own backup, keeping the last 10;
-3. rebuilds and recreates the container;
-4. waits for `/health` to answer **with every required router loaded**;
-5. if that fails, rebuilds the previous version and marks the run failed, so a
-   broken push never stays live.
+3. backs up the database with SQLite's own backup, keeping the last 10;
+4. checks that `data/` and every file in it belong to the container's user
+   (10001:10001), fixes it when running as root, and otherwise stops with the
+   running version untouched;
+5. rebuilds and recreates the container;
+6. waits for `/health` to answer **with every required router loaded**;
+7. if that fails, rebuilds the previous version and marks the run failed, so a
+   broken push never stays live. The previous image runs as root or as 10001,
+   and either can write a folder owned by 10001, so rolling back needs no
+   ownership change.
+
+If the API cannot write its database it says so once at startup ("The
+database is not writable: ... owned by uid 0 ..., and the API runs as uid
+10001"), skips its startup writes and its scheduler, and `/health` returns 503
+with the same sentence under `database.error`.
 
 Deploys run one at a time; a second push waits for the first.
 
@@ -535,9 +548,36 @@ SELECT institution_id, client_reference, COUNT(*) FROM transactions
 WHERE client_reference IS NOT NULL GROUP BY 1, 2 HAVING COUNT(*) > 1;
 ```
 
+**What happened on the first Phase 0 deploy (20 October 2026).** The new
+image runs as uid 10001, but `data/` on the server still belonged to root. The
+installed deploy script was the previous version: it refreshed itself only
+*after* a successful deploy, so the ownership step added in this release never
+ran. The new container logged "attempt to write a readonly database", failed
+`/health`, and the script rolled back on its own; no data changed. The folder
+was fixed by hand (`chown -R 10001:10001 data`) and the deploy re-run. Since
+then the deploy script runs the version from the commit it deploys, checks
+every file in `data/` before switching containers, and the API names an
+unwritable database in one line.
+
+**Keep the website and the API in step.** Merging to `main` makes Vercel
+publish the website straight away, while the API deploys after CI and can roll
+back. On 20 October the new website ran against the old API until the API
+deploy was fixed. The safest order for a change that needs both:
+
+1. Make the API change backward compatible with the current website, merge
+   and let it deploy; check `/health`.
+2. Then merge the website change.
+
+When one merge has to carry both, stop Vercel from publishing to production
+by itself: in the Vercel project's settings, use Deployment Checks to require
+the GitHub check **Deploy API** before a build is promoted to production, or
+turn off automatic production deployments and promote the build by hand once
+`/health` is green.
+
 **3. The data directory belongs to the container's user.** The image now
-runs as uid 10001. The deploy script fixes ownership when it runs as root; by
-hand: `sudo chown -R 10001:10001 /var/www/fable/api/data`.
+runs as uid 10001. The deploy script checks and fixes ownership when it runs as root,
+and stops before switching containers when it cannot; by hand:
+`sudo chown -R 10001:10001 /var/www/fable/api/data`.
 
 **4. Back up, deploy, check health.** The deploy script backs up the database,
 rebuilds, and rolls back if `/health` fails. Afterwards `/health` must show
