@@ -1,6 +1,6 @@
 # Scoring
 
-Shield adds up sixteen signals into a score between 0 and 1, then softens it
+Shield adds up seventeen signals into a score between 0 and 1, then softens it
 for customers with a long clean record. The default boundaries
 are `FLAG` at ≥ 0.5 and `BLOCK` at ≥ 0.8; riskier channels trip sooner (see
 below).
@@ -17,15 +17,21 @@ below).
 | 8 | `scam_pattern` | Narration matches a scam script (halved on purpose) | 0.25 |
 | 9 | `ml_anomaly` | The amount and hour together sit far from the customer's own past transfers | 0.10 |
 | 10 | `device_anomaly` | Unrecognised device fingerprint, more for a large transfer | 0.18 |
-| 11 | `location_anomaly` | New city, or outside home country | 0.22 |
-| 12 | `session_freshness` | Large transfer seconds after sign-in | 0.12 |
-| 13 | `behavioral_anomaly` | Pasted account number and near-zero hesitation on a large amount | 0.15 |
-| 14 | `timezone_mismatch` | Device timezone differs from usual | 0.08 |
-| 15 | `failed_verification` | Recent failed PIN, passkey or code attempts | 0.25 |
-| 16 | `velocity` | Several live transfers in a few minutes | 0.20 |
+| 11 | `balance_drain` | Takes 80% or more of the available balance (NGN 20,000 and up); more for all of it, more again to a new recipient or from a new device | 0.26 |
+| 12 | `location_anomaly` | Outside the home country, or more than 45 km from every place the customer has transacted from (normalised city names when there are no coordinates, so Bariga and Lagos are one place) | 0.22 |
+| 13 | `session_freshness` | Large transfer seconds after sign-in | 0.12 |
+| 14 | `behavioral_anomaly` | Pasted account number and near-zero hesitation on a large amount | 0.15 |
+| 15 | `timezone_mismatch` | Device timezone differs from usual | 0.08 |
+| 16 | `failed_verification` | Recent failed PIN, passkey or code attempts | 0.25 |
+| 17 | `velocity` | Several live transfers in a few minutes | 0.20 |
 
 A long, confirmed-clean record then subtracts a small `tenure` discount (at most
 0.08 by default).
+
+`balance_drain` and the place-based `location_anomaly` arrive in a prepared
+engine draft. A version approved before them scores exactly as approved: no
+balance drain, and location judged by city name. They take effect when an owner
+backtests, shadows and promotes the draft.
 
 Weights live in governed engine versions, changed on the operator platform's
 Engine page: every scoring change goes through approval with a cooling-off period, a backtest and a shadow run (two-person approval when there are two owners), and is then promoted. Every
