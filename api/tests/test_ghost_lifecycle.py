@@ -93,6 +93,17 @@ def _outbox(event: str) -> list[dict]:
         return [dict(r) for r in cur.fetchall()]
 
 
+def _rows_for(event: str, data_id: str) -> list[dict]:
+    """This test's own outbox rows. The tests share one database, so other
+    tests' rows can be in the outbox too; never assume it is empty or that the
+    newest row is ours."""
+    return [r for r in _outbox(event) if json.loads(r["payload"]).get("data", {}).get("id") == data_id]
+
+
+def _data_id(body: bytes) -> str | None:
+    return json.loads(body).get("data", {}).get("id")
+
+
 def _drain():
     from services import webhooks
 
@@ -279,8 +290,9 @@ def test_a_verified_release_sends_the_money_in_the_sandbox(client, posts):
     assert res.status_code == 200, res.text
     assert ledger.get_balance(user, BANK)["balance"] == 900_000
     _drain()
-    assert any(p["type"] == "containment.released" for p in posts)
-    assert any(p["type"] == "containment.resolved" and p["data"]["outcome"] == "released" for p in posts)
+    mine = [p for p in posts if p["data"].get("ghost_id") == hold["ghost_id"]]
+    assert any(p["type"] == "containment.released" for p in mine)
+    assert any(p["type"] == "containment.resolved" and p["data"]["outcome"] == "released" for p in mine)
 
 
 # ── From the console ─────────────────────────────────────────────────────────
@@ -319,13 +331,24 @@ def test_a_failed_delivery_is_retried_from_the_outbox(client, monkeypatch):
     from core.db import cursor
     from services import webhooks
 
-    calls = []
+    data_id = f"t-outbox-{secrets.token_hex(4)}"
+    ours = []
+
+    def fake_post(url, body, headers):
+        # Decided by the event itself: this test's event fails on its first
+        # attempt and lands on its second. Other tests' rows that the drain
+        # also picks up are delivered and do not count.
+        if _data_id(body) != data_id:
+            return 200
+        ours.append(1)
+        return 503 if len(ours) == 1 else 200
+
     monkeypatch.setattr(webhooks, "validate_url", lambda url: url)
-    monkeypatch.setattr(webhooks, "_post", lambda url, body, headers: calls.append(1) or (503 if len(calls) == 1 else 200))
+    monkeypatch.setattr(webhooks, "_post", fake_post)
     # Nothing in flight: write the row the way emit does, without the fast path.
     monkeypatch.setattr(webhooks._pool, "submit", lambda *a, **k: None)
-    webhooks.emit(BANK, "case.resolved", {"id": "t-outbox"})
-    row = _outbox("case.resolved")[-1]
+    webhooks.emit(BANK, "case.resolved", {"id": data_id})
+    [row] = _rows_for("case.resolved", data_id)
     assert row["status"] == "pending"
 
     webhooks.drain()
@@ -338,8 +361,9 @@ def test_a_failed_delivery_is_retried_from_the_outbox(client, monkeypatch):
         cur.execute("UPDATE webhook_outbox SET next_attempt_at = 0 WHERE id = ?", (row["id"],))
     webhooks.drain()
     with cursor() as cur:
-        cur.execute("SELECT status FROM webhook_outbox WHERE id = ?", (row["id"],))
-        assert cur.fetchone()["status"] == "delivered"
+        cur.execute("SELECT status, attempts FROM webhook_outbox WHERE id = ?", (row["id"],))
+        final = cur.fetchone()
+    assert final["status"] == "delivered" and final["attempts"] == 2 and len(ours) == 2
 
 
 def test_retries_span_about_a_day_before_giving_up():
@@ -369,14 +393,22 @@ def test_a_delivery_stuck_mid_flight_is_picked_up_again(client, posts):
 def test_the_event_id_is_the_same_on_every_retry(client, monkeypatch):
     from services import webhooks
 
+    data_id = f"same-id-{secrets.token_hex(4)}"
     bodies = []
+
+    def fake_post(url, body, headers):
+        if _data_id(body) != data_id:
+            return 200  # another test's row the drain also picked up
+        bodies.append(json.loads(body))
+        return 500
+
     monkeypatch.setattr(webhooks, "validate_url", lambda url: url)
-    monkeypatch.setattr(webhooks, "_post", lambda url, body, headers: bodies.append(json.loads(body)) or 500)
+    monkeypatch.setattr(webhooks, "_post", fake_post)
     monkeypatch.setattr(webhooks._pool, "submit", lambda *a, **k: None)
     from core.db import cursor
 
-    webhooks.emit(BANK, "case.resolved", {"id": "same-id"})
-    row = _outbox("case.resolved")[-1]
+    webhooks.emit(BANK, "case.resolved", {"id": data_id})
+    [row] = _rows_for("case.resolved", data_id)
     for _ in range(3):
         with cursor() as cur:
             cur.execute("UPDATE webhook_outbox SET next_attempt_at = 0 WHERE id = ?", (row["id"],))
@@ -422,7 +454,8 @@ def test_a_customer_without_the_factors_can_ask_the_bank_to_release(client, post
         cur.execute("SELECT review_state FROM transactions WHERE id = ?", (hold["transaction_id"],))
         assert cur.fetchone()["review_state"] == "open"
     _drain()
-    assert any(p["type"] == "containment.release_requested" for p in posts)
+    assert any(p["type"] == "containment.release_requested" and p["data"].get("ghost_id") == hold["ghost_id"]
+               for p in posts)
 
     analyst = _session(BANK, f"analyst@{BANK}.ng")
     queue = client.get("/v1/review/queue?state=active", headers=analyst).json()["cases"]
