@@ -86,6 +86,8 @@ _PIPELINE = [
      "How far the amount and hour together sit from the customer's own past transfers."),
     ("device_anomaly", "Unrecognised device", lambda w: w["device_anomaly_large"],
      "A device fingerprint the customer has not used before; more for a large transfer."),
+    ("balance_drain", "Balance drain", lambda w: max(w["balance_drain_all"], w["balance_drain_80"]) + w["balance_drain_combo"],
+     "A transfer taking 80% or more of the available balance; more for all of it, and more to a new recipient or from a new device."),
     ("location_anomaly", "Location", lambda w: max(w["location_country"], w["location_city_large"], w["location_city"]),
      "A new city, or outside the home country."),
     ("session_freshness", "Fresh session", lambda w: w["session_freshness"],

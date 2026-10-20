@@ -159,7 +159,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     # checks funds in its own core banking system before it asks for a score.
     if sandbox:
         try:
-            assert_can_spend(payload.user_id, transaction["amount"], institution_id)
+            funds = assert_can_spend(payload.user_id, transaction["amount"], institution_id)
         except InsufficientFunds as exc:
             raise HTTPException(
                 status_code=422,
@@ -171,6 +171,10 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
                     "shortfall": exc.shortfall,
                 },
             )
+
+        # Balance drain is scored against the ledger here, never a value the
+        # browser sent: the customer must not be able to understate it.
+        transaction["balance_before"] = funds["available"]
 
     result = analyze_transaction_safe(payload.user_id, transaction, device, context, institution_id)
 

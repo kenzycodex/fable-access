@@ -76,6 +76,10 @@ async def lifespan(_app: FastAPI):
         drafted = engine_config.seed_cold_start_draft()
         if drafted:
             logger.info("Engine v%s drafted with the no-history amount weights; review it on the Engine page.", drafted)
+        drained = engine_config.seed_drain_place_draft()
+        if drained:
+            logger.info("Engine v%s drafted with balance drain and location by place; review it on the Engine "
+                        "page.", drained)
         engine_admin.sweep()
     except Exception as exc:  # noqa: BLE001 - never block startup on this
         logger.warning("Could not prepare engine versions at startup: %s", type(exc).__name__)

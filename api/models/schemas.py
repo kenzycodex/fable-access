@@ -29,6 +29,11 @@ class Transaction(BaseModel):
     # ignores it — see the note there. A signal worth up to 0.95 cannot be
     # supplied by the party being scored.
     nip_response_code: Optional[str] = None
+    # What the customer could spend just before this transfer, in naira, from
+    # the bank's own core system. Optional; when present Shield scores a
+    # transfer that takes most of it (balance drain). In the sandbox Fable's
+    # ledger is used instead and this value is ignored.
+    balance_before: Optional[float] = Field(None, ge=0, le=100_000_000_000)
 
 
 class Device(BaseModel):

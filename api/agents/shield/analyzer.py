@@ -1,8 +1,9 @@
 """Fable Shield — core risk scoring pipeline.
 
-Sixteen signals, added in order: amount, cold start and first-transfer amount,
+Seventeen signals, added in order: amount, cold start and first-transfer amount,
 new recipient, time, channel, NIP code, scam pattern, the anomaly model, device,
-location, session freshness, behaviour, timezone, failed checks and velocity.
+balance drain, location, session freshness, behaviour, timezone, failed checks
+and velocity.
 Then a small tenure discount. routers/agents.py lists them for the console with
 the weights in force.
 
@@ -17,6 +18,7 @@ from agents.copilot.baseline import (
     get_user_baseline,
     get_user_history_arrays,
 )
+from agents.shield import places
 from agents.shield.anomaly import GATE as ML_GATE
 from agents.shield.anomaly import current_anomaly, previous_anomaly
 from agents.shield.channel_risk import get_channel_risk
@@ -49,6 +51,14 @@ NARRATION_WEIGHT_SCALE = 0.5
 # baseline). Context signals only boost on large transfers so everyday small
 # payments from a new laptop don't get flagged.
 LARGE_ABSOLUTE_FLOOR = 100_000
+
+# Balance drain: a transfer that takes most of what the customer can spend.
+# Emptying the account is the shape of a scam ("move it to a safe account"),
+# and almost never of a normal payment. Below the floor it is not a signal: a
+# student sending their last NGN 3,000 is not a fraud case.
+DRAIN_MOST = 0.80
+DRAIN_ALL = 0.99
+DRAIN_MIN_AMOUNT = 20_000
 
 
 def sanitize_transaction(transaction: dict) -> dict:
@@ -263,7 +273,8 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     # most of the everyday friction was, and large ones score higher than the
     # flat weight ever did.
     known_recipients = baseline["known_recipients"] if baseline else set()
-    if transaction["recipient_account"] not in known_recipients:
+    new_recipient = transaction["recipient_account"] not in known_recipients
+    if new_recipient:
         if baseline:
             ratio = amount / max(baseline["avg_amount"], 1)
             scale = 0.35 if ratio < 1 else 0.7 if ratio < 3 else 1.0 if ratio < 10 else 1.4
@@ -349,7 +360,9 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
     fingerprint = device.get("fingerprint_id")
     # A population baseline carries no known devices, so this layer only
     # applies once the customer has their own history to contradict.
-    if baseline and not cold_start and fingerprint and baseline["known_devices"] and fingerprint not in baseline["known_devices"]:
+    new_device = bool(baseline and not cold_start and fingerprint and baseline["known_devices"]
+                      and fingerprint not in baseline["known_devices"])
+    if new_device:
         device_key = "device_anomaly_large" if is_large else "device_anomaly"
         # A device Fable has seen repeatedly is not a stranger, even if no
         # transfer from it has settled yet. trust_score climbs with each sighting
@@ -367,6 +380,25 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
             signals.append(f"device_anomaly: unrecognized device (+{boost})")
             score += boost
 
+    # Step 8b: Balance drain. The share of the balance available before this
+    # transfer (the sandbox ledger, or balance_before from a live bank). The
+    # 80% and whole-balance tiers are exclusive; a new recipient or a new device
+    # on top adds the combination weight. Recorded even at weight zero, so a
+    # backtest or shadow version can weigh it.
+    balance_before = transaction.get("balance_before")
+    share = amount / balance_before if balance_before and balance_before > 0 else None
+    if share is not None and amount >= DRAIN_MIN_AMOUNT and share >= DRAIN_MOST:
+        drain_coefs = {"balance_drain_all" if share >= DRAIN_ALL else "balance_drain_80": 1}
+        if new_recipient or new_device:
+            drain_coefs["balance_drain_combo"] = 1
+        drain = add(term(drain_coefs, rounded=True))
+        if drain > 0:
+            what = "the whole available balance" if share >= DRAIN_ALL else f"{min(share, 1):.0%} of the available balance"
+            also = " and ".join(x for x, on in (("to a new recipient", new_recipient),
+                                                ("from a new device", new_device)) if on)
+            signals.append(f"balance_drain: takes {what}{' ' + also if also else ''} (+{drain})")
+            score += drain
+
     # Step 9: Location anomaly — not in any known city / outside home country
     city = context.get("city")
     country = context.get("country")
@@ -376,10 +408,28 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         boost = add(term({"location_country": 1}))
         signals.append(f"location_anomaly: transacting from {city or 'unknown city'}, {country} — usually {home_country} (+{boost})")
         score += boost
-    elif known_cities and city and city not in known_cities:
-        boost = add(term({"location_city_large" if is_large else "location_city": 1}))
-        signals.append(f"location_anomaly: new city {city} (+{boost})")
-        score += boost
+    else:
+        # Two checks, each under its own weights, so the version in force
+        # decides which counts and either replays. By name (the previous
+        # check: "Lagos" and "Bariga" differ) and by place (agents/shield/
+        # places.py: distance from where the customer has been, or the
+        # normalised name when there are no coordinates).
+        by_name = bool(known_cities and city and city not in known_cities)
+        is_new_place, km = (False, None)
+        if baseline and not cold_start:
+            is_new_place, km = places.new_place(context.get("latitude"), context.get("longitude"), city,
+                                                places.usual_places(user_id), known_cities)
+        suffix = "_large" if is_large else ""
+        name_value = place_value = 0.0
+        if by_name:
+            name_value = add(term({f"location_city{suffix}": 1}))
+        if is_new_place:
+            place_value = add(term({f"location_place{suffix}": 1}))
+        boost = round(name_value + place_value, 4)
+        if boost > 0:
+            where = f"{round(km)} km from your usual places" if place_value > 0 and km is not None else f"new city {city}"
+            signals.append(f"location_anomaly: {where} (+{boost})")
+            score += boost
 
     # Step 10: Session freshness — login-to-transfer under 30s on a large amount
     session_seconds = context.get("session_duration_seconds")
@@ -499,6 +549,7 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         "_seen": {
             "baseline": baseline, "cold_start": cold_start, "now_hour": now_hour, "client_hour": client_hour,
             "known_cities": known_cities, "device_tz": device_tz, "pattern": pattern, "failed": failed,
+            "balance_share": share,
         },
     }
 

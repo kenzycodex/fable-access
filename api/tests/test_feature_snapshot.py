@@ -80,7 +80,8 @@ def test_every_listed_feature_is_captured(client):
     second = _decide(client, user, amount=30_000)
     f = _snapshot(second)
     expected = {
-        "amount": {"raw", "log", "ratio_to_average", "ratio_to_median", "zscore", "first_transfer"},
+        "amount": {"raw", "log", "ratio_to_average", "ratio_to_median", "zscore", "first_transfer",
+                   "share_of_balance"},
         "time": {"hour", "hour_sin", "hour_cos", "day_of_week", "weekend", "public_holiday_fixed", "usual_hours"},
         "recipient": {"known", "times_paid_before", "days_since_first_paid", "days_since_last_paid", "bank",
                       "own_account"},
