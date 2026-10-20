@@ -563,7 +563,10 @@ export default function TransferPage() {
               className="mt-5"
               disabled={!canSubmit}
               loading={submitting}
-              onClick={() => setReviewing(true)}
+              onClick={() => {
+                tracker?.markSend();
+                setReviewing(true);
+              }}
               icon={!submitting ? <PaperPlaneTilt size={18} weight="fill" /> : undefined}
             >
               {submitting ? "Checking transfer…" : amountValue > 0 ? `Send ${formatNaira(amountValue)}` : "Send money"}

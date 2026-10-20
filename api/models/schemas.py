@@ -87,7 +87,11 @@ class Context(BaseModel):
     pointer_avg_velocity: Optional[float] = None
     scroll_direction_changes: Optional[int] = None
     time_to_first_input_seconds: Optional[float] = None
+    # Page opening to tapping Send. Scored (behavioral_anomaly).
     time_to_submit_seconds: Optional[float] = None
+    # Time on a review-before-send step, after Send. Stored with the decision's
+    # feature snapshot; not scored.
+    review_seconds: Optional[float] = None
     # Device-local time (Shield judges time-of-day against this, not server UTC)
     client_timestamp: Optional[str] = None
     client_timezone: Optional[str] = None

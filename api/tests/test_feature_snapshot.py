@@ -88,7 +88,7 @@ def test_every_listed_feature_is_captured(client):
         "location": {"same_city", "same_country", "distance_km_from_usual", "timezone_match"},
         "channel": {"channel", "usual_share"},
         "velocity": {"transfers_10m", "transfers_1h", "transfers_24h", "amount_24h"},
-        "session": {"session_age_s", "time_to_submit_s", "paste_detected", "typing_speed_ms"},
+        "session": {"session_age_s", "time_to_submit_s", "review_s", "paste_detected", "typing_speed_ms"},
         "narration": {"scam_patterns"},
         "verification": {"recent_failed_stepups"},
         "context": {"baseline_source", "history_length", "tenure_days", "institution_id", "engine_version",

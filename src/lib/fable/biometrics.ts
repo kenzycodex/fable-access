@@ -6,7 +6,13 @@
 // Only what Fable uses is collected:
 //   paste detection and time to submit  scored by Shield (behavioral_anomaly)
 //   time to first input                 stored with the decision
+//   time on the review sheet            stored with the decision, not scored
 //   average typing interval             shown to analysts as context, not scored
+//
+// Time to submit runs from the page opening to the customer tapping Send, as it
+// did before the review sheet existed. Time spent reading the sheet is reported
+// on its own (review_seconds), so the check-before-you-send step does not make
+// every transfer look slow and deliberate to Shield.
 //
 // Pointer speed, scroll direction changes and keypress counts used to be
 // collected too. The server never stored or scored them, so they are no longer
@@ -21,7 +27,10 @@ export interface BehavioralProfile {
   paste_detected: boolean;
   pasted_fields: string[];
   time_to_first_input_seconds: number | null;
+  /** Page opening to tapping Send (the form, not the review sheet). */
   time_to_submit_seconds: number;
+  /** Tapping Send to confirming on the review sheet; null without a sheet. */
+  review_seconds: number | null;
 }
 
 export class BehavioralTracker {
@@ -30,6 +39,7 @@ export class BehavioralTracker {
   private lastKeyAt: number | null = null;
   private keyIntervals: number[] = [];
   private pastedFields = new Set<string>();
+  private sendAt: number | null = null;
 
   /** Kept so callers written for the older tracker still work; there are no
    * global listeners any more. */
@@ -62,16 +72,25 @@ export class BehavioralTracker {
     this.pastedFields.add(field);
   }
 
+  /** Call when the customer taps Send, before the review sheet opens. A
+   * Recheck and a second Send moves it to the later tap. */
+  markSend(): void {
+    this.sendAt = Date.now();
+  }
+
   snapshot(): BehavioralProfile {
     const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
     const typing = avg(this.keyIntervals);
+    const now = Date.now();
+    const seconds = (ms: number) => Math.round(ms / 100) / 10;
     return {
       typing_speed_ms: typing === null ? null : Math.round(typing),
       paste_detected: this.pastedFields.size > 0,
       pasted_fields: [...this.pastedFields],
       time_to_first_input_seconds:
         this.firstInputAt === null ? null : Math.round((this.firstInputAt - this.mountedAt) / 100) / 10,
-      time_to_submit_seconds: Math.round((Date.now() - this.mountedAt) / 100) / 10,
+      time_to_submit_seconds: seconds((this.sendAt ?? now) - this.mountedAt),
+      review_seconds: this.sendAt === null ? null : seconds(now - this.sendAt),
     };
   }
 }

@@ -28,7 +28,8 @@ from core.db import cursor
 
 logger = logging.getLogger("fable.features")
 
-FEATURE_VERSION = 1
+# 2: session.review_s, and time_to_submit_s stops at tapping Send (not the review sheet).
+FEATURE_VERSION = 2
 # Code versions of the parts that shape a decision besides the engine
 # parameters (which carry their own version and hash). Bump when behaviour
 # changes.
@@ -208,6 +209,7 @@ def build(user_id: str, institution_id: str | None, transaction: dict, device: d
         "session": {
             "session_age_s": context.get("session_duration_seconds"),
             "time_to_submit_s": context.get("time_to_submit_seconds"),
+            "review_s": context.get("review_seconds"),
             "paste_detected": context.get("paste_detected"),
             "typing_speed_ms": context.get("typing_speed_ms"),
         },

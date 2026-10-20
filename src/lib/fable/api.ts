@@ -356,6 +356,7 @@ export async function shieldAnalyze(
         pasted_fields: behavior?.pasted_fields ?? null,
         time_to_first_input_seconds: behavior?.time_to_first_input_seconds ?? null,
         time_to_submit_seconds: behavior?.time_to_submit_seconds ?? null,
+        review_seconds: behavior?.review_seconds ?? null,
         client_timestamp: localIsoTimestamp(),
         client_timezone: device?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
       },
