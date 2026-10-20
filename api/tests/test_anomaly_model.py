@@ -81,6 +81,14 @@ def test_old_versions_keep_the_previous_model_and_new_ones_use_the_current():
     assert engine_config.validate(engine_config.code_defaults(), legacy) == []
 
 
+def test_the_signal_names_the_model_that_scored():
+    from agents.shield.analyzer import anomaly_signal
+
+    # v1 (approved before the anomaly weights) still runs the Isolation Forest.
+    assert anomaly_signal(0.0485, {"ml_anomaly_previous": 0.10, "ml_anomaly": 0.0}) ==         "ml_anomaly: isolation forest deviation (+0.0485)"
+    assert anomaly_signal(0.05, {"ml_anomaly_previous": 0.0, "ml_anomaly": 0.10}) ==         "ml_anomaly: unusual amount and hour for this customer (+0.05)"
+
+
 def test_the_previous_model_boost_replays_exactly():
     from agents.shield.anomaly import score_anomaly
     from agents.shield.weights import term, term_value

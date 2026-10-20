@@ -133,6 +133,16 @@ def _client_local_hour(context: dict) -> int | None:
         return None
 
 
+def anomaly_signal(boost: float, weights: dict) -> str:
+    """The anomaly signal's text, naming the model whose weight produced it. A
+    version approved before the anomaly weights still runs the previous model
+    (the Isolation Forest); only a version that weighs the current model may
+    describe it as the current one."""
+    if weights.get("ml_anomaly", 0) > 0:
+        return f"ml_anomaly: unusual amount and hour for this customer (+{boost})"
+    return f"ml_anomaly: isolation forest deviation (+{boost})"
+
+
 def analyze_transaction(user_id: str, transaction: dict, device: dict, context: dict,
                         institution_id: str | None = None) -> dict:
     transaction = sanitize_transaction(transaction)
@@ -332,7 +342,7 @@ def analyze_transaction(user_id: str, transaction: dict, device: dict, context: 
         ml_term = term(coefs, gate=ML_GATE)
         ml_boost = round(term_value(ml_term, w), 4)
         if ml_boost > 0:
-            signals.append(f"ml_anomaly: unusual amount and hour for this customer (+{ml_boost})")
+            signals.append(anomaly_signal(ml_boost, w))
         score += add(ml_term)
 
     # Step 8: Device anomaly — unrecognized fingerprint (weight scales with amount)
