@@ -129,31 +129,37 @@ def test_a_request_without_a_credential_names_no_institution():
 
 
 def test_clearing_an_institution_keeps_its_setup_and_other_banks(tmp_path):
+    import secrets
+
     from helpers import seed_bank
 
     from core import config
     from core.db import cursor
     from scripts import clear_institution_data as clr
 
-    seed_bank("clearbank", days=20)
-    seed_bank("staybank", days=20)
+    # Banks of its own, so no other test's rows or audit events count here.
+    clearbank, staybank = f"clearbank_{secrets.token_hex(3)}", f"staybank_{secrets.token_hex(3)}"
+    seed_bank(clearbank, days=20)
+    seed_bank(staybank, days=20)
     with cursor() as cur:
-        cur.execute("INSERT OR REPLACE INTO admins (email, institution_id, hashed_password) VALUES ('o@clear.ng', 'clearbank', 'x')")
+        cur.execute("INSERT OR REPLACE INTO admins (email, institution_id, hashed_password) VALUES (?, ?, 'x')",
+                    (f"o@{clearbank}.ng", clearbank))
     conn = sqlite3.connect(config.DB_PATH, timeout=30, isolation_level=None)
 
     def count(table, inst):
         return conn.execute(f"SELECT COUNT(*) FROM {table} WHERE institution_id = ?", (inst,)).fetchone()[0]
 
-    stay = {t: count(t, "staybank") for t in ("customers", "transactions", "transaction_history")}
-    dry = clr.clear(conn, "clearbank", do_apply=False)
-    assert dry["changes"] and count("customers", "clearbank") == 2
+    stay = {t: count(t, staybank) for t in ("customers", "transactions", "transaction_history")}
+    dry = clr.clear(conn, clearbank, do_apply=False)
+    assert dry["changes"] and count("customers", clearbank) == 2
 
-    clr.clear(conn, "clearbank", do_apply=True)
+    clr.clear(conn, clearbank, do_apply=True)
     for table in ("customers", "transactions", "transaction_history", "accounts", "ghost_containers"):
-        assert count(table, "clearbank") == 0, table
-    assert count("admins", "clearbank") == 1 and count("institutions", "clearbank") == 1
-    assert {t: count(t, "staybank") for t in stay} == stay
-    assert conn.execute("SELECT COUNT(*) FROM audit_log WHERE event_type = 'institution.data_cleared'").fetchone()[0] == 1
+        assert count(table, clearbank) == 0, table
+    assert count("admins", clearbank) == 1 and count("institutions", clearbank) == 1
+    assert {t: count(t, staybank) for t in stay} == stay
+    assert conn.execute("SELECT COUNT(*) FROM audit_log WHERE event_type = 'institution.data_cleared' "
+                        "AND institution_id = ?", (clearbank,)).fetchone()[0] == 1
     with pytest.raises(clr.ClearError):
         clr.clear(conn, "nobank", do_apply=False)
     conn.close()

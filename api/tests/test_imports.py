@@ -106,11 +106,13 @@ def test_history_forms_a_baseline_but_is_not_a_decision(client):
     from core import customers
 
     owner = _session(BANK)
+    # A customer of its own, so the customers import test can run before or after.
+    customers.ensure(BANK, "CIF-HIST", kind="real", source="console")
     stats_before = client.get("/v1/dashboard/stats", headers=owner).json()
-    rows = [f"CIF-1,TRF-{i},{20000 + i * 500},{_iso(5 + i)},0123456789,058,MUSA ADEOLA,mobile_app,completed,,Lagos,Nigeria"
+    rows = [f"CIF-HIST,TRF-H{i},{20000 + i * 500},{_iso(5 + i)},0123456789,058,MUSA ADEOLA,mobile_app,completed,,Lagos,Nigeria"
             for i in range(6)]
-    rows.append(f"NOBODY,TRF-X,1000,{_iso(3)},0123456789,,,,completed,,,")
-    rows.append(f"CIF-1,TRF-FUTURE,1000,{_iso(-2)},0123456789,,,,completed,,,")
+    rows.append(f"NOBODY,TRF-HX,1000,{_iso(3)},0123456789,,,,completed,,,")
+    rows.append(f"CIF-HIST,TRF-HFUTURE,1000,{_iso(-2)},0123456789,,,,completed,,,")
     raw = _csv("customer_reference,reference,amount,occurred_at,recipient_account,recipient_bank,recipient_name,"
                "channel,outcome,device_id,city,country", *rows)
     job = _upload(client, "transactions", raw, owner).json()
@@ -119,7 +121,7 @@ def test_history_forms_a_baseline_but_is_not_a_decision(client):
     assert done["inserted"] == 6
     assert any(e["field"] == "customer_reference" for e in done["errors"])  # unknown customer, at apply time
 
-    ada = customers.get(BANK, "CIF-1")
+    ada = customers.get(BANK, "CIF-HIST")
     baseline = get_user_baseline(ada["id"])
     assert baseline and baseline["transaction_count"] == 6
     assert "0123456789" in baseline["known_recipients"]

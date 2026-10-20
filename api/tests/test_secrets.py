@@ -179,16 +179,29 @@ def test_only_owners_act_and_each_action_needs_a_fresh_factor(client):
 
 
 def test_five_failed_step_ups_lock_key_actions_but_not_the_account(client):
-    for _ in range(4):
-        r = client.post("/operator/secrets/OPENAI_API_KEY/propose", headers=_session(OWNER_A),
+    import secrets as pysecrets
+
+    from core.db import cursor
+
+    # An owner of its own, with no step-up history, so failures or a lock left
+    # by any other test cannot change the count. Removed again at the end, so
+    # the two-owner rules of the other tests are unaffected.
+    owner = f"keys-lock-{pysecrets.token_hex(3)}@fable.test"
+    _operator(owner, "platform_owner")
+    try:
+        for _ in range(4):
+            r = client.post("/operator/secrets/OPENAI_API_KEY/propose", headers=_session(owner),
+                            json={"value": KEY, "reason": "Quarterly rotation", "step_up": {"code": "000000"}})
+            assert r.status_code == 401
+        r = client.post("/operator/secrets/OPENAI_API_KEY/propose", headers=_session(owner),
                         json={"value": KEY, "reason": "Quarterly rotation", "step_up": {"code": "000000"}})
-        assert r.status_code == 401
-    r = client.post("/operator/secrets/OPENAI_API_KEY/propose", headers=_session(OWNER_A),
-                    json={"value": KEY, "reason": "Quarterly rotation", "step_up": {"code": "000000"}})
-    assert r.status_code == 423
-    assert _propose(client).status_code == 423, "even a right code waits out the lock"
-    assert client.get("/operator/me", headers=_session(OWNER_A)).status_code == 200, "sign-in is unaffected"
-    assert client.get("/operator/institutions", headers=_session(OWNER_A)).status_code == 200
+        assert r.status_code == 423
+        assert _propose(client, who=owner).status_code == 423, "even a right code waits out the lock"
+        assert client.get("/operator/me", headers=_session(owner)).status_code == 200, "sign-in is unaffected"
+        assert client.get("/operator/institutions", headers=_session(owner)).status_code == 200
+    finally:
+        with cursor() as cur:
+            cur.execute("UPDATE operators SET active = 0, role = 'support' WHERE email = ?", (owner,))
 
 
 def test_the_server_environment_wins_and_is_read_only_here(client, monkeypatch):
