@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 
 // The homepage hero fits the first screen on common laptop and desktop sizes:
-// the badge, the headline and the "See Live Demo" button are all visible
+// the badge, the headline and the "Open The Sandbox" button are all visible
 // without scrolling. On a phone and a tablet it never scrolls sideways.
 // Screenshots land in test-results/hero for review.
 const SHOTS = "test-results/hero";
@@ -16,7 +16,7 @@ async function hero(page: Page) {
   if (await reject.isVisible().catch(() => false)) await reject.click();
   const badge = page.getByTestId("hero-badge");
   const headline = page.getByRole("heading", { level: 1, name: /Stop Fraud Fast\.\s*Three AI Agents\./ });
-  const button = page.getByRole("link", { name: "See Live Demo" });
+  const button = page.getByRole("link", { name: "Open The Sandbox" });
   for (const part of [badge, headline, button]) await expect(part).toBeVisible();
   // Let the reveal animations finish before measuring.
   await page.waitForTimeout(1200);

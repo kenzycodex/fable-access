@@ -1,13 +1,12 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useState } from "react";
 import { CheckCircle, Eye, LockSimple, ShieldCheck } from "@phosphor-icons/react";
 
 // The same badge as before Phase 0, honestly. It used to show a G2 logo, a
 // star rating and "#1" titles that no review site or analyst ever awarded
-// Fable. Now: Fable's own shield, four product icons in the same colour and
-// rhythm as the stars (not a rating), and lines that are true.
+// Fable. Now: four product icons in the same colour and rhythm as the stars
+// (not a rating), and lines that are true.
 const TITLES = [
   "Built for Nigerian banks and fintechs",
   "Behavioural scoring before every transfer",
