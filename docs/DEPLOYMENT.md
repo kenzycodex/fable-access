@@ -307,6 +307,16 @@ the API up (`docker compose exec -T api python scripts/...`). Each script's
 docstring has the details. After a code change that touches the schema, a
 restart migrates the database in place.
 
+To see what Shield has been deciding, `scripts/recent_decisions.py` prints the
+engine version in force and any in shadow, each bank's thresholds, a per-day
+summary for the last 14 days, and the last N decisions with the signals that
+scored each one and how much history the customer had. It opens the database
+read-only, so it is safe with the API up:
+
+```bash
+docker compose exec -T api python scripts/recent_decisions.py 20
+```
+
 To run the tests, install the dev requirements first (the production image does
 not include pytest): `pip install -r requirements-dev.txt`, then `pytest`.
 

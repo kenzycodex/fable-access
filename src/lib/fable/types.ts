@@ -65,6 +65,9 @@ export interface ScoreResult {
    * path and can be collected with `shieldExplanation(transactionId)`. */
   explanationSource?: "cache" | "template" | "llm" | "pending";
   transactionId?: string;
+  /** What Shield judged the transfer against, from the API: the customer's
+   * own history, the bank's customers as a whole, or nothing. */
+  baselineSource?: "personal" | "population" | "none" | null;
 }
 
 /** A recorded transaction, as stored and shown in both surfaces. */

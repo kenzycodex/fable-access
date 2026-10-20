@@ -172,6 +172,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   scam_pattern: "Scam-script match",
   ml_anomaly: "Unusual for this customer",
   device_anomaly: "Unrecognized device",
+  balance_drain: "Empties the account",
   location_anomaly: "Location anomaly",
   session_freshness: "Fresh session",
   behavioral_anomaly: "Behavioral anomaly",
@@ -186,6 +187,7 @@ const SIGNAL_WEIGHTS: Record<string, number> = {
   scam_pattern: 0.15,
   ml_anomaly: 0.1,
   device_anomaly: 0.18,
+  balance_drain: 0.26,
   location_anomaly: 0.22,
   session_freshness: 0.12,
   behavioral_anomaly: 0.15,
@@ -235,6 +237,7 @@ interface ApiShieldResponse {
   decision_ms?: number;
   explanation_source?: "cache" | "template" | "llm" | "pending";
   transaction_id: string;
+  baseline_source?: "personal" | "population" | "none" | null;
 }
 
 export interface ShieldExplanation {
@@ -356,6 +359,7 @@ export async function shieldAnalyze(
         pasted_fields: behavior?.pasted_fields ?? null,
         time_to_first_input_seconds: behavior?.time_to_first_input_seconds ?? null,
         time_to_submit_seconds: behavior?.time_to_submit_seconds ?? null,
+        review_seconds: behavior?.review_seconds ?? null,
         client_timestamp: localIsoTimestamp(),
         client_timezone: device?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
       },
@@ -409,6 +413,7 @@ export async function shieldAnalyze(
     decisionMs: res.decision_ms !== undefined ? Math.round(res.decision_ms) : undefined,
     explanationSource: res.explanation_source,
     transactionId: res.transaction_id,
+    baselineSource: res.baseline_source ?? null,
   };
 }
 

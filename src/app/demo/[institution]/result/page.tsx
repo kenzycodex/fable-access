@@ -12,7 +12,9 @@ import { SignalCard } from "@/components/demo/SignalCard";
 import { StepUpDialog } from "@/components/demo/StepUpDialog";
 import { useInstitution } from "@/components/demo/InstitutionProvider";
 import { shieldExplanation, StepUpRequiredError } from "@/lib/fable/api";
+import { passMessage } from "@/lib/fable/decision";
 import { formatDateTime, formatNaira, formatRiskScore } from "@/lib/fable/format";
+import type { ScoreResult } from "@/lib/fable/types";
 import {
   approvePending,
   commitPass,
@@ -82,7 +84,10 @@ export default function ResultPage() {
   if (!pending) return <PageSpinner />;
 
   if (pending.action === "PASS") {
-    return <PassResult amount={pending.amount} recipient={pending.recipientName} bank={pending.recipientBank} score={pending.riskScore} />;
+    return (
+      <PassResult amount={pending.amount} recipient={pending.recipientName} bank={pending.recipientBank}
+        score={pending.riskScore} baselineSource={pending.baselineSource ?? null} />
+    );
   }
   return <FlagBlockResult />;
 }
@@ -92,11 +97,13 @@ function PassResult({
   recipient,
   bank,
   score,
+  baselineSource,
 }: {
   amount: number;
   recipient: string;
   bank: string;
   score: number;
+  baselineSource: ScoreResult["baselineSource"];
 }) {
   const router = useRouter();
   const { href, name } = useInstitution();
@@ -138,7 +145,7 @@ function PassResult({
         <h1 className="mt-3 text-[20px] font-bold text-d-text">Transfer sent</h1>
         <p className="mt-1 text-[40px] font-bold tabular-nums leading-tight text-d-text">{formatNaira(amount)}</p>
         <p className="mx-auto mt-2 max-w-[320px] text-[13px] leading-relaxed text-d-muted">
-          This matched how you normally bank, so it went through with no extra steps.
+          {passMessage(baselineSource)}
         </p>
 
         <div className="mt-6 divide-y divide-d-border rounded-2xl bg-d-surface-2 px-4 text-left">
@@ -257,6 +264,33 @@ function FlagBlockResult() {
             <RiskScoreCounter score={pending.riskScore} action={pending.action} />
           </Card>
 
+          {/* The choice sits right under the summary, so it is on the first screen;
+              the reasons follow for anyone who wants them. */}
+          <Card className="animate-fade-in-up [animation-delay:0.05s]">
+            <Eyebrow className="mb-3">Your options</Eyebrow>
+            <div className="flex flex-col gap-3">
+              <Button variant="success" size="lg" full onClick={cancel}>
+                Cancel transfer, I&apos;m safe
+              </Button>
+              <Button
+                variant="secondary"
+                size="lg"
+                full
+                loading={proceeding}
+                onClick={() => sendAnyway()}
+                icon={!proceeding ? <Ghost size={18} /> : undefined}
+              >
+                {isBlock ? "Send anyway, with protection" : "Send anyway, verify it's me"}
+              </Button>
+              <p className="text-[12px] leading-relaxed text-d-muted">
+                {isBlock
+                  ? "If you go ahead, the money is held safely for a short cooling window instead of being sent. You can cancel and get it back."
+                  : "You'll confirm it's really you first, then the transfer goes through."}
+              </p>
+              {proceedError && <Notice tone="danger">{proceedError}</Notice>}
+            </div>
+          </Card>
+
           <Card className="animate-fade-in-up [animation-delay:0.1s]">
             <CardHeader
               title={isBlock ? "Why this was paused" : "Why we are asking you to confirm"}
@@ -297,30 +331,6 @@ function FlagBlockResult() {
             </div>
           </Card>
 
-          <Card className="animate-fade-in-up [animation-delay:0.3s]">
-            <Eyebrow className="mb-3">Your options</Eyebrow>
-            <div className="flex flex-col gap-3">
-              <Button variant="success" size="lg" full onClick={cancel}>
-                Cancel transfer, I&apos;m safe
-              </Button>
-              <Button
-                variant="secondary"
-                size="lg"
-                full
-                loading={proceeding}
-                onClick={() => sendAnyway()}
-                icon={!proceeding ? <Ghost size={18} /> : undefined}
-              >
-                {isBlock ? "Send anyway, with protection" : "Send anyway, verify it's me"}
-              </Button>
-              <p className="text-[12px] leading-relaxed text-d-muted">
-                {isBlock
-                  ? "If you go ahead, the money is held safely for a short cooling window instead of being sent. You can cancel and get it back."
-                  : "You'll confirm it's really you first, then the transfer goes through."}
-              </p>
-              {proceedError && <Notice tone="danger">{proceedError}</Notice>}
-            </div>
-          </Card>
         </div>
       </div>
 

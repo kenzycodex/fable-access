@@ -63,8 +63,9 @@ limited per client (default 180 per 60 seconds), and exceeding it returns `429`.
 | `transaction.recipient_name` | string | As resolved by NUBAN lookup |
 | `transaction.narration` | string | Up to 500 characters |
 | `transaction.channel` | enum | `mobile_app`, `ussd`, `pos`, `internet`, `atm`, `qr`, `branch`, `unknown` |
+| `transaction.balance_before` | number | What the customer could spend just before this transfer, in naira, from your core system. Optional; when sent, Shield scores a transfer that takes most of it (`balance_drain`). In the sandbox Fable's own ledger is used and this is ignored |
 | `device` | object | Fingerprint and traits from the SDK. All optional |
-| `context` | object | Location, session and behavioural signals. All optional |
+| `context` | object | Location, session and behavioural signals. All optional. `context.time_to_submit_seconds` is page opening to tapping Send; time on a review-before-send step goes in `context.review_seconds` (stored, not scored) |
 | `client_reference` | string | Your own transfer id. A retry with the same one returns the first decision instead of scoring twice |
 
 Returns:

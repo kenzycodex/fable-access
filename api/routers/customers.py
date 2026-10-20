@@ -74,6 +74,45 @@ def add_customer(body: NewCustomer, request: Request):
     return customers.public(created)
 
 
+_DEMO_NAMES = (
+    "Adaeze Okafor", "Tunde Bakare", "Ngozi Eze", "Ibrahim Musa", "Funke Adeyemi", "Chidi Nwosu", "Aisha Bello",
+    "Segun Ogunleye", "Halima Yusuf", "Emeka Obi", "Bisi Afolabi", "Kemi Lawal",
+)
+
+
+class DemoCustomer(BaseModel):
+    name: str | None = Field(None, max_length=120)
+    opening_balance: float = Field(1_000_000, ge=0, le=1_000_000_000)
+
+
+@router.post("/demo", status_code=201)
+def add_demo_customer(body: DemoCustomer, request: Request):
+    """A fresh test customer for a demo, in one step: a generated reference, a
+    name, and money in the sandbox ledger, with no history for Shield to have
+    learned from. Sandbox only. Owners and analysts."""
+    import secrets as _secrets
+
+    who = require_role(request, "analyst")
+    institution_id = who["inst"]
+    if institution_mode(institution_id) == "live":
+        raise HTTPException(status_code=409, detail="Demo customers are for the sandbox. This institution is live.")
+    reference = f"demo-{_secrets.token_hex(3)}"
+    while customers.get(institution_id, reference):
+        reference = f"demo-{_secrets.token_hex(3)}"
+    name = (body.name or "").strip() or _secrets.choice(_DEMO_NAMES)
+    row = {"reference": reference, "name": name, "kind": "test", "opening_balance": body.opening_balance}
+    data, problems = imports.validate_customer(row, sandbox=True)
+    if problems:
+        raise HTTPException(status_code=400, detail="; ".join(f"{f}: {m}" for f, m in problems))
+    inserted, _skipped, errors = imports.apply_rows(institution_id, "customers", [data], source="console")
+    if errors or not inserted:
+        raise HTTPException(status_code=400, detail=errors[0]["message"] if errors else "Customer not added.")
+    created = customers.get(institution_id, reference)
+    audit.record(audit.CUSTOMER_CREATED, created["id"], institution_id=institution_id,
+                 reference=reference, kind="test", admin=who["email"], demo=True)
+    return customers.public(created)
+
+
 class CustomerPatch(BaseModel):
     name: str | None = Field(None, max_length=120)
     phone: str | None = Field(None, max_length=32)
@@ -136,3 +175,27 @@ def erase_customer(customer_id: str, body: Erasure, request: Request):
         return data_rights.erase(who["inst"], customer["id"], who["email"], body.confirm_reference)
     except data_rights.RightsError as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc))
+
+
+class HistoryReset(BaseModel):
+    confirm_reference: str = Field(min_length=1, max_length=64)
+
+
+@router.post("/{customer_id}/reset-history")
+def reset_history(customer_id: str, body: HistoryReset, request: Request):
+    """Clear a test customer's transfers and what Shield learned from them
+    (usual amounts, recipients, devices, places), so a demo starts clean. Owners
+    only, sandbox and test customers only; the reference must be typed to
+    confirm. Their money, PIN and passkeys stay."""
+    from services import data_admin
+
+    who = require_role(request, "owner")
+    customer = customers.get(who["inst"], customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    if body.confirm_reference.strip() != customer["external_ref"]:
+        raise HTTPException(status_code=400, detail="Type the customer's reference exactly to confirm.")
+    try:
+        return data_admin.reset_test_customer(who["inst"], customer["id"], who["email"])
+    except data_admin.DataAdminError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

@@ -114,7 +114,12 @@ def test_each_change_in_the_release_draft_is_shown_on_its_own(legacy_live):
                          "channel_risk: mobile_app (+0.12)", "ml_anomaly: isolation forest deviation (+0.045)"],
                         [NEW_RECIPIENT, [{"time_anomaly": 1}, 0.0, 1, 0], CHANNEL, [{}, 0.045, 1, 0]], "FLAG")
 
-    report = backtest.replay(engine_config.code_defaults(), 30, institution=BANK)
+    # The first release draft: no-history amounts and the anomaly model only
+    # (balance drain and location by place are a later draft).
+    draft = engine_config.code_defaults()
+    for key in engine_config.DRAIN_PLACE_KEYS:
+        draft["weights"][key] = 0.0
+    report = backtest.replay(draft, 30, institution=BANK)
     assert report["rows"]["fidelity"] == report["rows"]["replayed"], "rebuilt terms replay as decided"
     assert report["rows"]["rebuilt"] >= 2
     groups = {g["group"]: g for g in report["by_change"]}

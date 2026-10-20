@@ -26,11 +26,14 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import logging
 import os
 import threading
 import time
 
 CACHE_SECONDS = 30
+
+_logger = logging.getLogger("fable.engine")
 
 # ── The catalogue ────────────────────────────────────────────────────────────
 
@@ -47,13 +50,23 @@ WEIGHT_GROUPS: list[tuple[str, list[tuple[str, str, float]]]] = [
         ("new_recipient", "First transfer to this account", 0.20),
         ("time_anomaly", "Outside usual hours", 0.12),
     ]),
-    ("Device and location", [
+    ("Device", [
         ("device_anomaly", "Unrecognised device", 0.08),
         ("device_anomaly_large", "Unrecognised device, large transfer", 0.18),
-        ("location_country", "Outside home country", 0.22),
-        ("location_city_large", "New city, large transfer", 0.12),
-        ("location_city", "New city", 0.06),
         ("timezone_mismatch", "Device timezone differs", 0.08),
+    ]),
+    # A new place. The previous check compared city names, so a customer who
+    # never left Lagos scored "new city Lagos" when the geocoder said Bariga.
+    # The place check (agents/shield/places.py) measures distance from where
+    # the customer has been, falling back to normalised names. Versions
+    # approved before it keep the name check (LEGACY_FILL); new versions use
+    # the place check instead.
+    ("Location", [
+        ("location_country", "Outside home country", 0.22),
+        ("location_city_large", "New city by name, large transfer (retiring)", 0.0),
+        ("location_city", "New city by name (retiring)", 0.0),
+        ("location_place_large", "New place, large transfer", 0.12),
+        ("location_place", "New place", 0.06),
     ]),
     ("Behaviour", [
         ("session_freshness", "Transfer seconds after login", 0.12),
@@ -105,6 +118,15 @@ WEIGHT_GROUPS: list[tuple[str, list[tuple[str, str, float]]]] = [
         ("ml_anomaly_previous", "Previous anomaly model (retiring)", 0.0),
         ("ml_anomaly", "Unusual amount and hour for this customer", 0.10),
     ]),
+    # A transfer that takes most of the available balance (agents/shield/
+    # analyzer.py, step 8b). The two share tiers are exclusive; the combination
+    # weight adds on top when the money also goes to a new recipient or leaves
+    # from a new device, which is the "move it to a safe account" script.
+    ("Balance drain", [
+        ("balance_drain_80", "Takes 80% or more of the balance", 0.10),
+        ("balance_drain_all", "Takes the whole balance", 0.16),
+        ("balance_drain_combo", "Drain to a new recipient or from a new device", 0.10),
+    ]),
 ]
 WEIGHT_DEFAULTS = {key: default for _, items in WEIGHT_GROUPS for key, _, default in items}
 
@@ -116,7 +138,21 @@ LEGACY_FILL = {
     "first_amount_5m": 0.0, "first_amount_20m": 0.0,
     # A version from before the anomaly weights ran the previous model at 0.10.
     "ml_anomaly_previous": 0.10, "ml_anomaly": 0.0,
+    # Balance drain did not exist: off in every version approved before it.
+    "balance_drain_80": 0.0, "balance_drain_all": 0.0, "balance_drain_combo": 0.0,
+    # The place check did not exist; those versions judged location by name.
+    "location_place_large": 0.0, "location_place": 0.0,
 }
+# Which LEGACY_FILL parameters each prepared draft introduces. The release
+# draft (no-history amounts and the anomaly model) and the balance-drain draft
+# are separate, so each can be backtested and promoted on its own.
+COLD_START_RELEASE_KEYS = ("first_amount_100k", "first_amount_500k", "first_amount_1m", "first_amount_5m",
+                           "first_amount_20m", "ml_anomaly_previous", "ml_anomaly")
+# The second prepared draft: balance drain, and location by place instead of
+# by city name (which it sets to zero).
+DRAIN_PLACE_KEYS = ("balance_drain_80", "balance_drain_all", "balance_drain_combo", "location_place_large",
+                    "location_place")
+DRAIN_PLACE_RETIRES = ("location_city_large", "location_city")
 FIRST_AMOUNT_KEYS = ("first_amount_100k", "first_amount_500k", "first_amount_1m", "first_amount_5m",
                      "first_amount_20m")
 FIRST_AMOUNT_TIERS = (
@@ -311,6 +347,8 @@ def validate(params: dict, base: dict | None = None) -> list[str]:
     tiers = [w[key] for _, key in reversed(FIRST_AMOUNT_TIERS)]
     if any(b < a - 1e-9 for a, b in zip(tiers, tiers[1:])):
         errors.append("No-history amount weights must not fall as the amount rises.")
+    if w["balance_drain_all"] < w["balance_drain_80"] - 1e-9:
+        errors.append("Taking the whole balance must weigh at least as much as taking 80% of it.")
     if base is not None:
         before = flat(base)
         # A parameter the base version never had is being introduced, not
@@ -371,12 +409,12 @@ def seed_cold_start_draft() -> int | None:
         if not row:
             return None
         stored = json.loads(row["params"])
-        if all(k in (stored.get("weights") or {}) for k in LEGACY_FILL):
+        if all(k in (stored.get("weights") or {}) for k in COLD_START_RELEASE_KEYS):
             cur.execute("INSERT OR IGNORE INTO platform_settings (key, value, updated_by) VALUES (?, 'not needed', "
                         "'system')", (COLD_START_DRAFT_FLAG,))
             return None
         params = normalise(stored)
-        for key in LEGACY_FILL:
+        for key in COLD_START_RELEASE_KEYS:
             params["weights"][key] = WEIGHT_DEFAULTS[key]
         cur.execute("SELECT COALESCE(MAX(version), 0) + 1 AS v FROM engine_versions")
         version = cur.fetchone()["v"]
@@ -391,6 +429,83 @@ def seed_cold_start_draft() -> int | None:
         )
         cur.execute("INSERT OR IGNORE INTO platform_settings (key, value, updated_by) VALUES (?, ?, 'system')",
                     (COLD_START_DRAFT_FLAG, str(version)))
+    return version
+
+
+DRAIN_PLACE_DRAFT_FLAG = "engine.drain_place_draft_seeded"
+
+
+# Versions that are on their way to going live, or may be: a draft the
+# release prepared, and anything proposed, cooling off, approved or in shadow.
+_PENDING_SQL = ("SELECT version, status FROM engine_versions WHERE status IN ('proposed', 'cooling', 'approved', "
+                "'shadow') OR (status = 'draft' AND created_by = 'system') ORDER BY version")
+_last_wait: list[str | None] = [None]
+
+
+def seed_drain_place_draft() -> int | None:
+    """Offer balance drain and the place-based location check as a draft, once,
+    on a deployment whose active version predates them.
+
+    The draft is the version LIVE when it is created, with only these changes:
+    the three drain weights and the two place weights at their recommended
+    values, and the two name-based city weights at zero. Each is its own group
+    on the Engine page, so the backtest and shadow show what each changes on its
+    own. It is a new version, never a change to one already proposed, approved
+    or in shadow.
+
+    It waits while another version is on its way to going live (the release's
+    first draft, or anything proposed, cooling off, approved or in shadow):
+    built from today's live version, it would leave that version's changes out,
+    and promoting it later would undo them. Startup and the engine sweep (every
+    ten minutes) try again, so the draft appears once that version is promoted
+    or set aside. Returns the draft's number when one was created.
+    """
+    with _cursor() as cur:
+        cur.execute("SELECT value FROM platform_settings WHERE key = ?", (DRAIN_PLACE_DRAFT_FLAG,))
+        if cur.fetchone():
+            return None
+        cur.execute("SELECT version, params FROM engine_versions WHERE status = 'active' "
+                    "ORDER BY version DESC LIMIT 1")
+        row = cur.fetchone()
+        if not row:
+            return None
+        # Already in force when the live version weighs these as recommended
+        # (a new install). A version drafted after this code shipped stores
+        # them at 0 when nobody set them, so presence alone does not count.
+        live_w = normalise(json.loads(row["params"]))["weights"]
+        in_force = all(abs(live_w[k] - WEIGHT_DEFAULTS[k]) < 1e-9 for k in DRAIN_PLACE_KEYS + DRAIN_PLACE_RETIRES)
+        cur.execute(_PENDING_SQL)
+        pending = [f"v{r['version']} ({r['status']})" for r in cur.fetchall()]
+        if pending and not in_force:
+            reason = (f"Balance-drain and location draft not created yet: {', '.join(pending)} is on its way to "
+                      f"going live, and a draft built from the live v{row['version']} would leave its changes out. "
+                      "It is created once that version is promoted, rejected or expires.")
+            if _last_wait[0] != reason:
+                _last_wait[0] = reason
+                _logger.info(reason)
+            return None
+        if in_force:
+            cur.execute("INSERT OR IGNORE INTO platform_settings (key, value, updated_by) VALUES (?, 'not needed', "
+                        "'system')", (DRAIN_PLACE_DRAFT_FLAG,))
+            return None
+        params = normalise(json.loads(row["params"]))
+        for key in DRAIN_PLACE_KEYS + DRAIN_PLACE_RETIRES:
+            params["weights"][key] = WEIGHT_DEFAULTS[key]
+        cur.execute("SELECT COALESCE(MAX(version), 0) + 1 AS v FROM engine_versions")
+        version = cur.fetchone()["v"]
+        cur.execute(
+            """INSERT INTO engine_versions (version, status, params, params_hash, base_version, note, created_by)
+               VALUES (?, 'draft', ?, ?, ?, ?, 'system')""",
+            (version, canonical(params), params_hash(params), row["version"],
+             "Prepared by the release. Balance drain: a transfer taking 80% or more of the available balance, "
+             "more for the whole balance, and more again to a new recipient or from a new device. Location: "
+             "a new place measured by distance from where the customer has been (45 km), instead of a "
+             "different city name, so Bariga and Lagos are the same place. Everything else is the active "
+             "version. Backtest, then propose. Decisions before this release recorded neither the balance nor "
+             "the place check, so the backtest cannot show these on them; the shadow run will."),
+        )
+        cur.execute("INSERT OR IGNORE INTO platform_settings (key, value, updated_by) VALUES (?, ?, 'system')",
+                    (DRAIN_PLACE_DRAFT_FLAG, str(version)))
     return version
 
 

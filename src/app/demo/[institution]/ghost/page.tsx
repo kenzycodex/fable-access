@@ -142,6 +142,34 @@ export default function GhostPage() {
             </p>
           </Card>
 
+          {/* The two choices sit right under the held amount, on the first
+              screen; the timer and the details follow. */}
+          <Card className="flex flex-col gap-3">
+            <Button variant="danger" size="lg" full loading={cancelling} disabled={releasing} onClick={() => void cancel()}>
+              Cancel and get my money back
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              full
+              loading={releasing}
+              disabled={cancelling}
+              onClick={() => confirm()}
+              icon={!releasing ? <HandPointing size={18} /> : undefined}
+            >
+              I&apos;m sure, release the transfer
+            </Button>
+            {askedBank && (
+              <Notice tone="neutral">
+                We&apos;ve asked your bank to verify you. They may call you on the number they have on file. The money
+                stays held until they release it, and you can still cancel.
+              </Notice>
+            )}
+            {/* A refused release has to be visible. Failing quietly would read as
+                a broken button, when the money is in fact being held on purpose. */}
+            {releaseError && <Notice tone="danger">{releaseError}</Notice>}
+          </Card>
+
           <Card>
             <CardHeader title="Cooling window" subtitle="Cancel any time before it ends" />
             <GhostTimer expiresAt={ghost.expiresAt} windowSeconds={ghost.windowSeconds} onExpire={() => void checkExpiry()} />
@@ -172,31 +200,6 @@ export default function GhostPage() {
             </ol>
           </Card>
 
-          <Card className="flex flex-col gap-3">
-            <Button variant="danger" size="lg" full loading={cancelling} disabled={releasing} onClick={() => void cancel()}>
-              Cancel and get my money back
-            </Button>
-            <Button
-              variant="secondary"
-              size="lg"
-              full
-              loading={releasing}
-              disabled={cancelling}
-              onClick={() => confirm()}
-              icon={!releasing ? <HandPointing size={18} /> : undefined}
-            >
-              I&apos;m sure, release the transfer
-            </Button>
-            {askedBank && (
-              <Notice tone="neutral">
-                We&apos;ve asked your bank to verify you. They may call you on the number they have on file. The money
-                stays held until they release it, and you can still cancel.
-              </Notice>
-            )}
-            {/* A refused release has to be visible. Failing quietly would read as
-                a broken button, when the money is in fact being held on purpose. */}
-            {releaseError && <Notice tone="danger">{releaseError}</Notice>}
-          </Card>
         </div>
       </div>
 

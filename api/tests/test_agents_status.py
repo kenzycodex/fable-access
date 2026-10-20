@@ -84,6 +84,6 @@ def test_the_shield_pipeline_follows_the_engine_version_in_force(monkeypatch):
     params["weights"]["channel_internet"] = 0.31
     monkeypatch.setattr(engine_config, "active", lambda: {"version": 7, "params": params, "hash": "x"})
     steps = {s["code"]: s for s in shield_pipeline()}
-    assert len(steps) == 16
+    assert len(steps) == 17
     assert steps["channel_risk"]["max_weight"] == 0.31
     assert "informed by NIBSS" in steps["channel_risk"]["description"]

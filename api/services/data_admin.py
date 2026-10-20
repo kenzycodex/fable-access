@@ -11,6 +11,10 @@ risk:
     data, on its documented instruction.
   * delete_institution: a Fable platform owner removes the institution entirely,
     after it has been suspended. Offboarding.
+  * reset_test_customer: the bank's owner clears one test customer's history
+    and what Shield learned from it, so a demo starts from a clean slate. Sandbox
+    and test customers only; the customer, their money and their PIN and
+    passkeys stay.
 
 Banks have record-keeping duties under the CBN's AML/CFT rules and Fable acts on
 their instructions as a processor under the NDPA, so real data is never deleted
@@ -233,3 +237,73 @@ def _safe(value):
     if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
         return "'" + value
     return value
+
+
+# One test customer's history and what Shield learned from it. What stays: the
+# customer, their account and ledger (their money), their PIN, passkeys and
+# confirmed contact details, and the audit log.
+_HISTORY_BY_USER = (
+    "transactions", "transaction_history", "decision_features", "ghost_containers", "user_locations",
+    "device_profiles", "stepup_failures", "stepup_challenges", "stepup_tokens", "notifications", "sandbox_inbox",
+)
+
+
+def reset_test_customer(institution_id: str, customer_id: str, actor: str) -> dict:
+    """Clear one test customer's history and learned behaviour (sandbox only)."""
+    conn = _connect()
+    try:
+        tables = _tables(conn)
+        inst = conn.execute("SELECT mode FROM institutions WHERE institution_id = ?", (institution_id,)).fetchone()
+        if not inst:
+            raise DataAdminError("Institution not found.")
+        if (inst["mode"] or "sandbox") == "live":
+            raise DataAdminError("History can only be reset while the institution is in sandbox mode.")
+        customer = conn.execute("SELECT id, kind, external_ref FROM customers WHERE institution_id = ? AND id = ?",
+                                (institution_id, customer_id)).fetchone()
+        if not customer:
+            raise DataAdminError("Customer not found.")
+        if customer["kind"] != "test":
+            raise DataAdminError("Only a test customer's history can be reset.")
+        if "ghost_containers" in tables and conn.execute(
+                "SELECT 1 FROM ghost_containers WHERE user_id = ? AND status IN ('HELD', 'RELEASE_REQUESTED')",
+                (customer_id,)).fetchone():
+            raise DataAdminError("This customer has a hold in progress. Release or cancel it first.")
+
+        def work():
+            before = _other_counts(conn, tables, institution_id)
+            removed: dict[str, int] = {}
+            if "case_notes" in tables:
+                n = conn.execute("DELETE FROM case_notes WHERE institution_id = ? AND transaction_id IN "
+                                 "(SELECT id FROM transactions WHERE user_id = ?)", (institution_id, customer_id)).rowcount
+                if n:
+                    removed["case_notes"] = n
+            for table in _HISTORY_BY_USER:
+                if table not in tables:
+                    continue
+                where, args = "user_id = ?", [customer_id]
+                if "institution_id" in tables[table]:
+                    # Rows written before institution ids were recorded are
+                    # this customer's too: customer ids are unique.
+                    where += " AND (institution_id = ? OR institution_id IS NULL)"
+                    args.append(institution_id)
+                n = conn.execute(f"DELETE FROM {table} WHERE {where}", args).rowcount
+                if n:
+                    removed[table] = n
+            # Devices are learned behaviour, except one the customer chose to
+            # trust by enrolling a passkey on it.
+            n = conn.execute("DELETE FROM customer_devices WHERE user_id = ? "
+                             "AND (institution_id = ? OR institution_id IS NULL) AND COALESCE(trusted, 0) = 0",
+                             (customer_id, institution_id)).rowcount
+            if n:
+                removed["customer_devices"] = n
+            if _other_counts(conn, tables, institution_id) != before:
+                raise DataAdminError("Another institution's data would change. Nothing was removed.")
+            conn.execute(
+                "INSERT INTO audit_log (user_id, institution_id, event_type, payload) VALUES (?, ?, ?, ?)",
+                (customer_id, institution_id, "customer.history_reset", json.dumps({"rows": removed, "by": actor})),
+            )
+            return {"reset": True, "rows_removed": removed}
+
+        return _run(conn, work)
+    finally:
+        conn.close()

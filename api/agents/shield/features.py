@@ -24,11 +24,14 @@ import math
 import statistics
 from datetime import date, datetime, timezone
 
+from agents.shield.places import haversine_km
 from core.db import cursor
 
 logger = logging.getLogger("fable.features")
 
-FEATURE_VERSION = 1
+# 2: session.review_s, and time_to_submit_s stops at tapping Send (not the review sheet);
+#    amount.share_of_balance.
+FEATURE_VERSION = 2
 # Code versions of the parts that shape a decision besides the engine
 # parameters (which carry their own version and hash). Bump when behaviour
 # changes.
@@ -64,10 +67,15 @@ def _days_since(stamp: str | None, now: datetime) -> float | None:
     return round((now - then).total_seconds() / 86400, 1)
 
 
-def _haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
-    lat1, lon1, lat2, lon2 = map(math.radians, (a[0], a[1], b[0], b[1]))
-    h = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
-    return 6371 * 2 * math.asin(math.sqrt(h))
+def baseline_source(seen: dict | None) -> str | None:
+    """What a decision was judged against: the customer's own history
+    ("personal"), the bank's customers as a whole ("population"), or nothing
+    ("none"). None when scoring did not say (a fallback decision)."""
+    if not seen:
+        return None
+    if not seen.get("baseline"):
+        return "none"
+    return "population" if seen.get("cold_start") else "personal"
 
 
 def build(user_id: str, institution_id: str | None, transaction: dict, device: dict, context: dict,
@@ -80,7 +88,7 @@ def build(user_id: str, institution_id: str | None, transaction: dict, device: d
     local = _local_time(context)
     baseline = seen.get("baseline") or {}
     cold = bool(seen.get("cold_start"))
-    source = "none" if not seen.get("baseline") else ("population" if cold else "personal")
+    source = baseline_source(seen)
     amount = float(transaction.get("amount") or 0)
     recipient = transaction.get("recipient_account") or ""
 
@@ -132,7 +140,7 @@ def build(user_id: str, institution_id: str | None, transaction: dict, device: d
                         "AND latitude IS NOT NULL AND longitude IS NOT NULL", (user_id,))
             usual = [(r["latitude"], r["longitude"]) for r in cur.fetchall()]
             if usual:
-                nearest = min(_haversine_km(here, u) for u in usual)
+                nearest = min(haversine_km(here, u) for u in usual)
                 distance = int(round(nearest / DISTANCE_STEP_KM) * DISTANCE_STEP_KM)
 
     avg = float(baseline.get("avg_amount") or 0) or None
@@ -160,6 +168,9 @@ def build(user_id: str, institution_id: str | None, transaction: dict, device: d
             "ratio_to_median": round(amount / median, 3) if median else None,
             "zscore": round((amount - avg) / stdev, 3) if avg and stdev else None,
             "first_transfer": cold,
+            # Share of the balance available before the transfer; None when
+            # the balance was not known (a live bank that did not send it).
+            "share_of_balance": round(seen["balance_share"], 4) if seen.get("balance_share") is not None else None,
         },
         "time": {
             "hour": hour,
@@ -208,6 +219,7 @@ def build(user_id: str, institution_id: str | None, transaction: dict, device: d
         "session": {
             "session_age_s": context.get("session_duration_seconds"),
             "time_to_submit_s": context.get("time_to_submit_seconds"),
+            "review_s": context.get("review_seconds"),
             "paste_detected": context.get("paste_detected"),
             "typing_speed_ms": context.get("typing_speed_ms"),
         },

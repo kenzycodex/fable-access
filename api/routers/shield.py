@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from agents.copilot.baseline import log_transaction
 from agents.shield.analyzer import analyze_transaction_safe
 from agents.shield.explainer import generate_llm_explanation, llm_available
+from agents.shield.features import baseline_source
 from core.tenancy import customer_guard, require_role, scoring_guard
 from models.schemas import (
     FeedbackRequest,
@@ -159,7 +160,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
     # checks funds in its own core banking system before it asks for a score.
     if sandbox:
         try:
-            assert_can_spend(payload.user_id, transaction["amount"], institution_id)
+            funds = assert_can_spend(payload.user_id, transaction["amount"], institution_id)
         except InsufficientFunds as exc:
             raise HTTPException(
                 status_code=422,
@@ -171,6 +172,10 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
                     "shortfall": exc.shortfall,
                 },
             )
+
+        # Balance drain is scored against the ledger here, never a value the
+        # browser sent: the customer must not be able to understate it.
+        transaction["balance_before"] = funds["available"]
 
     result = analyze_transaction_safe(payload.user_id, transaction, device, context, institution_id)
 
@@ -307,6 +312,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         explanation_source="pending" if pending else explanation_source,
         transaction_id=transaction_id,
         engine_version=result.get("engine_version"),
+        baseline_source=baseline_source(seen),
     )
 
 
