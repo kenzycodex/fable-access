@@ -14,7 +14,7 @@ test("a first transfer on the riskiest channel is flagged and sent after the PIN
   await asCustomer(page, "e2e-flag", "Bayo Lawal");
   // Under the NGN 100k "large" line, so session and typing-speed signals stay quiet.
   await sendTransfer(page, 99_000, { channel: "Web" });
-  await expect(page.getByText("Please confirm this transfer")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Please confirm this transfer", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: /verify it's me/i }).click();
   await typeCode(page, "Enter your PIN", PIN);
   await page.waitForURL(/\/demo\/e2ebank\/?$/);
@@ -23,10 +23,10 @@ test("a first transfer on the riskiest channel is flagged and sent after the PIN
 test("a blocked transfer held by Ghost can be cancelled", async ({ page }) => {
   await asCustomer(page, "e2e-cancel", "Chioma Eze");
   await sendTransfer(page, 1_000_000, { channel: "Web" });
-  await expect(page.getByText("Transfer paused")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Transfer paused", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: /Send anyway, with protection/ }).click();
   await page.waitForURL(/\/ghost/);
-  await expect(page.getByText("Funds on hold")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Funds on hold", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: "Cancel and get my money back" }).click();
   await page.waitForURL(/\/demo\/e2ebank\/?$/);
 });
@@ -51,7 +51,7 @@ test("a held transfer is released with passkey, PIN and an emailed code", async 
   await page.goto("/demo/e2ebank/transparency");
   await page.getByRole("button", { name: "Add device" }).click();
   await typeCode(page, "Confirm with your PIN to trust a new device", PIN);
-  await expect(page.getByText(/1 added/)).toBeVisible();
+  await expect(page.locator("main").getByText(/1 added/)).toBeVisible();
 
   await sendTransfer(page, 1_000_000, { channel: "Web" });
   await page.getByRole("button", { name: /Send anyway, with protection/ }).click();
@@ -73,8 +73,8 @@ test("a hold nobody releases expires and nothing is sent", async ({ page }) => {
   await page.waitForURL(/\/ghost/);
   ageHold("e2e-expire");
   await page.getByRole("button", { name: /release the transfer/i }).click();
-  await expect(page.getByText("Hold ended")).toBeVisible();
-  await expect(page.getByText(/expired, so the money stayed in your account/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Hold ended", level: 1 })).toBeVisible();
+  await expect(page.locator("main").getByText(/expired, so the money stayed in your account/)).toBeVisible();
 });
 
 test("an analyst works a flagged case in the console", async ({ page, browser }) => {
@@ -82,7 +82,7 @@ test("an analyst works a flagged case in the console", async ({ page, browser })
   await asCustomer(page, "e2e-review", "Femi Ade");
   // Under the NGN 100k "large" line, so session and typing-speed signals stay quiet.
   await sendTransfer(page, 99_000, { channel: "Web" });
-  await expect(page.getByText("Please confirm this transfer")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Please confirm this transfer", level: 1 })).toBeVisible();
 
   const analyst = await (await browser.newContext()).newPage();
   await signIn(analyst, "analyst", "/dashboard/review");
@@ -102,9 +102,9 @@ test("the review sheet shows the amount's size and sends nothing on Recheck", as
   const bank = page.getByLabel("Bank");
   await expect(bank.locator("option").nth(1)).toBeAttached();
   await bank.selectOption({ index: 1 });
-  await expect(page.getByText(/Demo name|Verified/).first()).toBeVisible();
+  await expect(page.locator("main").getByText(/Demo name|Verified/).first()).toBeVisible();
   await page.getByLabel("Amount in naira").fill("500000");
-  await expect(page.getByText("Hundreds of thousands").first()).toBeVisible();
+  await expect(page.locator("main").getByText("Hundreds of thousands").first()).toBeVisible();
   await page.getByRole("button", { name: /^Send ₦/ }).click();
   const review = page.getByRole("dialog", { name: "Check before you send" });
   await expect(review.getByText(/can't be reversed/)).toBeVisible();

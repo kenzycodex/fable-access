@@ -76,7 +76,7 @@ test("every sandbox screen fits a phone", async ({ page }) => {
   const bank = page.getByLabel("Bank");
   await expect(bank.locator("option").nth(1)).toBeAttached();
   await bank.selectOption({ index: 1 });
-  await expect(page.getByText(/Demo name|Verified/).first()).toBeVisible();
+  await expect(page.locator("main").getByText(/Demo name|Verified/).first()).toBeVisible();
   await page.getByLabel("Amount in naira").fill("25000");
   await page.getByRole("button", { name: /^Send ₦/ }).click();
   await expect(page.getByRole("dialog", { name: "Check before you send" })).toBeVisible();

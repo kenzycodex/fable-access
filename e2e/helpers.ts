@@ -34,7 +34,7 @@ export async function sendTransfer(page: Page, amount: number, opts: { channel?:
   const bank = page.getByLabel("Bank");
   await expect(bank.locator("option").nth(1)).toBeAttached();
   await bank.selectOption({ index: 1 });
-  await expect(page.getByText(/Demo name|Verified/).first()).toBeVisible();
+  await expect(page.locator("main").getByText(/Demo name|Verified/).first()).toBeVisible();
   if (opts.channel) await page.getByRole("tab", { name: new RegExp(`^${opts.channel}`) }).click();
   await page.getByLabel("Amount in naira").fill(String(amount));
   await page.getByRole("button", { name: /^Send ₦/ }).click();

@@ -41,9 +41,9 @@ test("an owner sees the data-rights card on a customer, and erasing needs the re
   await page.waitForURL(/\/dashboard\/customers/);
   await page.locator("tr", { hasText: "e2e-mobile" }).first().click();
   await page.waitForURL(/\/dashboard\/customers\/.+/);
-  await expect(page.getByText("Their data")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Their data" })).toBeVisible();
   await page.getByRole("button", { name: "Erase this customer" }).click();
   await page.getByLabel("Customer reference").fill("not-the-reference");
   await page.getByRole("button", { name: "Erase", exact: true }).click();
-  await expect(page.getByText(/Type the customer's reference exactly/)).toBeVisible();
+  await expect(page.locator("[data-sonner-toaster]").getByText(/Type the customer's reference exactly/)).toBeVisible();
 });
