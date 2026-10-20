@@ -20,7 +20,25 @@ describe("ReviewSheet", () => {
     expect(screen.getByText("Hundreds of thousands")).toBeTruthy();
     expect(screen.getByText("TEST PAYEE")).toBeTruthy();
     expect(screen.getByText("₦1,500,000")).toBeTruthy(); // balance after
+    expect(screen.getByText(/First transfer to this account/)).toBeTruthy();
     expect(screen.getByText(/can't be reversed/)).toBeTruthy();
+  });
+
+  it("a known recipient gets the one-line reminder only", () => {
+    render(
+      <ReviewSheet open onClose={vi.fn()} onConfirm={vi.fn()} from="Test Customer" to={{ ...recipient, known: true }}
+        amount={50_000} available={2_000_000} narration="" channel="Web" />,
+    );
+    expect(screen.queryByText(/rushing you/)).toBeNull();
+    expect(screen.getByText(/can't be reversed/)).toBeTruthy();
+  });
+
+  it("warns a known recipient's transfer that empties the account", () => {
+    render(
+      <ReviewSheet open onClose={vi.fn()} onConfirm={vi.fn()} from="Test Customer" to={{ ...recipient, known: true }}
+        amount={985_500} available={985_500} narration="" channel="Web" />,
+    );
+    expect(screen.getByText(/leaves little in your account/)).toBeTruthy();
   });
 
   it("sends only on Confirm; Recheck closes", () => {
