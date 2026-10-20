@@ -16,8 +16,8 @@ async function hero(page: Page) {
   if (await reject.isVisible().catch(() => false)) await reject.click();
   const badge = page.getByTestId("hero-badge");
   const headline = page.getByRole("heading", { level: 1, name: /Stop Fraud Fast\.\s*Three AI Agents\./ });
-  // The navbar has an "Open the Sandbox" link too; the hero button is the one in main.
-  const button = page.getByRole("main").getByRole("link", { name: "Open The Sandbox" });
+  // The closing call to action reads "Open the Sandbox"; the hero's button is the exact "Open The Sandbox".
+  const button = page.getByRole("link", { name: "Open The Sandbox", exact: true });
   for (const part of [badge, headline, button]) await expect(part).toBeVisible();
   // Let the reveal animations finish before measuring.
   await page.waitForTimeout(1200);
