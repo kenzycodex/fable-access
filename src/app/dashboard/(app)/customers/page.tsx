@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { LinkRow } from "@/components/dashboard/LinkRow";
 import { useDeferredValue, useMemo, useState } from "react";
-import { Brain, CaretRight, Fingerprint, MagnifyingGlass, Plus, ShieldWarning, UploadSimple, UsersThree } from "@phosphor-icons/react";
+import { Brain, CaretRight, Fingerprint, MagnifyingGlass, Plus, ShieldWarning, Sparkle, UploadSimple, UsersThree } from "@phosphor-icons/react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Dialog } from "@/components/dashboard/Dialog";
 import {
@@ -24,7 +25,7 @@ import {
   table,
 } from "@/components/dashboard/primitives";
 import type { BankCustomer, CopilotCustomer } from "@/lib/fable/api";
-import { addCustomer } from "@/lib/fable/console";
+import { addCustomer, addDemoCustomer } from "@/lib/fable/console";
 import { formatNaira } from "@/lib/fable/format";
 import { useCopilotCustomers } from "@/lib/fable/useBackend";
 import { useBankCustomers, useOnboarding, usePermissions } from "@/lib/fable/useConsole";
@@ -48,7 +49,27 @@ export default function CustomersPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [adding, setAdding] = useState(false);
   const { canReview, canManage } = usePermissions();
+  const { data: onboarding } = useOnboarding();
+  const sandbox = onboarding ? onboarding.mode !== "live" : false;
+  const router = useRouter();
+  const [making, setMaking] = useState(false);
   const { data: roster, isLoading, mutate } = useBankCustomers({ q });
+
+  // A clean customer for a demo, in one click: Shield has learned nothing
+  // about them, so the first transfers score the way a new customer's would.
+  async function newDemoCustomer() {
+    setMaking(true);
+    try {
+      const made = await addDemoCustomer();
+      toast.success(`${made.name} is ready with ${formatNaira(1_000_000)}. Pick them in the sandbox app.`);
+      await mutate();
+      router.push(`/dashboard/customers/${encodeURIComponent(made.id)}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not create the demo customer.");
+    } finally {
+      setMaking(false);
+    }
+  }
   const { data: copilot } = useCopilotCustomers();
 
   const stats = useMemo(() => new Map((copilot?.customers ?? []).map((c) => [c.user_id, c])), [copilot]);
@@ -82,6 +103,11 @@ export default function CustomersPage() {
               <ButtonLink href="/dashboard/settings/data" variant="secondary" icon={<UploadSimple size={16} />}>
                 Import
               </ButtonLink>
+            )}
+            {canReview && sandbox && (
+              <Button variant="secondary" icon={<Sparkle size={16} />} loading={making} onClick={newDemoCustomer}>
+                New demo customer
+              </Button>
             )}
             {canReview && <Button icon={<Plus size={16} />} onClick={() => setAdding(true)}>Add customer</Button>}
           </div>

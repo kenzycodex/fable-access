@@ -386,6 +386,11 @@ export interface NewCustomer {
 export const addCustomer = (body: NewCustomer) =>
   call<import("./api").BankCustomer>("/v1/customers", { method: "POST", ...json(body) });
 
+/** A fresh test customer for a demo: generated reference, a name, and money in
+ * the sandbox ledger, with no history. Sandbox only. */
+export const addDemoCustomer = (body: { name?: string; opening_balance?: number } = {}) =>
+  call<import("./api").BankCustomer>("/v1/customers/demo", { method: "POST", ...json(body) });
+
 export const editCustomer = (id: string, body: { name?: string; phone?: string; email?: string; segment?: string; status?: "active" | "closed" }) =>
   call<import("./api").BankCustomer>(`/v1/customers/${encodeURIComponent(id)}`, { method: "PATCH", ...json(body) });
 
@@ -483,12 +488,21 @@ export interface CustomerRecord {
   id: string;
   reference: string;
   name: string | null;
+  kind?: "test" | "real" | null;
 }
 
 export const customerRecord = (id: string) => call<CustomerRecord>(`/v1/customers/${encodeURIComponent(id)}`);
 
 /** Everything Fable holds about one customer, as JSON. */
 export const exportCustomer = (id: string) => call<Record<string, unknown>>(`/v1/customers/${encodeURIComponent(id)}/export`);
+
+/** Clear a test customer's transfers and what Shield learned from them (sandbox
+ * only, owners only). The reference must be typed to confirm. */
+export const resetCustomerHistory = (id: string, confirmReference: string) =>
+  call<{ reset: boolean; rows_removed: Record<string, number> }>(
+    `/v1/customers/${encodeURIComponent(id)}/reset-history`,
+    { method: "POST", ...json({ confirm_reference: confirmReference }) },
+  );
 
 /** Remove what identifies one customer. The bank's reference must be typed to confirm. */
 export const eraseCustomer = (id: string, confirmReference: string) =>

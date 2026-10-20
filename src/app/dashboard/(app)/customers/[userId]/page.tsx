@@ -8,6 +8,7 @@ import useSWR from "swr";
 import { ArrowLeft, Brain, Prohibit, Receipt, Tray, Wallet, Warning } from "@phosphor-icons/react";
 import { DonutChart } from "@/components/dashboard/charts";
 import { CustomerDataRights } from "@/components/dashboard/CustomerDataRights";
+import { TestCustomerReset } from "@/components/dashboard/TestCustomerReset";
 import { CustomerSecurity } from "@/components/dashboard/CustomerSecurity";
 import { STATE_LABEL, STATE_TONE } from "@/components/dashboard/CaseDetail";
 import {
@@ -227,6 +228,7 @@ export default function CustomerPage() {
         )}
       </Card>
 
+      <TestCustomerReset userId={userId} />
       <CustomerDataRights userId={userId} />
     </>
   );
