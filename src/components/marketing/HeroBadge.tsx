@@ -36,14 +36,6 @@ export function HeroBadge() {
       `}</style>
       <div className="flex flex-wrap items-center gap-3 mb-2" data-testid="hero-badge">
         <div className="flex items-center gap-[2px] text-[#FF4E2C]" aria-hidden="true">
-          <Image
-            src="/images/brand/fable-logo-icon.png"
-            alt=""
-            width={1254}
-            height={1254}
-            loading="eager"
-            className="h-[18px] w-auto mr-1.5"
-          />
           {ICONS.map((Icon, i) => (
             <Icon key={i} weight="fill" className="size-[16px]" />
           ))}

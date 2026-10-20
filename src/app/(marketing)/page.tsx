@@ -52,7 +52,7 @@ export default function HomePage() {
               </Reveal>
               <Reveal delay={300}>
                 <Button href={demoCta.href} tone="secondary" className="mt-2">
-                  See Live Demo
+                  Open The Sandbox
                 </Button>
               </Reveal>
             </div>
