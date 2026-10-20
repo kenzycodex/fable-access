@@ -26,11 +26,14 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import logging
 import os
 import threading
 import time
 
 CACHE_SECONDS = 30
+
+_logger = logging.getLogger("fable.engine")
 
 # ── The catalogue ────────────────────────────────────────────────────────────
 
@@ -432,16 +435,30 @@ def seed_cold_start_draft() -> int | None:
 DRAIN_PLACE_DRAFT_FLAG = "engine.drain_place_draft_seeded"
 
 
+# Versions that are on their way to going live, or may be: a draft the
+# release prepared, and anything proposed, cooling off, approved or in shadow.
+_PENDING_SQL = ("SELECT version, status FROM engine_versions WHERE status IN ('proposed', 'cooling', 'approved', "
+                "'shadow') OR (status = 'draft' AND created_by = 'system') ORDER BY version")
+_last_wait: list[str | None] = [None]
+
+
 def seed_drain_place_draft() -> int | None:
     """Offer balance drain and the place-based location check as a draft, once,
     on a deployment whose active version predates them.
 
-    The draft is the active version with only these changes: the three drain
-    weights and the two place weights at their recommended values, and the two
-    name-based city weights at zero. Each is its own group on the Engine page,
-    so the backtest and shadow show what each changes on its own. It is a new
-    version, never a change to one already proposed, approved or in shadow.
-    Returns the draft's number when one was created.
+    The draft is the version LIVE when it is created, with only these changes:
+    the three drain weights and the two place weights at their recommended
+    values, and the two name-based city weights at zero. Each is its own group
+    on the Engine page, so the backtest and shadow show what each changes on its
+    own. It is a new version, never a change to one already proposed, approved
+    or in shadow.
+
+    It waits while another version is on its way to going live (the release's
+    first draft, or anything proposed, cooling off, approved or in shadow):
+    built from today's live version, it would leave that version's changes out,
+    and promoting it later would undo them. Startup and the engine sweep (every
+    ten minutes) try again, so the draft appears once that version is promoted
+    or set aside. Returns the draft's number when one was created.
     """
     with _cursor() as cur:
         cur.execute("SELECT value FROM platform_settings WHERE key = ?", (DRAIN_PLACE_DRAFT_FLAG,))
@@ -452,12 +469,26 @@ def seed_drain_place_draft() -> int | None:
         row = cur.fetchone()
         if not row:
             return None
-        stored = json.loads(row["params"])
-        if all(k in (stored.get("weights") or {}) for k in DRAIN_PLACE_KEYS):
+        # Already in force when the live version weighs these as recommended
+        # (a new install). A version drafted after this code shipped stores
+        # them at 0 when nobody set them, so presence alone does not count.
+        live_w = normalise(json.loads(row["params"]))["weights"]
+        in_force = all(abs(live_w[k] - WEIGHT_DEFAULTS[k]) < 1e-9 for k in DRAIN_PLACE_KEYS + DRAIN_PLACE_RETIRES)
+        cur.execute(_PENDING_SQL)
+        pending = [f"v{r['version']} ({r['status']})" for r in cur.fetchall()]
+        if pending and not in_force:
+            reason = (f"Balance-drain and location draft not created yet: {', '.join(pending)} is on its way to "
+                      f"going live, and a draft built from the live v{row['version']} would leave its changes out. "
+                      "It is created once that version is promoted, rejected or expires.")
+            if _last_wait[0] != reason:
+                _last_wait[0] = reason
+                _logger.info(reason)
+            return None
+        if in_force:
             cur.execute("INSERT OR IGNORE INTO platform_settings (key, value, updated_by) VALUES (?, 'not needed', "
                         "'system')", (DRAIN_PLACE_DRAFT_FLAG,))
             return None
-        params = normalise(stored)
+        params = normalise(json.loads(row["params"]))
         for key in DRAIN_PLACE_KEYS + DRAIN_PLACE_RETIRES:
             params["weights"][key] = WEIGHT_DEFAULTS[key]
         cur.execute("SELECT COALESCE(MAX(version), 0) + 1 AS v FROM engine_versions")

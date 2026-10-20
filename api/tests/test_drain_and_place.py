@@ -219,6 +219,13 @@ def test_an_upgraded_deployment_gets_one_draft_and_nothing_goes_live():
     legacy["weights"]["location_city_large"], legacy["weights"]["location_city"] = 0.12, 0.06
     with cursor() as cur:
         cur.execute("DELETE FROM platform_settings WHERE key = ?", (engine_config.DRAIN_PLACE_DRAFT_FLAG,))
+        # Versions other modules left on their way to going live would (rightly)
+        # make the draft wait; set them aside for this test.
+        pending = ("status IN ('proposed', 'cooling', 'approved', 'shadow') "
+                   "OR (status = 'draft' AND created_by = 'system')")
+        cur.execute(f"SELECT version, status FROM engine_versions WHERE {pending}")
+        parked = [(r["version"], r["status"]) for r in cur.fetchall()]
+        cur.execute(f"UPDATE engine_versions SET status = 'rejected' WHERE {pending}")
         cur.execute("SELECT version, params FROM engine_versions WHERE status = 'active'")
         active = cur.fetchone()
         if active is None:
@@ -251,3 +258,5 @@ def test_an_upgraded_deployment_gets_one_draft_and_nothing_goes_live():
         with cursor() as cur:
             cur.execute("UPDATE engine_versions SET params = ? WHERE version = ?", (original, active["version"]))
             cur.execute("DELETE FROM engine_versions WHERE status = 'draft' AND created_by = 'system'")
+            for version, status in parked:
+                cur.execute("UPDATE engine_versions SET status = ? WHERE version = ?", (status, version))

@@ -460,6 +460,15 @@ def promote(op: dict, version: int) -> dict:
     if row["status"] not in ("approved", "shadow"):
         raise HTTPException(status_code=409, detail="Only an approved version can be promoted.")
     _frozen(row)
+    # A version carries every parameter, not only its own changes. Drafted from
+    # a version that is no longer live, promoting it would silently undo what
+    # went live since. Restoring an older version is a rollback, which says so.
+    live = _active_row()
+    base = row.get("base_version")
+    if base is not None and base != live["version"] and not row.get("rollback_of"):
+        raise HTTPException(status_code=409, detail=(
+            f"v{version} was drafted from v{base}, but v{live['version']} is live now. Promoting it would undo "
+            f"v{live['version']}'s changes. Start a new draft from the live version instead."))
     return _activate(row, op["email"], "promote")
 
 
@@ -633,3 +642,11 @@ def sweep() -> None:
             stop_shadow(None, v, reason="shadow period ended")
         except HTTPException:
             pass
+    # A release draft that waited for another version to go live (see
+    # engine_config.seed_drain_place_draft) is prepared once it can be.
+    try:
+        drafted = engine_config.seed_drain_place_draft()
+        if drafted:
+            _log("draft_created", "system", drafted, reason="release draft: balance drain and location by place")
+    except Exception as exc:  # noqa: BLE001 - housekeeping must never fail the sweep
+        logger.warning("Could not prepare the release draft: %s", type(exc).__name__)

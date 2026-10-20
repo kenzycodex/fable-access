@@ -125,13 +125,13 @@ def _draft(client, change=None, who=ADMIN, note="Test change"):
     return client.post("/operator/engine/drafts", headers=_op(who), json={"params": params, "note": note})
 
 
-def _approved_version(client, change=None) -> int:
+def _approved_version(client, change=None, drift_note=None) -> int:
     r = _draft(client, change or {"weights.time_anomaly": 0.14})
     assert r.status_code == 200, r.text
     v = r.json()["version"]
     assert client.post(f"/operator/engine/versions/{v}/backtest", headers=_op(ADMIN), json={"days": 30}).status_code == 200
     p = client.post(f"/operator/engine/versions/{v}/propose", headers=_op(OWNER_A),
-                    json={"step_up": _code(OWNER_A), "acknowledge_impact": True})
+                    json={"step_up": _code(OWNER_A), "acknowledge_impact": True, "drift_note": drift_note})
     assert p.status_code == 200, p.text
     a = client.post(f"/operator/engine/versions/{v}/approve", headers=_op(OWNER_B),
                     json={"step_up": _code(OWNER_B), "acknowledge_impact": True})
@@ -714,3 +714,78 @@ def test_the_engine_page_shows_detection_settings_and_small_numbers_read_right(c
     names = [d["name"] for d in page["detection"]]
     assert "FABLE_VELOCITY_FLAG" in names and "FABLE_TENURE_DISCOUNT_MAX" in names
     assert vault.display_number(0.08) == "0.08" and vault.display_number(500000.0) == "500,000"
+
+
+def test_a_version_drafted_from_one_no_longer_live_cannot_be_promoted(client):
+    """Promoting it would silently undo what went live since."""
+    from core import engine_config
+
+    v2 = _approved_version(client, {"weights.time_anomaly": 0.13})
+    v3 = _approved_version(client, {"weights.time_anomaly": 0.14})   # also drafted from v1
+    assert client.post(f"/operator/engine/versions/{v2}/promote", headers=_op(OWNER_A),
+                       json={"step_up": _code(OWNER_A)}).status_code == 200
+    r = client.post(f"/operator/engine/versions/{v3}/promote", headers=_op(OWNER_A), json={"step_up": _code(OWNER_A)})
+    assert r.status_code == 409 and f"would undo v{v2}" in r.json()["detail"]
+    assert engine_config.active()["version"] == v2
+
+
+def test_the_release_draft_builds_on_the_version_live_when_it_is_created(client):
+    """Production: v1 live, v2 (no-history amounts and the nearest-neighbour
+    anomaly model) in shadow. The balance-drain and location draft waits while
+    v2 is pending, then starts from v2 once it is live, so promoting it keeps
+    v2's changes."""
+    import json
+
+    from core import engine_config
+    from core.db import cursor
+    from services import engine_admin
+
+    legacy = json.loads(engine_config.canonical(engine_config.code_defaults()))
+    for key in engine_config.LEGACY_FILL:
+        legacy["weights"].pop(key)
+    legacy["weights"]["location_city_large"], legacy["weights"]["location_city"] = 0.12, 0.06
+    with cursor() as cur:
+        cur.execute("SELECT params FROM engine_versions WHERE version = 1")
+        original = cur.fetchone()["params"]
+        digest = engine_config.params_hash(legacy)
+        cur.execute("UPDATE engine_versions SET params = ?, params_hash = ?, approved_hash = ? WHERE version = 1",
+                    (json.dumps(legacy), digest, digest))
+        cur.execute("DELETE FROM platform_settings WHERE key = ?", (engine_config.DRAIN_PLACE_DRAFT_FLAG,))
+    engine_config.bump_generation()
+    try:
+        release = {f"weights.{k}": engine_config.WEIGHT_DEFAULTS[k] for k in engine_config.COLD_START_RELEASE_KEYS}
+        v2 = _approved_version(client, release, drift_note="The release's no-history amounts and anomaly model.")
+        assert client.post(f"/operator/engine/versions/{v2}/shadow", headers=_op(OWNER_A),
+                           json={"days": 7, "step_up": _code(OWNER_A)}).status_code == 200
+
+        # v2 is in shadow: no draft from v1, which would leave v2's changes out.
+        assert engine_config.seed_drain_place_draft() is None
+        engine_admin.sweep()
+        with cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS n FROM engine_versions WHERE status = 'draft' AND created_by = 'system'")
+            assert cur.fetchone()["n"] == 0
+
+        assert client.post(f"/operator/engine/versions/{v2}/promote", headers=_op(OWNER_A),
+                           json={"step_up": _code(OWNER_A)}).status_code == 200
+        engine_admin.sweep()   # the ten-minute sweep prepares it; no restart needed
+        with cursor() as cur:
+            cur.execute("SELECT version, params, base_version FROM engine_versions "
+                        "WHERE status = 'draft' AND created_by = 'system'")
+            row = cur.fetchone()
+        assert row and row["base_version"] == v2
+        draft = engine_config.normalise(json.loads(row["params"]))["weights"]
+        live = engine_config.normalise(engine_config.active()["stored"])["weights"]
+        moved = {k for k in draft if abs(draft[k] - live[k]) > 1e-9}
+        assert moved == {"balance_drain_80", "balance_drain_all", "balance_drain_combo", "location_place_large",
+                         "location_place", "location_city_large", "location_city"}
+        # v2's changes are all still there.
+        assert draft["first_amount_20m"] == 0.45 and draft["ml_anomaly"] == 0.10 and draft["ml_anomaly_previous"] == 0
+        assert engine_config.seed_drain_place_draft() is None   # once only
+    finally:
+        with cursor() as cur:
+            cur.execute("UPDATE engine_versions SET params = ?, params_hash = ?, approved_hash = ? WHERE version = 1",
+                        (original, engine_config.params_hash(json.loads(original)),
+                         engine_config.params_hash(json.loads(original))))
+            cur.execute("INSERT OR REPLACE INTO platform_settings (key, value, updated_by) VALUES (?, 'not needed', "
+                        "'system')", (engine_config.DRAIN_PLACE_DRAFT_FLAG,))
+        engine_config.bump_generation()
