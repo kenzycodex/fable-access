@@ -67,6 +67,17 @@ def _days_since(stamp: str | None, now: datetime) -> float | None:
     return round((now - then).total_seconds() / 86400, 1)
 
 
+def baseline_source(seen: dict | None) -> str | None:
+    """What a decision was judged against: the customer's own history
+    ("personal"), the bank's customers as a whole ("population"), or nothing
+    ("none"). None when scoring did not say (a fallback decision)."""
+    if not seen:
+        return None
+    if not seen.get("baseline"):
+        return "none"
+    return "population" if seen.get("cold_start") else "personal"
+
+
 def build(user_id: str, institution_id: str | None, transaction: dict, device: dict, context: dict,
           seen: dict, result: dict) -> dict:
     """The snapshot for one decision. `seen` holds the values the analyzer
@@ -77,7 +88,7 @@ def build(user_id: str, institution_id: str | None, transaction: dict, device: d
     local = _local_time(context)
     baseline = seen.get("baseline") or {}
     cold = bool(seen.get("cold_start"))
-    source = "none" if not seen.get("baseline") else ("population" if cold else "personal")
+    source = baseline_source(seen)
     amount = float(transaction.get("amount") or 0)
     recipient = transaction.get("recipient_account") or ""
 

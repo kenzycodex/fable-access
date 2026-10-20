@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from agents.copilot.baseline import log_transaction
 from agents.shield.analyzer import analyze_transaction_safe
 from agents.shield.explainer import generate_llm_explanation, llm_available
+from agents.shield.features import baseline_source
 from core.tenancy import customer_guard, require_role, scoring_guard
 from models.schemas import (
     FeedbackRequest,
@@ -311,6 +312,7 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
         explanation_source="pending" if pending else explanation_source,
         transaction_id=transaction_id,
         engine_version=result.get("engine_version"),
+        baseline_source=baseline_source(seen),
     )
 
 

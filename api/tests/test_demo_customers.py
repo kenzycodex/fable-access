@@ -148,3 +148,22 @@ def test_reset_waits_for_a_hold_in_progress(client):
     res = client.post(f"/v1/customers/{made['reference']}/reset-history", headers=_owner(),
                       json={"confirm_reference": made["reference"]})
     assert res.status_code == 409 and "hold" in res.json()["detail"]
+
+
+def test_a_decision_says_what_it_was_judged_against(client):
+    """A new customer is not judged against "how you normally bank"."""
+    made = client.post("/v1/customers/demo", headers=_owner(), json={"opening_balance": 5_000_000}).json()
+
+    def source():
+        res = client.post("/v1/shield/analyze", headers=_owner(), json={
+            "user_id": made["id"],
+            "transaction": {"amount": 20_000, "recipient_account": "0123456789", "channel": "branch"},
+            "device": {"fingerprint_id": "fp_same"},
+        })
+        assert res.status_code == 200, res.text
+        return res.json()["baseline_source"]
+
+    assert source() in ("population", "none")
+    # Passed transfers build the customer's own history; from then on it is theirs.
+    later = [source() for _ in range(4)]
+    assert later[-1] == "personal", later

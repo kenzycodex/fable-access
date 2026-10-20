@@ -143,6 +143,10 @@ class ShieldAnalyzeResponse(BaseModel):
     # Which engine version scored this, so a decision can always be traced to
     # the approved weights and thresholds behind it.
     engine_version: Optional[int] = None
+    # What the transfer was judged against: the customer's own history, the
+    # bank's customers as a whole (too little history of their own), or
+    # nothing. Lets an app word a pass honestly. Null on a replayed retry.
+    baseline_source: Optional[Literal["personal", "population", "none"]] = None
 
 
 class ShieldExplanationResponse(BaseModel):
