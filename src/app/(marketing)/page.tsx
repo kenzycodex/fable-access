@@ -75,13 +75,13 @@ export default function HomePage() {
             </Reveal>
             <Reveal delay={150}>
               <p className="hidden md:block text-m max-w-[640px] text-white/80 pt-2">
-                Nigerian financial institutions reported â‚¦25.85bn lost to fraud in 2025, more than half of it
+                Nigerian financial institutions reported ₦25.85bn lost to fraud in 2025, more than half of it
                 through internet banking. Fable is built to sit directly inside the transfer flow itself.
                 It scores every transfer against sixteen signals within a 200 millisecond decision budget, measured on every
                 call, so a suspicious transfer can be stopped without slowing down your legitimate users.
               </p>
               <p className="md:hidden text-m text-white/80 pt-2">
-                Nigerian institutions reported â‚¦25.85bn lost to fraud in 2025. Fable sits inside the transfer flow and decides within a 200ms budget, so legitimate users are not slowed down.
+                Nigerian institutions reported ₦25.85bn lost to fraud in 2025. Fable sits inside the transfer flow and decides within a 200ms budget, so legitimate users are not slowed down.
               </p>
             </Reveal>
           </div>
