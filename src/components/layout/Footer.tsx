@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { footerBottomLinks, footerCopyrightSuffix, footerDescription } from "@/data/footer";
+import { footerCopyrightSuffix, footerDescription } from "@/data/footer";
 import { demoCta } from "@/data/nav";
 
 export function Footer() {
@@ -30,17 +30,10 @@ export function Footer() {
           </Link>
         </div>
 
-        <div className="flex flex-row items-center justify-between gap-2 border-t border-white/20 pt-[var(--spacing-s)]">
+        <div className="flex flex-row items-center gap-2 border-t border-white/20 pt-[var(--spacing-s)]">
           <p className="text-[11px] text-white/80 sm:text-xs">
             &copy; {new Date().getFullYear()} {footerCopyrightSuffix}
           </p>
-          <nav aria-label="Legal" className="flex shrink-0 items-center gap-4">
-            {footerBottomLinks.map((link) => (
-              <Link key={link.href} href={link.href} className="text-[11px] text-white/80 hover:text-secondary sm:text-xs">
-                {link.label}
-              </Link>
-            ))}
-          </nav>
         </div>
       </div>
     </footer>
