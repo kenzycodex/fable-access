@@ -16,7 +16,7 @@ export const primaryNav: NavLink[] = [
 /** The dashboard login remains available for institution users. Marketing CTAs
  * use the sandbox destination below. */
 export const dashboardCta = { label: "Dashboard", href: "/dashboard/login" };
-export const demoCta = { label: "Open dashboard", href: "/demo" };
+export const demoCta = { label: "Open Sandbox", href: "/demo" };
 
 export const headerCta = {
   demo: demoCta,
