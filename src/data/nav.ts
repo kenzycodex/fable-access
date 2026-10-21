@@ -11,9 +11,6 @@ export const primaryNav: NavLink[] = [
   { label: "Why Fable", href: "/#why-fable" },
   { label: "Platform", href: "/#platform" },
   { label: "Pricing", href: "/#pricing" },
-  // The in-app documentation, not the API's Swagger UI. The latter lives on
-  // the backend host and is dead for anyone not running it locally.
-  { label: "API Docs", href: "/docs" },
 ];
 
 /** The dashboard login remains available for institution users. Marketing CTAs
