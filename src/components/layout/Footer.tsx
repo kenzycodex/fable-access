@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { footerBottomLinks, footerCopyrightSuffix, footerDescription } from "@/data/footer";
-import { dashboardCta } from "@/data/nav";
+import { demoCta } from "@/data/nav";
 
 export function Footer() {
   return (
@@ -19,14 +19,14 @@ export function Footer() {
           </Link>
           <p className="max-w-[440px] text-xs text-white/80 sm:text-s lg:text-left">{footerDescription}</p>
           <Link
-            href={dashboardCta.href}
+            href={demoCta.href}
             className="group relative isolate inline-flex shrink-0 items-center justify-center overflow-hidden whitespace-nowrap rounded-pill border-2 border-secondary px-5 py-2.5 text-xs font-bold uppercase text-white sm:px-7 sm:py-3 sm:text-s"
           >
             <span
               aria-hidden="true"
               className="absolute inset-0 -z-10 origin-left scale-x-0 bg-secondary transition-transform duration-300 ease-out group-hover:scale-x-100"
             />
-            <span className="relative z-10">{dashboardCta.label}</span>
+            <span className="relative z-10">{demoCta.label}</span>
           </Link>
         </div>
 

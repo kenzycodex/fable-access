@@ -7,6 +7,9 @@ import { HeroBadge } from "@/components/marketing/HeroBadge";
 import { StatGrid } from "@/components/sections/StatBand";
 import { ZigZagBlock } from "@/components/sections/ZigZagBlock";
 import { demoCta } from "@/data/nav";
+import { pricingNote, servicesIntro, serviceTiers } from "@/data/services";
+import { CheckCircleIcon } from "@/components/icons";
+import { PlatformSections, WhyFableSections } from "@/components/marketing/MarketingMoreSections";
 import { fableAgentBlocks, homeStats, pipelineSteps } from "@/data/home";
 
 export default function HomePage() {
@@ -14,6 +17,7 @@ export default function HomePage() {
     <>
       {/* Hero */}
       <section
+        id="home"
         className="relative overflow-hidden bg-gradient-to-b from-base to-black px-[var(--gutter)] pb-[var(--section-space-s)] text-white lg:flex lg:min-h-[660px] lg:items-center"
         style={{ paddingTop: "calc(var(--header-height, 90px) + var(--spacing-m))" }}
       >
@@ -61,7 +65,7 @@ export default function HomePage() {
       </section>
 
       {/* Stats */}
-      <Section className="bg-gradient-to-b from-black to-base text-white">
+      <Section id="why-fable" className="scroll-mt-[var(--header-height,90px)] bg-gradient-to-b from-black to-base text-white">
         <Container>
           <div className="flex flex-col gap-[var(--content-gap)] pb-[var(--spacing-xl)] lg:flex-row lg:items-start lg:justify-between">
             <Reveal delay={0}>
@@ -101,8 +105,10 @@ export default function HomePage() {
         </Container>
       </Section>
 
+      <WhyFableSections />
+
       {/* One Pipeline, Every Transfer */}
-      <Section space="m" className="bg-black text-white">
+      <Section id="platform" space="m" className="scroll-mt-[var(--header-height,90px)] bg-black text-white">
         <Container>
           <Reveal className="mb-[var(--spacing-xxl)] flex flex-col items-start gap-[var(--spacing-m)] lg:flex-row lg:items-center lg:justify-between">
             <h2>
@@ -135,6 +141,47 @@ export default function HomePage() {
               </Reveal>
             ))}
           </div>
+        </Container>
+      </Section>
+
+      <PlatformSections />
+
+      {/* Pricing */}
+      <Section id="pricing" className="scroll-mt-[var(--header-height,90px)] bg-tertiary">
+        <Container>
+          <Reveal className="mb-[var(--spacing-xl)] flex flex-col gap-[var(--spacing-s)]">
+            <h2>{servicesIntro.title}</h2>
+            <p className="max-w-[760px] text-m text-black/80">{servicesIntro.body}</p>
+          </Reveal>
+          <div className="grid grid-cols-1 gap-[var(--grid-gap)] md:grid-cols-2 lg:grid-cols-3">
+            {serviceTiers.map((tier, i) => (
+              <Reveal key={tier.title} delay={i * 80}>
+                <article className={`flex h-full flex-col rounded-[var(--radius)] p-[var(--spacing-m)] ${tier.featured ? "bg-gradient-to-br from-[#8B5CF6] to-[#6D28D9] text-white" : "bg-white text-[#4C1D95]"}`}>
+                  <p className="text-2xs font-bold uppercase tracking-wider">{tier.eyebrow}</p>
+                  <h3 className="mt-2 text-h4">{tier.title}</h3>
+                  <p className={`mt-2 text-s ${tier.featured ? "text-white/80" : "text-[#4C1D95]/75"}`}>{tier.body}</p>
+                  <div className={`my-[var(--spacing-s)] border-y py-[var(--spacing-xs)] ${tier.featured ? "border-white/25" : "border-[#4C1D95]/15"}`}>
+                    <p className="font-heading text-h5 font-bold">{tier.priceBasis}</p>
+                    <p className={`text-xs ${tier.featured ? "text-white/80" : "text-[#4C1D95]/75"}`}>{tier.priceNote}</p>
+                  </div>
+                  <ul className="flex flex-1 flex-col gap-3">
+                    {tier.items.map((item) => (
+                      <li key={item} className="flex items-start gap-2.5 text-s">
+                        <CheckCircleIcon className="mt-0.5 size-[18px] shrink-0" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <Button href={demoCta.href} tone="secondary" className="mt-[var(--spacing-m)] self-start">
+                    {tier.num === 1 ? "Try it in the demo" : "See it in action"}
+                  </Button>
+                </article>
+              </Reveal>
+            ))}
+          </div>
+          <Reveal className="mt-[var(--spacing-l)] max-w-[720px] text-m text-black/70">
+            <p>{pricingNote}</p>
+          </Reveal>
         </Container>
       </Section>
 
