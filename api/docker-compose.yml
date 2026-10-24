@@ -1,0 +1,15 @@
+services:
+  api:
+    build: .
+    restart: always
+    ports:
+      # Bound to loopback on purpose: Nginx terminates TLS and proxies to it.
+      # Exposing 0.0.0.0 here would put the API on the public internet
+      # unencrypted, bypassing the reverse proxy entirely.
+      - "127.0.0.1:8010:8010"
+    volumes:
+      # The SQLite file lives on the host so it survives image rebuilds.
+      # FABLE_DB_PATH in .env must point at /data/fable.db to match this.
+      - ./data:/data
+    env_file:
+      - .env

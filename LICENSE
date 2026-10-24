@@ -1,0 +1,33 @@
+Fable Proprietary License
+
+Copyright (c) 2026 Fable. All rights reserved.
+
+This repository and everything in it, including source code, models,
+scam-pattern libraries, documentation, designs, brand assets, the Fable name
+and logos, is the proprietary property of Fable and its authors. It is made
+visible for review and evaluation only. No license or other right is granted
+except as stated below.
+
+Permitted:
+  - Viewing and reading the source code.
+  - Running a local copy solely to evaluate the project.
+
+Not permitted without prior written permission from Fable:
+  - Copying, forking for reuse, modifying, or distributing any part of this
+    work, in source or compiled form.
+  - Using any part of this work, or work derived from it, in another project,
+    product, service, submission, competition entry, or business.
+  - Hosting, reselling, sublicensing, or offering this work or a derivative
+    as a service.
+  - Removing or altering this notice, copyright statements, or attribution.
+  - Using the Fable name, logos, or branding.
+
+Contributions are accepted only from invited collaborators. Any contribution
+you submit becomes the property of Fable.
+
+THE WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. TO THE MAXIMUM EXTENT PERMITTED BY LAW, FABLE IS NOT LIABLE FOR ANY
+CLAIM OR DAMAGES ARISING FROM ITS USE.
+
+For permission requests, open an issue or contact the repository owner at
+github.com/kenzycodex.

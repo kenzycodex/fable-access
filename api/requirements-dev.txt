@@ -1,0 +1,8 @@
+# Everything the app needs, plus what is needed to test it.
+#   pip install -r requirements-dev.txt
+-r requirements.txt
+pytest>=8.0.0
+# FastAPI's TestClient uses this; plain httpx is deprecated there.
+httpx2>=2.13
+# Sorts imports to match ruff.toml: python -m ruff check --fix .
+ruff>=0.6

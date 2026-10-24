@@ -1,0 +1,19 @@
+# Never in the image: secrets, databases, backups, local environments, tests.
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.bak
+.env
+.env.*
+!.env.example
+data/
+backups/
+tests/
+.pytest_cache/
+.ruff_cache/
+eval/*.csv

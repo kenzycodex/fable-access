@@ -1,0 +1,570 @@
+"""Backtest: what a draft engine version would have decided on real past transfers.
+
+Shield's score is additive, and every decision since score parts were recorded
+stores how its score was built (agents/shield/weights.py). So a past decision
+is re-scored *exactly* under other weights and thresholds by re-adding its
+parts, without re-running the engine or touching anything live. Older rows,
+from before parts were recorded, are rebuilt from their signal text and counted
+as approximate.
+
+Two replays of the same rows are compared:
+
+  before  the parameters in force now (the active version, environment over it)
+  after   the draft (the environment over it as well, because that is what
+          would score live if it were promoted)
+
+so the report isolates the draft's own effect: an unchanged draft reports zero
+changed decisions by construction. How faithfully "before" reproduces what was
+actually decided is shown separately as replay fidelity.
+
+Honesty rules (docs/ENGINE-GOVERNANCE.md):
+
+* A transfer that was blocked and never labelled has no outcome: it never
+  completed, so nobody knows whether it was fraud. Such rows are reported as
+  "no outcome" and never counted as caught fraud.
+* Labels are kept apart: fraud an analyst confirmed, transfers an analyst
+  confirmed legitimate, and Ghost holds the customer cancelled (weaker, since
+  customers cancel for other reasons too).
+* Each bank's current risk policy is applied. There is no policy history, so
+  the report says so.
+* Every metric carries the number of labelled rows behind it, with a warning
+  below MIN_SAMPLE.
+
+Terms added by a release (the first-transfer amount weights, the anomaly
+model) were not recorded on decisions made before it. For those rows they are
+rebuilt here, from the stored amount, channel, cold-start signal and the
+customer's confirmed history before the decision, and the rows are counted as
+"rebuilt". Under the live weights a rebuilt term adds exactly what the old
+decision had, so replay fidelity is unchanged.
+
+Each report also says which change moves which decisions: every group of
+changes on the Engine page (for example "First transfers (no history)" or
+"Anomaly model") is replayed on its own against the live values, with
+examples. Changes can interact, so the groups need not add up to the total.
+
+Read-only. Nothing here writes to the database.
+"""
+from __future__ import annotations
+
+import bisect
+import copy
+import json
+import re
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
+
+from agents.shield import weights as W
+from core import engine_config
+from core.db import cursor
+from eval.harness import metrics
+
+WINDOWS = (30, 60, 90)
+MIN_SAMPLE = 30
+MAX_ROWS = 250_000
+EXAMPLES = 5
+ACTIONS = ("PASS", "FLAG", "BLOCK")
+SPIKE_RELATIVE = 0.25
+SPIKE_ABSOLUTE = 0.02
+SPIKE_FLOOR = 5
+POLICY_NOTE = ("Each bank's current risk policy was used. There is no policy history to replay against. "
+               "Velocity, tenure and recipient memory are replayed as they were when each transfer was scored.")
+
+
+# ── Older rows: parts rebuilt from signal text ───────────────────────────────
+
+_PLUS = re.compile(r"\(\+([0-9.]+)\)")
+_MINUS = re.compile(r"\(-([0-9.]+)\)")
+
+
+def _boost(signal: str) -> float | None:
+    m = _PLUS.search(signal)
+    return float(m.group(1)) if m else None
+
+
+def _closest(boost: float, keys: tuple[str, ...], ref: dict) -> str:
+    return min(keys, key=lambda k: abs(ref[k] - boost))
+
+
+def _weighted(key: str, boost: float | None, ref: dict, rounded: bool = False, gate: float | None = None) -> list:
+    """A term on `key` whose value under the reference weights equals `boost`."""
+    if boost is None or abs(ref[key] - boost) < 1e-9:
+        return W.term({key: 1}, rounded=rounded, gate=gate)
+    if ref[key] <= 0:
+        return W.term(const=boost)
+    return W.term({key: boost / ref[key]}, rounded=rounded, gate=gate)
+
+
+def _quiet_channel(channel: str | None, ref: dict) -> list | None:
+    """The gated channel term for a row whose channel added nothing.
+
+    Only when the channel's reference weight is at or below the gate, so the
+    row replays as it was decided and a draft that raises it is seen. If the
+    reference weight is above the gate, the weights must have differed when
+    the row was scored, and adding it would invent points it never had.
+    """
+    key = W.channel_key(channel)
+    return W.term({key: 1}, gate=W.CHANNEL_GATE) if ref[key] <= W.CHANNEL_GATE else None
+
+
+def upgrade_parts(parts: dict, signals: list[str], channel: str | None, ref: dict) -> dict:
+    """Parts recorded before channel risk was a tunable weight (no "v").
+
+    Those stored the channel's points as a fixed number. Each term was recorded
+    alongside its signal, in order, and every signal but tenure has one, so the
+    channel term is found by its signal's position and put on the channel's
+    weight.
+    """
+    if parts.get("v", 1) >= 2:
+        return parts
+    parts = {**parts, "terms": [list(t) for t in parts.get("terms") or []], "v": 2}
+    with_terms = [s for s in signals or [] if not s.startswith("tenure")]
+    at = next((i for i, s in enumerate(with_terms) if s.startswith("channel_risk")), None)
+    if at is not None and at < len(parts["terms"]) and not parts["terms"][at][0]:
+        boost = parts["terms"][at][1]
+        parts["terms"][at] = _weighted(W.channel_key(channel), boost, ref, gate=W.CHANNEL_GATE)
+    elif at is None:
+        quiet = _quiet_channel(channel, ref)
+        if quiet:
+            parts["terms"].append(quiet)
+    return parts
+
+
+def legacy_parts(signals: list[str], ref: dict, channel: str | None = None) -> dict | None:
+    """Score parts rebuilt from signal strings, against reference weights.
+
+    `ref` are the weights believed in force when the row was scored (version
+    1, which was seeded from them). Returns None when a signal cannot be read,
+    in which case the row is skipped rather than guessed.
+    """
+    from agents.shield.analyzer import _amount_boost_from_sigma
+    from agents.shield.nip_codes import get_nip_risk_signal
+
+    parts: dict = {"v": 2, "terms": [], "tenure": 0.0, "nip34": False}
+    add = parts["terms"].append
+    channel_seen = False
+    for s in signals or []:
+        name, _, text = s.partition(":")
+        boost = _boost(s)
+        if name == "system_error":
+            return None
+        if name in ("cold_start", "scam_pattern", "ml_anomaly"):
+            if boost is None:
+                return None
+            add(W.term(const=boost))
+        elif name == "channel_risk":
+            if boost is None:
+                return None
+            channel_seen = True
+            add(_weighted(W.channel_key(text.strip().split(" ")[0] or channel), boost, ref, gate=W.CHANNEL_GATE))
+        elif name == "amount_anomaly":
+            mult = re.search(r"(\d+)x", text)
+            if not mult or boost is None:
+                return None
+            key = W.amount_key(W.amount_tier(int(mult.group(1))))
+            sigma = re.search(r"([0-9.]+) standard deviations", text)
+            by_sigma = _amount_boost_from_sigma(float(sigma.group(1))) if sigma else 2 * boost - ref[key]
+            add(W.term({key: 1}, const=by_sigma, divisor=2, rounded=True))
+        elif name == "new_recipient":
+            add(_weighted("new_recipient", boost, ref, rounded=True))
+        elif name == "time_anomaly":
+            add(W.term({"time_anomaly": 1}))
+        elif name.startswith("nip_"):
+            code = name[4:]
+            add(W.term(const=get_nip_risk_signal(code)["shield_score_boost"]))
+            parts["nip34"] = parts["nip34"] or code == "34"
+        elif name == "device_anomaly":
+            if boost is None:
+                return None
+            if "seen before" in text:
+                add(_weighted("device_anomaly", boost, ref, rounded=True))
+            else:
+                add(_weighted(_closest(boost, ("device_anomaly_large", "device_anomaly"), ref), boost, ref))
+        elif name == "location_anomaly":
+            if boost is None:
+                return None
+            key = "location_country" if "usually" in text else _closest(boost, ("location_city_large", "location_city"), ref)
+            add(_weighted(key, boost, ref))
+        elif name in ("session_freshness", "timezone_mismatch"):
+            add(_weighted(name, boost, ref))
+        elif name == "behavioral_anomaly":
+            keys = {}
+            if "pasted" in text:
+                keys["behavioral_paste"] = 1
+            if "submitted in" in text:
+                keys["behavioral_fast"] = 1
+            if not keys:
+                return None
+            add(W.term(keys, rounded=True))
+        elif name == "failed_verification":
+            if boost is None:
+                return None
+            key = (_closest(boost, ("failed_verification_high", "failed_verification_large"), ref)
+                   if "recently" in text else "failed_verification")
+            add(_weighted(key, boost, ref))
+        elif name == "velocity":
+            if boost is None:
+                return None
+            add(_weighted(_closest(boost, ("velocity_high", "velocity"), ref), boost, ref))
+        elif name == "tenure":
+            m = _MINUS.search(s)
+            parts["tenure"] = float(m.group(1)) if m else 0.0
+        elif boost is not None:
+            add(W.term(const=boost))  # a signal this reader does not know, kept as a fixed part
+        else:
+            return None
+    if not channel_seen:
+        quiet = _quiet_channel(channel, ref)
+        if quiet:
+            add(quiet)
+    return parts
+
+
+# ── Terms a release added, rebuilt for rows scored before it ────────────────
+
+def _keys_in(parts: dict) -> set[str]:
+    return {k for t in parts.get("terms") or [] for k in (t[0] or {})}
+
+
+class _History:
+    """Each customer's confirmed history, read once, for rebuilding the anomaly
+    term as it would have been computed when a past transfer was scored."""
+
+    def __init__(self):
+        self._by_user: dict[str, tuple[list[str], list[float], list[int]]] = {}
+
+    def before(self, user_id: str, at: str) -> tuple[list[float], list[int]]:
+        if user_id not in self._by_user:
+            with cursor() as cur:
+                cur.execute(
+                    """SELECT datetime(created_at) AS ts, amount, hour_of_day FROM customer_history
+                       WHERE user_id = ? AND confirmed_legitimate = 1 ORDER BY datetime(created_at)""",
+                    (user_id,),
+                )
+                rows = cur.fetchall()
+            self._by_user[user_id] = ([r["ts"] for r in rows], [r["amount"] for r in rows],
+                                      [r["hour_of_day"] if r["hour_of_day"] is not None else 12 for r in rows])
+        stamps, amounts, hours = self._by_user[user_id]
+        start = (datetime.fromisoformat(at) - timedelta(days=90)).strftime("%Y-%m-%d %H:%M:%S")
+        lo, hi = bisect.bisect_left(stamps, start), bisect.bisect_left(stamps, at)
+        return amounts[lo:hi], hours[lo:hi]
+
+
+def complete_parts(parts: dict, row: dict, signals: list[str], history: _History | None) -> tuple[dict, bool]:
+    """Add the terms a release introduced to a row scored before it. Returns
+    the parts and whether anything was rebuilt. With `history` None the anomaly
+    term is left alone (it is only rebuilt when a change weighs it)."""
+    keys = _keys_in(parts)
+    rebuilt = False
+    parts = {**parts, "terms": [list(t) for t in parts.get("terms") or []]}
+    names = [x.partition(":")[0] for x in signals or []]
+
+    # First-transfer amount: priced only on a cold start, full weight with no
+    # history anywhere, half with a population norm (as the analyzer does).
+    if not keys & set(engine_config.FIRST_AMOUNT_KEYS) and "cold_start" in names:
+        amount = float(row.get("amount") or 0)
+        tier = next((key for floor, key in engine_config.FIRST_AMOUNT_TIERS if amount >= floor), None)
+        if tier:
+            cold = next(x for x in signals if x.startswith("cold_start"))
+            factor = 0.5 if "norms" in cold else 1.0
+            parts["terms"].append(W.term({tier: factor}, rounded=True))
+            rebuilt = True
+
+    # Anomaly: the previous model's fixed points become its weighted term, and
+    # the current model's value is computed from the history before the row.
+    if "ml_anomaly_previous" not in keys and "ml_anomaly" not in keys:
+        boost = next((_boost(x) for x in signals or [] if x.startswith("ml_anomaly")), None)
+        if boost is not None:
+            for t in parts["terms"]:
+                if not t[0] and abs(t[1] - boost) < 1e-6:
+                    t[0], t[1] = {"ml_anomaly_previous": boost / 0.10}, 0.0
+                    if len(t) < 5:
+                        t.extend([0] * (4 - len(t)) + [0.02])
+                    else:
+                        t[4] = 0.02
+                    rebuilt = True
+                    break
+    if history is not None and "ml_anomaly" not in _keys_in(parts) and row.get("user_id") and row.get("ts"):
+        from agents.shield.anomaly import GATE, current_anomaly
+
+        amounts, hours = history.before(row["user_id"], row["ts"])
+        value = current_anomaly(amounts, hours, float(row.get("amount") or 0), int(row.get("hour_of_day") or 12))
+        if value > 0:
+            parts["terms"].append(W.term({"ml_anomaly": value}, gate=GATE))
+            rebuilt = True
+    return parts, rebuilt
+
+
+# ── Which change moves which decision ───────────────────────────────────────
+
+def change_groups(before: dict, after: dict) -> list[dict]:
+    """The differences between two parameter sets, grouped as the Engine page
+    groups weights; every threshold falls under "Thresholds"."""
+    group_of = {key: name for name, items in engine_config.WEIGHT_GROUPS for key, _, _ in items}
+    groups: dict[str, list[dict]] = {}
+    for c in engine_config.changes(before, after):
+        kind, key = c["path"].split(".")[:2]
+        name = group_of.get(key, key) if kind == "weights" else "Thresholds"
+        groups.setdefault(name, []).append(c)
+    return [{"group": name, "changes": items} for name, items in groups.items()]
+
+
+def only(before: dict, changes: list[dict]) -> dict:
+    """`before` with just these changes applied."""
+    out = copy.deepcopy(engine_config.normalise(before))
+    for c in changes:
+        parts = c["path"].split(".")
+        if parts[0] == "weights":
+            out["weights"][parts[1]] = c["to"]
+        else:
+            out["thresholds"].setdefault(parts[1], {})[parts[2]] = c["to"]
+    return out
+
+
+def attribute(rows: list[dict], before: dict, after: dict) -> list[dict]:
+    """For each group of changes, the decisions it moves on its own.
+
+    `rows` carry "parts", "channel", "institution_id", and for examples "id"
+    and "amount"; "action" is the decision under `before` when already known.
+    """
+    out = []
+    for g in change_groups(before, after):
+        params = only(before, g["changes"])
+        moved, examples = Counter(), []
+        changed = 0
+        for r in rows:
+            score_b, action_b = W.replay(r["parts"], r["channel"], r["institution_id"], before)
+            score_a, action_a = W.replay(r["parts"], r["channel"], r["institution_id"], params)
+            if action_a != action_b:
+                changed += 1
+                moved[f"{action_b} to {action_a}"] += 1
+                if len(examples) < EXAMPLES:
+                    examples.append({"id": r.get("id"), "institution_id": r["institution_id"], "channel": r["channel"],
+                                     "amount": r.get("amount"), "before": action_b, "after": action_a,
+                                     "score_before": score_b, "score_after": score_a})
+        out.append({"group": g["group"], "changes": g["changes"], "changed": changed,
+                    "moves": dict(moved), "examples": examples})
+    return out
+
+
+# ── The replay ───────────────────────────────────────────────────────────────
+
+def _rows(since: str, institution: str | None):
+    where, params = "datetime(created_at) >= datetime(?) AND action_taken IN ('PASS','FLAG','BLOCK') " \
+                    "AND COALESCE(is_seed, 0) = 0", [since]
+    if institution:
+        where += " AND institution_id = ?"
+        params.append(institution)
+    with cursor() as cur:
+        cur.execute(
+            f"""SELECT id, institution_id, user_id, amount, hour_of_day, datetime(created_at) AS ts, channel,
+                       action_taken, shield_signals, score_parts, review_outcome, status
+                FROM transactions WHERE {where} ORDER BY created_at DESC LIMIT {MAX_ROWS}""",
+            params,
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def _label(row: dict) -> str | None:
+    if row.get("review_outcome") == "fraud":
+        return "fraud"
+    if row.get("review_outcome") == "legitimate":
+        return "legitimate"
+    if row.get("status") == "cancelled":
+        return "ghost_cancelled"
+    return None
+
+
+def _rate(n: int, total: int) -> float:
+    return round(n / total, 4) if total else 0.0
+
+
+def _group_stats(items: list[tuple[str, str]]) -> dict:
+    n = len(items)
+    before, after = Counter(b for b, _ in items), Counter(a for _, a in items)
+    return {
+        "n": n,
+        "changed": sum(1 for b, a in items if b != a),
+        "block_before": before["BLOCK"], "block_after": after["BLOCK"],
+        "flag_before": before["FLAG"], "flag_after": after["FLAG"],
+        "block_rate_before": _rate(before["BLOCK"], n), "block_rate_after": _rate(after["BLOCK"], n),
+    }
+
+
+def _spike(g: dict, floor: int = SPIKE_FLOOR) -> bool:
+    """A block-rate move worth a second look: more than 25% relative, or more
+    than 2 percentage points, and never on fewer than `floor` decisions."""
+    delta = g["block_after"] - g["block_before"]
+    if abs(delta) < floor:
+        return False
+    if g["block_before"] == 0:
+        return True
+    relative = abs(delta) / g["block_before"]
+    absolute = abs(g["block_rate_after"] - g["block_rate_before"])
+    return relative > SPIKE_RELATIVE or absolute > SPIKE_ABSOLUTE
+
+
+def _outcomes(labelled: dict[str, list[tuple[str, str]]]) -> dict:
+    def caught(items, side):
+        return sum(1 for pair in items if pair[side] != "PASS")
+
+    out = {}
+    for label, items in labelled.items():
+        n = len(items)
+        entry = {"n": n, "low_sample": n < MIN_SAMPLE,
+                 "before": dict(Counter(b for b, _ in items)), "after": dict(Counter(a for _, a in items))}
+        if label in ("fraud", "ghost_cancelled"):
+            entry.update(caught_before=caught(items, 0), caught_after=caught(items, 1),
+                         missed_before=n - caught(items, 0), missed_after=n - caught(items, 1),
+                         newly_caught=sum(1 for b, a in items if b == "PASS" and a != "PASS"),
+                         newly_missed=sum(1 for b, a in items if b != "PASS" and a == "PASS"))
+        else:
+            entry.update(blocked_before=sum(1 for b, _ in items if b == "BLOCK"),
+                         blocked_after=sum(1 for _, a in items if a == "BLOCK"),
+                         friction_before=caught(items, 0), friction_after=caught(items, 1),
+                         newly_blocked=sum(1 for b, a in items if b != "BLOCK" and a == "BLOCK"))
+        out[label] = entry
+
+    fraud, legit = labelled.get("fraud", []), labelled.get("legitimate", [])
+    for side, key in ((0, "metrics_before"), (1, "metrics_after")):
+        tp = sum(1 for p in fraud if p[side] != "PASS")
+        fp = sum(1 for p in legit if p[side] != "PASS")
+        m = metrics(tp, fp, len(legit) - fp, len(fraud) - tp)
+        out[key] = {**m, "n": len(fraud) + len(legit), "low_sample": len(fraud) + len(legit) < MIN_SAMPLE}
+    return out
+
+
+def replay(params: dict, days: int = 30, institution: str | None = None, now: datetime | None = None) -> dict:
+    """The impact report for `params` against the last `days` of decisions."""
+    if days not in WINDOWS:
+        raise ValueError(f"Choose a window of {', '.join(str(w) for w in WINDOWS)} days.")
+    now = now or datetime.now(timezone.utc)
+    since = (now - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    overrides = engine_config.env_overrides()
+    current = engine_config.active()["params"]
+    draft = engine_config.apply_env(params, overrides)
+    reference = _reference_weights()
+
+    matrix = {b: {a: 0 for a in ACTIONS} for b in ACTIONS}
+    exact = approximate = skipped = fidelity = rebuilt = 0
+    groups = change_groups(current, draft)
+    # The anomaly term is rebuilt from history only when a change weighs it:
+    # it reads each customer's history once, which is the slow part.
+    history = _History() if any(g["group"] == "Anomaly model" for g in groups) else None
+    kept: list[dict] = []
+    by_channel: dict[str, list] = defaultdict(list)
+    by_bank: dict[str, list] = defaultdict(list)
+    labelled: dict[str, list] = {"fraud": [], "legitimate": [], "ghost_cancelled": []}
+    no_outcome = 0
+    pairs = []
+
+    for row in _rows(since, institution):
+        parts = None
+        if row.get("score_parts"):
+            try:
+                parts = upgrade_parts(json.loads(row["score_parts"]),
+                                      json.loads(row.get("shield_signals") or "[]"), row["channel"], reference)
+                is_exact = True
+            except ValueError:
+                parts = None
+        if parts is None:
+            try:
+                signals = json.loads(row.get("shield_signals") or "[]")
+            except ValueError:
+                signals = None
+            parts = legacy_parts(signals, reference, row["channel"]) if isinstance(signals, list) else None
+            is_exact = False
+        if parts is None:
+            skipped += 1
+            continue
+        try:
+            signals_now = json.loads(row.get("shield_signals") or "[]")
+        except ValueError:
+            signals_now = []
+        parts, was_rebuilt = complete_parts(parts, row, signals_now if isinstance(signals_now, list) else [], history)
+        rebuilt += was_rebuilt
+        try:
+            _, before = W.replay(parts, row["channel"], row["institution_id"], current)
+            _, after = W.replay(parts, row["channel"], row["institution_id"], draft)
+        except (KeyError, TypeError, ValueError):
+            skipped += 1
+            continue
+        exact += is_exact
+        approximate += not is_exact
+        fidelity += before == row["action_taken"]
+        matrix[before][after] += 1
+        kept.append({"id": row["id"], "institution_id": row["institution_id"], "channel": row["channel"],
+                     "amount": row.get("amount"), "parts": parts})
+        pair = (before, after)
+        pairs.append(pair)
+        by_channel[row["channel"] or "unknown"].append(pair)
+        by_bank[row["institution_id"] or "unknown"].append(pair)
+        label = _label(row)
+        if label is None and row["action_taken"] == "BLOCK":
+            no_outcome += 1  # never completed and never labelled: not evidence either way
+        elif label:
+            labelled[label].append(pair)
+
+    overall = _group_stats(pairs)
+    channels = [{"channel": k, **_group_stats(v)} for k, v in sorted(by_channel.items())]
+    banks = [{"institution_id": k, **_group_stats(v)} for k, v in sorted(by_bank.items())]
+    outcomes = _outcomes(labelled)
+    outcomes["no_outcome_blocked"] = no_outcome
+
+    warnings = []
+    if _spike(overall, floor=1):
+        warnings.append({"kind": "block_rate", "message": (
+            f"The overall block rate moves from {overall['block_rate_before']:.1%} to "
+            f"{overall['block_rate_after']:.1%}.")})
+    for g in channels:
+        if _spike(g):
+            warnings.append({"kind": "channel_spike", "scope": g["channel"], "message": (
+                f"{g['channel']}: block rate {g['block_rate_before']:.1%} to {g['block_rate_after']:.1%}.")})
+    for g in banks:
+        if _spike(g):
+            warnings.append({"kind": "bank_spike", "scope": g["institution_id"], "message": (
+                f"{g['institution_id']}: block rate {g['block_rate_before']:.1%} to {g['block_rate_after']:.1%}.")})
+    fraud = outcomes.get("fraud", {})
+    if fraud.get("missed_after", 0) > fraud.get("missed_before", 0):
+        warnings.append({"kind": "fraud_missed", "message": (
+            f"Confirmed-fraud misses rise from {fraud['missed_before']} to {fraud['missed_after']}.")})
+
+    replayed = exact + approximate
+    return {
+        "days": days,
+        "since": since,
+        "institution": institution,
+        "run_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "params_hash": engine_config.params_hash(params),
+        "rows": {"replayed": replayed, "exact": exact, "approximate": approximate, "skipped": skipped,
+                 "rebuilt": rebuilt, "fidelity": fidelity, "truncated": replayed + skipped >= MAX_ROWS},
+        "by_change": attribute(kept, current, draft),
+        "matrix": matrix,
+        "overall": overall,
+        "by_channel": channels,
+        "by_bank": banks,
+        "outcomes": outcomes,
+        "warnings": warnings,
+        "needs_ack": bool(warnings),
+        "env_keys": [{"path": p, "env": engine_config.env_name(p)} for p in sorted(overrides)],
+        "policy_note": POLICY_NOTE,
+        "min_sample": MIN_SAMPLE,
+    }
+
+
+def _reference_weights() -> dict:
+    """The weights older rows were scored with, as far as anyone knows: version
+    1, which was seeded from the values in force before versions existed."""
+    with cursor() as cur:
+        cur.execute("SELECT params FROM engine_versions WHERE version = 1")
+        row = cur.fetchone()
+    params = json.loads(row["params"]) if row else engine_config.apply_env(engine_config.code_defaults())
+    ref = engine_config.normalise(params)["weights"]
+    # A weight version 1 never held (the channel weights joined later) was
+    # scored with what is in force now: it came from the environment, which
+    # still wins, or was imported from it unchanged.
+    live = engine_config.active()["params"]["weights"]
+    for key in ref:
+        if key not in (params.get("weights") or {}):
+            ref[key] = live[key]
+    return ref
