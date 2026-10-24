@@ -1,3 +1,4 @@
+import { CookieConsent } from "@/components/layout/CookieConsent";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 
@@ -10,6 +11,7 @@ export default function MarketingLayout({ children }: Readonly<{ children: React
       <Header />
       <main className="flex-1 bg-white">{children}</main>
       <Footer />
+      <CookieConsent />
     </>
   );
 }

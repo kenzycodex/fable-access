@@ -34,7 +34,7 @@ export const legalContact = {
   security: "security@fable.ng",
 };
 
-const EFFECTIVE = "20 October 2026";
+const EFFECTIVE = "8 October 2026";
 // The privacy notice changed materially on this date (retention periods, the
 // location switch, erasure from the console), so it has its own date. Change
 // it whenever the notice changes materially again.
