@@ -247,6 +247,17 @@ def note_if_no_admins() -> None:
         logger.warning("Could not check for console admins: %s", exc)
 
 
+@app.get("/healthz", tags=["system"])
+def healthz():
+    """The process is up and answering. Nothing else is checked.
+
+    For the cluster's probe, which asks every few seconds: it must be cheap and
+    must not take the pod out of service over a late background job. /health
+    is the full report and still answers 503 when scoring cannot work.
+    """
+    return {"status": "ok"}
+
+
 @app.get("/health", tags=["system"])
 def health(response: Response):
     """Liveness plus the things that can be silently wrong.

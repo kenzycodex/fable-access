@@ -87,6 +87,12 @@ def test_health_reports_what_can_be_silently_wrong(client):
     assert body["pattern_library"]["healthy"] is True
 
 
+def test_healthz_answers_without_a_credential_or_any_checks(client):
+    res = client.get("/healthz")
+    assert res.status_code == 200
+    assert res.json() == {"status": "ok"}
+
+
 def test_pin_can_be_set_and_then_verified(client):
     """The regression. `pin_verify` referenced an undefined `level` and returned
     a 500 to a customer part-way through confirming a flagged transfer."""
