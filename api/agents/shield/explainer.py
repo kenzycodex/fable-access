@@ -52,7 +52,7 @@ def _timeout() -> float:
 
 def llm_available() -> bool:
     """Whether a better explanation than the template could be generated."""
-    return bool(ai_clients.anthropic(_timeout()) or ai_clients.openai(_timeout()))
+    return bool(ai_clients.huawei(_timeout()) or ai_clients.anthropic(_timeout()) or ai_clients.openai(_timeout()))
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +167,7 @@ def generate_llm_explanation(signals: list[str], amount: float, action: str) -> 
         "Write the explanation now."
     )
 
-    text = _try_anthropic(user_prompt) or _try_openai(user_prompt)
+    text = _try_huawei(user_prompt) or _try_anthropic(user_prompt) or _try_openai(user_prompt)
     elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
 
     if text:
@@ -212,6 +212,29 @@ def model_facts(signals: list[str]) -> list[str]:
         if fact not in out:
             out.append(fact)
     return out[:12]
+
+
+def _try_huawei(user_prompt: str) -> str | None:
+    """Huawei MaaS on the Forge cluster. Thinking is off, as the platform
+    guide asks: GLM reasons by default and max_tokens does not cap it."""
+    client = ai_clients.huawei(_timeout())
+    if not client:
+        return None
+    try:
+        resp = client.chat.completions.create(
+            model=ai_clients.huawei_model(),
+            temperature=0.3,
+            max_tokens=160,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            extra_body={"chat_template_kwargs": {"thinking": False}},
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        return text or None
+    except Exception:
+        return None  # the template stays; a model error never touches the decision
 
 
 def _try_anthropic(user_prompt: str) -> str | None:
