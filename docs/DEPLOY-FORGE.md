@@ -203,3 +203,24 @@ kubectl rollout undo deployment/app
 | The site loads but every call fails | `api` is not Ready, or the site was built for another API address | `kubectl get pods`; rebuild the web image |
 | 502 or 404 on the public address | Service renamed, or the route is not open yet | The published Service must be `app`, port 80; ask the platform team to open the route |
 | 429 from the bank | More than 60 requests a minute, shared with the model | Slow down and cache |
+
+## Laptop fallback (cluster unreachable)
+
+If the cluster can't be reached at demo time, run the same app, console and
+bank bridge on one laptop. The Xtradot Bank is replaced by a local stand-in
+(`api/scripts/mock_bank.py`) that follows the guide's rules: name enquiry,
+fees and VAT in the response, interbank pending then paid, `.01` refused for
+funds, `.02` times out and is queried (never resent), `.03` stays pending.
+The bank panel reads **Xtradot Bank (simulated)**. Say so when presenting.
+
+```bash
+git pull
+docker compose -f deploy/local/docker-compose.yml up --build
+```
+
+Open http://localhost:8080/dashboard/login and sign in as `team11@fable.ng`
+with password `fable-demo-2026` (or set `FORGE_CONSOLE_PASSWORD` before `up`).
+Then open the sandbox app at http://localhost:8080/demo/xtradot.
+
+Data lives in the containers and is reseeded on every start. Stop with Ctrl+C,
+then `docker compose -f deploy/local/docker-compose.yml down`.
