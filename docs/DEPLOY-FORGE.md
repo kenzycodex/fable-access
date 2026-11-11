@@ -139,6 +139,16 @@ and payees, and slowly, because the bank allows 60 requests a minute for the
 whole team. The demo PIN is `1234`. To issue a new key, run the seed script with
 `--new-key` and update the secret.
 
+## The API's data is temporary
+
+The cluster's block storage could not be created (the provider answered
+`Cannot create a new Volume with an outstanding balance on your account`), so
+the API keeps its database in the pod's temporary storage. If the API pod
+restarts, the data is gone: run `scripts/forge_seed.py` again, then update the
+`forge-demo` secret with the new key and restart the site. Do not restart the
+API pod during a demo. When storage works, go back to a 10Gi
+PersistentVolumeClaim (the provider's smallest volume) mounted at `/data`.
+
 ## Sandbox data can reset
 
 `POST /admin/reset`, or a platform restart, puts the bank back to its opening
@@ -161,7 +171,8 @@ kubectl rollout undo deployment/app
 | Pod `Pending`, "exceeded quota" | Requests above the namespace quota | `kubectl describe resourcequota team-quota` |
 | Pod never Ready | The process did not start | `kubectl logs deploy/api --previous` |
 | `api` exits at start naming unsafe settings | `fable-env` is missing a value | Recreate the secret from "Once" |
-| `/health` says the database is not writable | The volume is not writable by uid 10001 | Check `fsGroup: 10001` is still in the manifest |
+| `/health` says the database is not writable | The data directory is not writable by uid 10001 | Check `fsGroup: 10001` is still in the manifest |
+| The API pod stays `Pending` and the volume's events say `outstanding balance` | The provider will not create storage | Use the temporary storage in the manifest (see above) |
 | The site loads but every call fails | `api` is not Ready, or the site was built for another API address | `kubectl get pods`; rebuild the web image |
 | 502 or 404 on the public address | Service renamed, or the route is not open yet | The published Service must be `app`, port 80; ask the platform team to open the route |
 | 429 from the bank | More than 60 requests a minute, shared with the model | Slow down and cache |
