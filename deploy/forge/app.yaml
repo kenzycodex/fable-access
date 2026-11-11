@@ -113,6 +113,13 @@ spec:
           image: ghcr.io/kenzycodex/fable-access-web:REPLACE_WITH_TAG
           ports:
             - containerPort: 8080
+          env:
+            # The demo page's key for the API, from the `forge-demo` secret
+            # created after the seed script runs (docs/DEPLOY-FORGE.md). The
+            # server uses it; the browser never sees it.
+            - name: FORGE_DEMO_API_KEY
+              valueFrom:
+                secretKeyRef: { name: forge-demo, key: api-key, optional: true }
           readinessProbe:
             httpGet: { path: /healthz, port: 8080 }
             periodSeconds: 5

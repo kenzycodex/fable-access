@@ -52,6 +52,20 @@ kubectl create secret generic fable-env \
 1. Merge to `main`. The "Images" workflow builds both images for `linux/amd64`
    and pushes `fable-access-api` and `fable-access-web`, each tagged with the
    first 12 characters of the commit. The tag is in the workflow's summary.
+   If the workflow is not available (GitHub Actions can be unavailable, or out
+   of minutes), build and push from a laptop with Docker instead. The token
+   needs `write:packages`:
+
+   ```bash
+   echo <token> | docker login ghcr.io -u kenzycodex --password-stdin
+   git pull origin main
+   TAG=$(git rev-parse --short=12 HEAD)
+   docker build --platform linux/amd64 -t ghcr.io/kenzycodex/fable-access-api:$TAG api
+   docker build --platform linux/amd64 -t ghcr.io/kenzycodex/fable-access-web:$TAG .
+   docker push ghcr.io/kenzycodex/fable-access-api:$TAG
+   docker push ghcr.io/kenzycodex/fable-access-web:$TAG
+   ```
+
 2. Deploy that tag:
 
    ```bash
@@ -106,6 +120,24 @@ kubectl exec deploy/api -- python scripts/forge_register_webhook.py
 kubectl patch secret fable-env -p "{\"stringData\":{\"FORGE_WEBHOOK_SECRET\":\"<the secret>\"}}"
 kubectl rollout restart deployment/api
 ```
+
+## The demo page
+
+`/forge` is the live demo: five scenarios against the bank sandbox. It needs the
+demo institution and its key, which the seed script creates. The key is printed
+once; put it in a secret for the site and restart the site:
+
+```bash
+kubectl exec deploy/api -- python scripts/forge_seed.py
+kubectl create secret generic forge-demo --from-literal=api-key=<the key shown>
+kubectl rollout restart deployment/app
+```
+
+The page is public (anything at the team's address is), so it holds no key in
+the browser: the site's server forwards only the demo's own customers, accounts
+and payees, and slowly, because the bank allows 60 requests a minute for the
+whole team. The demo PIN is `1234`. To issue a new key, run the seed script with
+`--new-key` and update the secret.
 
 ## Sandbox data can reset
 

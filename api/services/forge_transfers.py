@@ -13,7 +13,7 @@ successful | failed | reversed.
 import logging
 import time
 
-from core.db import cursor, row_to_dict
+from core.db import cursor, dumps, loads, row_to_dict
 from services import forge_bank
 from services.forge_bank import BankError, OutcomeUnknown
 
@@ -59,10 +59,19 @@ def record(*, transfer_id: str, institution_id: str, user_id: str, source_accoun
              destination_bank_code, 1 if intra else 0, recipient_name, amount, narration,
              name_enquiry_ref, time.time() if name_enquiry_ref else None, action, state),
         )
+    _set(transfer_id, state=state)  # starts the trail with where it began
     return get(transfer_id)
 
 
 def _set(transfer_id: str, **fields) -> None:
+    if "state" in fields:
+        # Keep every state the transfer passed through, so "the answer was lost,
+        # so we asked the bank" can be shown, not just where it ended up.
+        row = get(transfer_id) or {}
+        trail = loads(row.get("trail"), []) or []
+        if not trail or trail[-1]["state"] != fields["state"]:
+            trail.append({"state": fields["state"], "note": fields.get("last_error")})
+            fields["trail"] = dumps(trail)
     sets = ", ".join(f"{k} = ?" for k in fields)
     with cursor() as cur:
         cur.execute(f"UPDATE forge_transfers SET {sets}, updated_at = datetime('now') WHERE id = ?",  # noqa: S608
