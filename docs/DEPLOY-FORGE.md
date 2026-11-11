@@ -52,6 +52,20 @@ kubectl create secret generic fable-env \
 1. Merge to `main`. The "Images" workflow builds both images for `linux/amd64`
    and pushes `fable-access-api` and `fable-access-web`, each tagged with the
    first 12 characters of the commit. The tag is in the workflow's summary.
+   If the workflow is not available (GitHub Actions can be unavailable, or out
+   of minutes), build and push from a laptop with Docker instead. The token
+   needs `write:packages`:
+
+   ```bash
+   echo <token> | docker login ghcr.io -u kenzycodex --password-stdin
+   git pull origin main
+   TAG=$(git rev-parse --short=12 HEAD)
+   docker build --platform linux/amd64 -t ghcr.io/kenzycodex/fable-access-api:$TAG api
+   docker build --platform linux/amd64 -t ghcr.io/kenzycodex/fable-access-web:$TAG .
+   docker push ghcr.io/kenzycodex/fable-access-api:$TAG
+   docker push ghcr.io/kenzycodex/fable-access-web:$TAG
+   ```
+
 2. Deploy that tag:
 
    ```bash
