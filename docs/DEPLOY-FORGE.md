@@ -195,6 +195,7 @@ kubectl rollout undo deployment/app
 | --- | --- | --- |
 | `ImagePullBackOff` | `regcred` missing or its token expired | Recreate the secret |
 | Pod `Pending`, "exceeded quota" | Requests above the namespace quota | `kubectl describe resourcequota team-quota` |
+| No API pod after an update; events say "exceeded quota" | The quota still counts pods that just stopped | Wait until `requests.memory` drops, then `kubectl rollout restart deployment/api` |
 | Pod never Ready | The process did not start | `kubectl logs deploy/api --previous` |
 | `api` exits at start naming unsafe settings | `fable-env` is missing a value | Recreate the secret from "Once" |
 | `/health` says the database is not writable | The data directory is not writable by uid 10001 | Check `fsGroup: 10001` is still in the manifest |
