@@ -6,6 +6,7 @@ import { Ghost, ShareNetwork, ShieldWarning } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/demo/PageHeader";
 import { Button, Card, CardHeader, DetailRow, Eyebrow, Notice, Screen, SuccessTick } from "@/components/app-kit";
+import { BankSettlement } from "@/components/demo/BankSettlement";
 import { PageSpinner } from "@/components/demo/Spinner";
 import { RiskScoreCounter } from "@/components/demo/RiskScoreCounter";
 import { SignalCard } from "@/components/demo/SignalCard";
@@ -86,7 +87,8 @@ export default function ResultPage() {
   if (pending.action === "PASS") {
     return (
       <PassResult amount={pending.amount} recipient={pending.recipientName} bank={pending.recipientBank}
-        score={pending.riskScore} baselineSource={pending.baselineSource ?? null} />
+        score={pending.riskScore} baselineSource={pending.baselineSource ?? null}
+        transactionId={pending.transactionId} />
     );
   }
   return <FlagBlockResult />;
@@ -98,15 +100,17 @@ function PassResult({
   bank,
   score,
   baselineSource,
+  transactionId,
 }: {
   amount: number;
   recipient: string;
   bank: string;
   score: number;
   baselineSource: ScoreResult["baselineSource"];
+  transactionId?: string;
 }) {
   const router = useRouter();
-  const { href, name } = useInstitution();
+  const { href, name, customer } = useInstitution();
   // The moment this transfer cleared, fixed for the life of the screen.
   const [sentAt] = useState(() => Date.now());
 
@@ -156,6 +160,9 @@ function PassResult({
             <span className="text-emerald-600 dark:text-emerald-400">Low ({formatRiskScore(score)})</span>
           </DetailRow>
         </div>
+
+        <BankSettlement transactionId={transactionId ?? ""} userId={customer?.user_id}
+          className="mt-4 rounded-2xl bg-d-surface-2 px-4 py-3" />
 
         <div className="mt-6 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           <Button variant="secondary" size="lg" full icon={<ShareNetwork size={18} />} onClick={shareReceipt}>

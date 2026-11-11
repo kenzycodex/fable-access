@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { findBank, paystackKey, PaystackError, resolveAccount, type PaystackFailure } from "@/lib/paystack";
 import { guardLookup } from "@/lib/routeGuard";
+import { API_BASE } from "@/lib/fable/base";
+import { bridgeEnabled, SANDBOX_BANKS, XTRADOT_CODE } from "@/lib/forge/banks";
 
 // With PAYSTACK_SECRET_KEY set (.env.local), this resolves real account
 // holders via the Paystack NUBAN lookup (free on test keys). Without a key it
@@ -42,7 +44,13 @@ export async function POST(request: Request) {
   const refused = await guardLookup(request);
   if (refused) return NextResponse.json({ error: refused.error }, { status: refused.status });
   try {
-    const { accountNumber, bankCode } = await request.json();
+    const { accountNumber, bankCode, userId } = await request.json();
+
+    // Connected to the Xtradot Bank sandbox: the bank's own name enquiry, made by
+    // the API inside the cluster, as the signed-in console member.
+    if (bridgeEnabled()) {
+      return await bankEnquiry(request, String(accountNumber ?? ""), String(bankCode ?? ""), String(userId ?? ""));
+    }
 
     if (!accountNumber || accountNumber.length !== 10) {
       return NextResponse.json(
@@ -112,5 +120,40 @@ export async function POST(request: Request) {
       { error: "Internal server error during account resolution." },
       { status: 500 }
     );
+  }
+}
+
+async function bankEnquiry(request: Request, accountNumber: string, bankCode: string, userId: string) {
+  const bank = SANDBOX_BANKS.find((b) => b.code === bankCode || b.name === bankCode);
+  if (!/^\d{10}$/.test(accountNumber) || !bank || !userId) {
+    return NextResponse.json({ error: "Enter a 10-digit account number and choose its bank." }, { status: 400 });
+  }
+  const intra = bank.code === XTRADOT_CODE;
+  try {
+    const res = await fetch(`${API_BASE}/v1/forge/enquiry`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Fable-Session": request.headers.get("x-fable-session") ?? "",
+      },
+      body: JSON.stringify({ user_id: userId, account_number: accountNumber, bank_code: intra ? null : bank.code, intra }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(20_000),
+    });
+    const data = (await res.json().catch(() => ({}))) as { account_name?: string; detail?: { message?: string } };
+    if (!res.ok || !data.account_name) {
+      const message = data.detail?.message ?? "The bank could not confirm this account. Check the number and bank.";
+      return NextResponse.json({ error: message }, { status: res.status === 200 ? 404 : res.status });
+    }
+    return NextResponse.json({
+      accountNumber,
+      accountName: data.account_name,
+      bankCode: bank.code,
+      bankName: bank.name,
+      source: "xtradot",
+      status: "success",
+    });
+  } catch {
+    return NextResponse.json({ error: "The bank did not answer. Try again in a moment." }, { status: 504 });
   }
 }

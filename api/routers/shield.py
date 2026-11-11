@@ -300,6 +300,10 @@ def analyze(payload: ShieldAnalyzeRequest, request: Request):
             payload.user_id, transaction["amount"], institution_id,
             transaction_id=transaction_id, reference=f"txn:{transaction_id}",
         )
+        # A bank connected to the Xtradot sandbox also gets the transfer itself.
+        from services import forge_bridge
+
+        forge_bridge.mirror_later(transaction_id, recipient_bank_code=transaction.get("recipient_bank_code"))
 
     return ShieldAnalyzeResponse(
         risk_score=result["risk_score"],

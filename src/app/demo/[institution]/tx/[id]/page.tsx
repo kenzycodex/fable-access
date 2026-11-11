@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter, useParams } from "next/navigation";
+import { BankSettlement } from "@/components/demo/BankSettlement";
 import useSWR from "swr";
 import { Ghost as GhostIcon, ShieldCheck } from "@phosphor-icons/react";
 import { PageHeader } from "@/components/demo/PageHeader";
@@ -140,6 +141,7 @@ export default function TransactionDetailPage() {
               !flagged && <p className="mt-2 text-[13px] text-d-muted">Cleared with no risk signals.</p>
             )}
           </Card>
+          <BankSettlement transactionId={txn.id} userId={customer?.user_id} asCard />
         </div>
       </div>
     </Screen>

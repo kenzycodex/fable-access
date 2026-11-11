@@ -121,32 +121,43 @@ kubectl patch secret fable-env -p "{\"stringData\":{\"FORGE_WEBHOOK_SECRET\":\"<
 kubectl rollout restart deployment/api
 ```
 
-## The demo page
+## The demo: Xtradot Bank in the sandbox app
 
-`/forge` is the live demo: five scenarios against the bank sandbox. It needs a
-key shared by the site and the API. Make it once, as a secret, then restart both:
+The demo runs in the product's own sandbox app and console, connected to the
+organizers' Xtradot Bank sandbox. At every start the API sets up the bank as a
+bank would be onboarded: the institution "Xtradot Bank" (`xtradot`) in sandbox
+mode, a console owner, and the bank's five customers with 60 days of their past
+transfers, brought in through the console's own import. Every transfer money
+moves on (a pass, a flag verified with the PIN, a released hold) is also sent to
+the Xtradot sandbox from the customer's own account there, and the receipt and
+transfer page show the bank's answer: status, fee, VAT, stamp duty, total debit
+and reference.
+
+Create the console login once, then restart both:
 
 ```bash
-KEY="fbl_live_$(docker run --rm --entrypoint python ghcr.io/kenzycodex/fable-access-api:<tag> -c 'import secrets;print(secrets.token_hex(16))' | tr -d '\r')"
-kubectl create secret generic forge-demo --from-literal=api-key="$KEY"
-unset KEY
+kubectl create secret generic forge-console --from-literal=email=team11@fable.ng --from-literal=password='<at least 12 characters>'
 kubectl rollout restart deployment/api
 kubectl rollout restart deployment/app
+kubectl logs deploy/api | grep -i "xtradot sandbox is ready"
 ```
 
-On startup the API sees the key and creates the demo institution, its five
-customers (demo PIN `1234`) and registers the key. Check that it did:
+Then open `/dashboard/login`, sign in with that email and password, and open
+the sandbox (`/demo/xtradot`). The customers' PIN is `1234`.
 
-```bash
-kubectl logs deploy/api | grep -i "forge demo"
-```
+A demo that shows each path, in this order:
 
-The page is public (anything at the team's address is), so it holds no key in
-the browser: the site's server forwards only the demo's own customers, accounts
-and payees, and slowly, because the bank allows 60 requests a minute for the
-whole team. To change the key, delete and recreate the secret and restart both.
-`scripts/forge_seed.py` does the same set-up on demand, and `--new-key` issues a
-random key instead.
+| Who | What | What happens |
+| --- | --- | --- |
+| Adaeze | ₦5,000 to Ngozi (saved) | Passes on her habits; the receipt shows the bank's answer, Paid |
+| Adaeze | New account 0123987001, GTBank | The bank's name enquiry confirms Chukwuemeka Ifeanyi Nwosu, Verified |
+| Adaeze | ₦30,000 to 0123987004, UBA (new) | Flagged with reasons; she verifies with the PIN; the bank pays it |
+| Babatunde | ₦1,500,000 to 0123987003, First Bank (new) | Paused and held by Ghost; nothing is sent; cancel is free |
+| Babatunde | ₦700,000 to a usual payee | Passes: large, but normal for a trader |
+| anyone | an amount ending in .02, interbank | The bank's answer is lost; Fable asks, never resends; the trail shows it |
+
+Do not restart the API during a demo: the database is temporary, so the
+history of the session would start again.
 
 ## The API's data is temporary, and the demo puts itself back
 
@@ -155,15 +166,14 @@ The cluster's block storage could not be created (the provider answered
 the API keeps its database in the pod's temporary storage. Every new API pod, so
 every API update or restart, starts with an empty database.
 
-That does not need any manual work for the demo. When the `forge-demo` secret
-exists, the API reads its key and, at startup, recreates the live institution,
-the five customers and their PINs. The site holds the same key, so it keeps
-working. What is lost is history: transfers, baselines and any console accounts,
-which is fine because the scenarios are designed to start from a fresh customer.
+That does not need any manual work for the demo. When the `forge-console`
+secret exists, the API sets Xtradot Bank up again at startup: the console
+owner, the five customers, their PINs and their imported history. What is lost
+is what happened since the last start: the session's transfers, cases and holds,
+and any console members added by hand.
 
-Do not restart the API during a demo anyway: scenarios would start again from
-nothing. When storage works, go back to a 10Gi PersistentVolumeClaim (the
-provider's smallest volume) mounted at `/data`.
+Do not restart the API during a demo. When storage works, go back to a 10Gi
+PersistentVolumeClaim (the provider's smallest volume) mounted at `/data`.
 
 ## Sandbox data can reset
 
