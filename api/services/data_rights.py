@@ -28,7 +28,7 @@ ERASED_PREFIX = "erased_"
 _DELETE_BY_USER = (
     "accounts", "ledger_entries", "user_security", "user_credentials", "stepup_challenges", "stepup_tokens",
     "stepup_failures", "notifications", "sandbox_inbox", "user_locations", "device_profiles", "customer_devices",
-    "transaction_history", "user_aliases", "fable_users",
+    "transaction_history", "user_aliases", "fable_users", "forge_transfers",
 )
 # Identifying columns cleared on decisions that are kept.
 _DECISION_PERSONAL = (
