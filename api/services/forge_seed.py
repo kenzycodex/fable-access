@@ -104,9 +104,13 @@ def ensure_from_env() -> bool:
     did = False
     raw = os.getenv("FORGE_DEMO_API_KEY", "").strip()
     if raw:
-        ensure_demo(raw)
-        logger.info("The Forge demo institution is ready.")
-        did = True
+        # Its own try, so a bad demo key never stops the bank below being set up.
+        try:
+            ensure_demo(raw)
+            logger.info("The Forge demo institution is ready.")
+            did = True
+        except ValueError as exc:
+            logger.warning("Skipped the Forge demo institution: %s", exc)
     bank = os.getenv("FORGE_BRIDGE_INSTITUTION", "").strip()
     email = os.getenv("FORGE_CONSOLE_EMAIL", "").strip()
     password = os.getenv("FORGE_CONSOLE_PASSWORD", "")
