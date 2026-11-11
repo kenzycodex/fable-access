@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { WarningCircle } from "@phosphor-icons/react";
+import { CheckCircle, WarningCircle } from "@phosphor-icons/react";
 import type { Signal } from "@/lib/fable/types";
+
+/** Signals that lower the score rather than raise it. */
+const IN_FAVOUR = new Set(["tenure"]);
 
 /**
  * One detected Shield signal. Enters with a staggered slide-up, starting after
@@ -22,9 +25,15 @@ export function SignalCard({ signal, index }: { signal: Signal; index: number })
         shown ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"
       }`}
     >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-500/14 text-amber-500">
-        <WarningCircle size={18} weight="fill" />
-      </span>
+      {IN_FAVOUR.has(signal.code) ? (
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/14 text-emerald-500">
+          <CheckCircle size={18} weight="fill" />
+        </span>
+      ) : (
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-500/14 text-amber-500">
+          <WarningCircle size={18} weight="fill" />
+        </span>
+      )}
       <div className="min-w-0">
         <p className="text-[13px] font-semibold text-d-text">{signal.label}</p>
         <p className="mt-0.5 text-[12px] leading-relaxed text-d-muted">{signal.detail}</p>
