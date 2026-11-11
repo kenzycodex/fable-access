@@ -50,6 +50,12 @@ spec:
             - { name: FABLE_DB_PATH, value: /data/fable.db }
             - { name: FORGE_BANK_BASE_URL, value: "http://bank-api.ingress-apisix.svc.cluster.local/v1" }
             - { name: FORGE_MAAS_BASE_URL, value: "http://huawei-maas.ingress-apisix.svc.cluster.local/openai/v1" }
+            # The demo's key, from the same `forge-demo` secret the site uses. With
+            # it set, the API recreates the demo institution and customers every
+            # time it starts, so a pod restart wipes nothing that matters.
+            - name: FORGE_DEMO_API_KEY
+              valueFrom:
+                secretKeyRef: { name: forge-demo, key: api-key, optional: true }
           envFrom:
             - secretRef: { name: huawei-gateway, optional: true }
             - secretRef: { name: fable-env, optional: true }

@@ -83,6 +83,12 @@ async def lifespan(_app: FastAPI):
         engine_admin.sweep()
     except Exception as exc:  # noqa: BLE001 - never block startup on this
         logger.warning("Could not prepare engine versions at startup: %s", type(exc).__name__)
+    try:
+        from services import forge_seed
+
+        forge_seed.ensure_from_env()  # the Forge demo puts itself back after a restart
+    except Exception as exc:  # noqa: BLE001 - never block startup on this
+        logger.warning("Could not set up the Forge demo at startup: %s", type(exc).__name__)
     from services import scheduler
 
     register_jobs()
