@@ -116,7 +116,7 @@ export default function TransactionDetailPage() {
 
           {txn.explanation && (
             <Card>
-              <CardHeader title="Why Fable stepped in" />
+              <CardHeader title={flagged ? "Why Fable stepped in" : "Why it went through"} />
               <p className="text-[14px] leading-relaxed text-d-muted">{txn.explanation}</p>
             </Card>
           )}
