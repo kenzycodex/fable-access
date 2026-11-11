@@ -121,6 +121,44 @@ kubectl patch secret fable-env -p "{\"stringData\":{\"FORGE_WEBHOOK_SECRET\":\"<
 kubectl rollout restart deployment/api
 ```
 
+## The demo: Xtradot Bank in the sandbox app
+
+The demo runs in the product's own sandbox app and console, connected to the
+organizers' Xtradot Bank sandbox. At every start the API sets up the bank as a
+bank would be onboarded: the institution "Xtradot Bank" (`xtradot`) in sandbox
+mode, a console owner, and the bank's five customers with 60 days of their past
+transfers, brought in through the console's own import. Every transfer money
+moves on (a pass, a flag verified with the PIN, a released hold) is also sent to
+the Xtradot sandbox from the customer's own account there, and the receipt and
+transfer page show the bank's answer: status, fee, VAT, stamp duty, total debit
+and reference.
+
+Create the console login once, then restart both:
+
+```bash
+kubectl create secret generic forge-console --from-literal=email=team11@fable.ng --from-literal=password='<at least 12 characters>'
+kubectl rollout restart deployment/api
+kubectl rollout restart deployment/app
+kubectl logs deploy/api | grep -i "xtradot sandbox is ready"
+```
+
+Then open `/dashboard/login`, sign in with that email and password, and open
+the sandbox (`/demo/xtradot`). The customers' PIN is `1234`.
+
+A demo that shows each path, in this order:
+
+| Who | What | What happens |
+| --- | --- | --- |
+| Adaeze | ₦5,000 to Ngozi (saved) | Passes on her habits; the receipt shows the bank's answer, Paid |
+| Adaeze | New account 0123987001, GTBank | The bank's name enquiry confirms Chukwuemeka Ifeanyi Nwosu, Verified |
+| Adaeze | ₦30,000 to 0123987004, UBA (new) | Flagged with reasons; she verifies with the PIN; the bank pays it |
+| Babatunde | ₦1,500,000 to 0123987003, First Bank (new) | Paused and held by Ghost; nothing is sent; cancel is free |
+| Babatunde | ₦700,000 to a usual payee | Passes: large, but normal for a trader |
+| anyone | an amount ending in .02, interbank | The bank's answer is lost; Fable asks, never resends; the trail shows it |
+
+Do not restart the API during a demo: the database is temporary, so the
+history of the session would start again.
+
 ## The demo page
 
 `/forge` is the live demo: five scenarios against the bank sandbox. It needs a
