@@ -123,31 +123,47 @@ kubectl rollout restart deployment/api
 
 ## The demo page
 
-`/forge` is the live demo: five scenarios against the bank sandbox. It needs the
-demo institution and its key, which the seed script creates. The key is printed
-once; put it in a secret for the site and restart the site:
+`/forge` is the live demo: five scenarios against the bank sandbox. It needs a
+key shared by the site and the API. Make it once, as a secret, then restart both:
 
 ```bash
-kubectl exec deploy/api -- python scripts/forge_seed.py
-kubectl create secret generic forge-demo --from-literal=api-key=<the key shown>
+KEY="fbl_live_$(docker run --rm --entrypoint python ghcr.io/kenzycodex/fable-access-api:<tag> -c 'import secrets;print(secrets.token_hex(16))' | tr -d '\r')"
+kubectl create secret generic forge-demo --from-literal=api-key="$KEY"
+unset KEY
+kubectl rollout restart deployment/api
 kubectl rollout restart deployment/app
+```
+
+On startup the API sees the key and creates the demo institution, its five
+customers (demo PIN `1234`) and registers the key. Check that it did:
+
+```bash
+kubectl logs deploy/api | grep -i "forge demo"
 ```
 
 The page is public (anything at the team's address is), so it holds no key in
 the browser: the site's server forwards only the demo's own customers, accounts
 and payees, and slowly, because the bank allows 60 requests a minute for the
-whole team. The demo PIN is `1234`. To issue a new key, run the seed script with
-`--new-key` and update the secret.
+whole team. To change the key, delete and recreate the secret and restart both.
+`scripts/forge_seed.py` does the same set-up on demand, and `--new-key` issues a
+random key instead.
 
-## The API's data is temporary
+## The API's data is temporary, and the demo puts itself back
 
 The cluster's block storage could not be created (the provider answered
 `Cannot create a new Volume with an outstanding balance on your account`), so
-the API keeps its database in the pod's temporary storage. If the API pod
-restarts, the data is gone: run `scripts/forge_seed.py` again, then update the
-`forge-demo` secret with the new key and restart the site. Do not restart the
-API pod during a demo. When storage works, go back to a 10Gi
-PersistentVolumeClaim (the provider's smallest volume) mounted at `/data`.
+the API keeps its database in the pod's temporary storage. Every new API pod, so
+every API update or restart, starts with an empty database.
+
+That does not need any manual work for the demo. When the `forge-demo` secret
+exists, the API reads its key and, at startup, recreates the live institution,
+the five customers and their PINs. The site holds the same key, so it keeps
+working. What is lost is history: transfers, baselines and any console accounts,
+which is fine because the scenarios are designed to start from a fresh customer.
+
+Do not restart the API during a demo anyway: scenarios would start again from
+nothing. When storage works, go back to a 10Gi PersistentVolumeClaim (the
+provider's smallest volume) mounted at `/data`.
 
 ## Sandbox data can reset
 
