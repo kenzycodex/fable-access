@@ -177,6 +177,9 @@ def approve(txid: str, payload: ApproveRequest, request: Request):
             )
 
         debit(payload.user_id, row["amount"], institution_id, transaction_id=txid, reference=f"txn-approve:{txid}")
+        from services import forge_bridge
+
+        forge_bridge.mirror_later(txid)
 
     # Verified and sent: the customer proved it was them, so this transfer now
     # teaches the baseline (recipient, device, amount, hour) for next time.
