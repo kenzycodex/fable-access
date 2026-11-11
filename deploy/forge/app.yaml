@@ -14,25 +14,15 @@
 # secret the platform provisioned (as GATEWAY_KEY); Fable's own settings come
 # from a `fable-env` secret created once (docs/DEPLOY-FORGE.md).
 # Quota check: requests 200m / 512Mi of 400m / 768Mi, limits 1 core / 1Gi of
-# 2 cores / 2Gi, 2 pods of 10, 2 Services of 5.
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: fable-data
-spec:
-  accessModes: [ReadWriteOnce]
-  resources:
-    requests:
-      storage: 1Gi
----
+# 2 cores / 2Gi, 2 pods of 10, 2 Services of 5, no persistent volume.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: api
 spec:
   replicas: 1
-  # One pod at a time: the database is a SQLite file on a volume only one pod
-  # can mount, so the old pod must stop before the new one starts.
+  # One pod at a time: the database is a single SQLite file, so the old pod
+  # must stop before the new one starts.
   strategy:
     type: Recreate
   selector:
@@ -76,9 +66,14 @@ spec:
             requests: { cpu: 100m, memory: 256Mi }
             limits: { cpu: 500m, memory: 512Mi }
       volumes:
+        # Temporary storage, on purpose. The cluster's block storage could not be
+        # created (the provider refused: "outstanding balance on your account"),
+        # so the database lives only as long as this pod does. After a restart
+        # the data is gone: run scripts/forge_seed.py again (docs/DEPLOY-FORGE.md).
+        # With working storage, swap this for a PersistentVolumeClaim of 10Gi
+        # (the provider's smallest volume) mounted at /data.
         - name: data
-          persistentVolumeClaim:
-            claimName: fable-data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
