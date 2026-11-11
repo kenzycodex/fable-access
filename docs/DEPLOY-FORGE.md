@@ -159,33 +159,6 @@ A demo that shows each path, in this order:
 Do not restart the API during a demo: the database is temporary, so the
 history of the session would start again.
 
-## The demo page
-
-`/forge` is the live demo: five scenarios against the bank sandbox. It needs a
-key shared by the site and the API. Make it once, as a secret, then restart both:
-
-```bash
-KEY="fbl_live_$(docker run --rm --entrypoint python ghcr.io/kenzycodex/fable-access-api:<tag> -c 'import secrets;print(secrets.token_hex(16))' | tr -d '\r')"
-kubectl create secret generic forge-demo --from-literal=api-key="$KEY"
-unset KEY
-kubectl rollout restart deployment/api
-kubectl rollout restart deployment/app
-```
-
-On startup the API sees the key and creates the demo institution, its five
-customers (demo PIN `1234`) and registers the key. Check that it did:
-
-```bash
-kubectl logs deploy/api | grep -i "forge demo"
-```
-
-The page is public (anything at the team's address is), so it holds no key in
-the browser: the site's server forwards only the demo's own customers, accounts
-and payees, and slowly, because the bank allows 60 requests a minute for the
-whole team. To change the key, delete and recreate the secret and restart both.
-`scripts/forge_seed.py` does the same set-up on demand, and `--new-key` issues a
-random key instead.
-
 ## The API's data is temporary, and the demo puts itself back
 
 The cluster's block storage could not be created (the provider answered
@@ -193,15 +166,14 @@ The cluster's block storage could not be created (the provider answered
 the API keeps its database in the pod's temporary storage. Every new API pod, so
 every API update or restart, starts with an empty database.
 
-That does not need any manual work for the demo. When the `forge-demo` secret
-exists, the API reads its key and, at startup, recreates the live institution,
-the five customers and their PINs. The site holds the same key, so it keeps
-working. What is lost is history: transfers, baselines and any console accounts,
-which is fine because the scenarios are designed to start from a fresh customer.
+That does not need any manual work for the demo. When the `forge-console`
+secret exists, the API sets Xtradot Bank up again at startup: the console
+owner, the five customers, their PINs and their imported history. What is lost
+is what happened since the last start: the session's transfers, cases and holds,
+and any console members added by hand.
 
-Do not restart the API during a demo anyway: scenarios would start again from
-nothing. When storage works, go back to a 10Gi PersistentVolumeClaim (the
-provider's smallest volume) mounted at `/data`.
+Do not restart the API during a demo. When storage works, go back to a 10Gi
+PersistentVolumeClaim (the provider's smallest volume) mounted at `/data`.
 
 ## Sandbox data can reset
 
