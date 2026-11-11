@@ -461,6 +461,10 @@ def _debit_if_sandbox(container: dict, user_id: str) -> None:
             transaction_id=container.get("transaction_id") or container["ghost_id"],
             reference=f"ghost-release:{container['ghost_id']}",
         )
+        if container.get("transaction_id"):
+            from services import forge_bridge
+
+            forge_bridge.mirror_later(container["transaction_id"])
 
 
 def release_ghost(ghost_id: str, user_id: str, stepup_token: str | None = None) -> dict:
