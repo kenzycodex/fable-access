@@ -179,6 +179,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   behavioral_anomaly: "Behavioral anomaly",
   timezone_mismatch: "Timezone mismatch",
   system_error: "System notice",
+  tenure: "Long clean history",
 };
 const SIGNAL_WEIGHTS: Record<string, number> = {
   amount_anomaly: 0.25,
@@ -207,7 +208,7 @@ export function parseApiSignals(raw: string[]): Signal[] {
     return {
       code,
       label: code === "nip_code" ? "NIP risk code" : (SIGNAL_LABELS[code] ?? rawCode.replace(/_/g, " ")),
-      detail: detail.replace(/\s*\(\+[0-9.]+\)/, "") || "Signal detected",
+      detail: detail.replace(/\s*\([+-][0-9.]+\)/, "") || "Signal detected",
       weight: weightMatch ? Number(weightMatch[1]) : (SIGNAL_WEIGHTS[code] ?? 0.1),
     };
   });
