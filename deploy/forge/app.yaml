@@ -50,12 +50,6 @@ spec:
             - { name: FABLE_DB_PATH, value: /data/fable.db }
             - { name: FORGE_BANK_BASE_URL, value: "http://bank-api.ingress-apisix.svc.cluster.local/v1" }
             - { name: FORGE_MAAS_BASE_URL, value: "http://huawei-maas.ingress-apisix.svc.cluster.local/openai/v1" }
-            # The demo's key, from the same `forge-demo` secret the site uses. With
-            # it set, the API recreates the demo institution and customers every
-            # time it starts, so a pod restart wipes nothing that matters.
-            - name: FORGE_DEMO_API_KEY
-              valueFrom:
-                secretKeyRef: { name: forge-demo, key: api-key, optional: true }
             # The bank connected to the Xtradot sandbox: the sandbox app's
             # transfers for this institution also go to the bank. Its console
             # login comes from the `forge-console` secret; with it set, the API
@@ -126,12 +120,6 @@ spec:
           ports:
             - containerPort: 8080
           env:
-            # The demo page's key for the API, from the `forge-demo` secret
-            # created after the seed script runs (docs/DEPLOY-FORGE.md). The
-            # server uses it; the browser never sees it.
-            - name: FORGE_DEMO_API_KEY
-              valueFrom:
-                secretKeyRef: { name: forge-demo, key: api-key, optional: true }
             # The sandbox app uses the Xtradot sandbox's banks and its name enquiry.
             - { name: FORGE_BRIDGE, value: "1" }
           readinessProbe:
