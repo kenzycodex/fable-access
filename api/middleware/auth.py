@@ -16,7 +16,7 @@ PUBLIC_PATHS = ("/", "/health", "/healthz", "/docs", "/redoc", "/openapi.json", 
 # Signing in, recovering a password and accepting an invite happen before the
 # caller has any credential, so they can never require one.
 PUBLIC_PREFIXES = ("/auth/login", "/auth/forgot-password", "/auth/reset-password",
-                   "/operator/auth/")
+                   "/operator/auth/", "/v1/forge/hooks/")
 
 
 def _has_valid_session(request) -> bool:

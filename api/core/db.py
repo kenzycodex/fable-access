@@ -406,6 +406,43 @@ CREATE TABLE IF NOT EXISTS webhook_outbox (
     delivered_at TEXT
 );
 
+-- Transfers Fable decided on and handed to the Xtradot Bank sandbox (Forge).
+-- `state` follows the money: decided | awaiting_stepup | held | sending |
+-- unknown | pending | successful | failed | reversed. `reference` is what the
+-- bank knows the transfer by, and is unique, so the same transfer can never be
+-- created twice.
+CREATE TABLE IF NOT EXISTS forge_transfers (
+    id TEXT PRIMARY KEY,                       -- the Fable decision (transactions.id)
+    institution_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    reference TEXT NOT NULL UNIQUE,
+    source_account TEXT NOT NULL,
+    destination_account TEXT NOT NULL,
+    destination_bank_code TEXT,
+    intra INTEGER NOT NULL DEFAULT 0,
+    recipient_name TEXT,
+    amount REAL NOT NULL,
+    narration TEXT,
+    name_enquiry_ref TEXT,
+    name_enquiry_at REAL,
+    action TEXT,                               -- the decision: PASS | FLAG | BLOCK
+    state TEXT NOT NULL,
+    fee REAL,
+    vat REAL,
+    stamp_duty REAL,
+    total_debit REAL,
+    last_error TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Webhook events already handled, so a retried delivery changes nothing.
+CREATE TABLE IF NOT EXISTS forge_events (
+    event_id TEXT PRIMARY KEY,
+    event TEXT NOT NULL,
+    received_at TEXT DEFAULT (datetime('now'))
+);
+
 -- What a sandbox bank's test customers would have received: one-time codes
 -- and notices. Shown in the demo app so testing never depends on a real
 -- inbox. Never written for a live bank (services/delivery.py).

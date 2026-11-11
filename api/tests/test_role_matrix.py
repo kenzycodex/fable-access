@@ -27,6 +27,8 @@ PUBLIC = {
     ("POST", "/operator/auth/login"), ("POST", "/operator/auth/verify"), ("POST", "/operator/auth/accept-invite"),
     ("GET", "/v1/branding/{institution_id}"), ("GET", "/v1/branding/resolve/{slug}"),
     ("GET", "/v1/institutions/{institution_id}"), ("POST", "/v1/institutions/resolve-key"),
+    # The bank's webhooks carry no key; the HMAC signature is their only credential.
+    ("POST", "/v1/forge/hooks/bank"),
 }
 
 
