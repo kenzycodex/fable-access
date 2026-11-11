@@ -13,7 +13,8 @@
 # Secrets are never written here. The team key comes from the `huawei-gateway`
 # secret the platform provisioned (as GATEWAY_KEY); Fable's own settings come
 # from a `fable-env` secret created once (docs/DEPLOY-FORGE.md).
-# Quota check: requests 200m / 512Mi of 400m / 768Mi, limits 1 core / 1Gi of
+# Quota check: requests 200m / 384Mi of 400m / 768Mi (512Mi while the site
+# updates, when two of its pods overlap), limits 1 core / 1Gi of
 # 2 cores / 2Gi, 2 pods of 10, 2 Services of 5, no persistent volume.
 apiVersion: apps/v1
 kind: Deployment
@@ -130,7 +131,9 @@ spec:
             initialDelaySeconds: 20
             periodSeconds: 20
           resources:
-            requests: { cpu: 100m, memory: 256Mi }
+            # 128Mi reserved: while the site updates, two copies run side by side
+            # next to the API (256 + 128 + 128 of the namespace's 768Mi).
+            requests: { cpu: 100m, memory: 128Mi }
             limits: { cpu: 500m, memory: 512Mi }
 ---
 apiVersion: v1
