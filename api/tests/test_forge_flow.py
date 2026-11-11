@@ -98,6 +98,13 @@ def test_a_small_transfer_passes_and_reaches_the_bank_once(world, bank):
     assert sent["headers"]["Idempotency-Key"] and sent["payload"]["name_enquiry_ref"] == "ne_test"
 
 
+def test_a_pass_with_no_history_does_not_claim_usual_habits(world, bank):
+    client, headers = world
+    body = client.post("/v1/forge/transfer", json=_transfer(5_000), headers=headers).json()
+    assert any(s.startswith("cold_start") for s in body["decision"]["signals"])
+    assert "usual habits" not in body["decision"]["explanation"]
+
+
 def test_repeating_the_same_attempt_does_not_send_again(world, bank):
     client, headers = world
     payload = _transfer(5_000)
@@ -115,6 +122,11 @@ def test_a_lost_answer_is_only_queried_and_never_resent(world, bank):
     assert res.json()["transfer"]["state"] == "successful"  # settled by requery
     assert len(bank.posts_to("/transfers/interbank")) == 1
     assert len(bank.posts_to("/requery")) >= 1
+    # The trail says what happened, including that the answer was lost.
+    trail = res.json()["transfer"]["trail"]
+    states = [step["state"] for step in trail]
+    assert states[0] == "decided" and "unknown" in states and states[-1] == "successful"
+    assert next(s for s in trail if s["state"] == "unknown")["note"] == "the connection timed out"
 
 
 def test_a_huge_first_transfer_is_held_and_nothing_is_sent(world, bank):
