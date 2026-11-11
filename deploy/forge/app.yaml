@@ -1,15 +1,20 @@
-# Fable API on the Access Youth Tech Forge cluster, namespace team11.
+# Fable on the Access Youth Tech Forge cluster, namespace team11.
 #
-# The platform publishes exactly one Service per team: it must be called
-# `app` and listen on port 80. TLS ends upstream, so the pod serves plain HTTP.
+# Two workloads:
+#   app  the website. This is the one Service the platform publishes, so it
+#        must be named `app` and listen on port 80. TLS ends upstream.
+#   api  the Fable API. Internal only: the site forwards /fable-api to it, and
+#        the bank's webhooks reach it by name inside the namespace.
 #
 #   kubectl apply -f deploy/forge/app.yaml
-#   kubectl set image deployment/app app=ghcr.io/kenzycodex/fable-access-api:<git sha>
-#   kubectl rollout status deployment/app
+#   kubectl set image deployment/api api=ghcr.io/kenzycodex/fable-access-api:<tag>
+#   kubectl set image deployment/app app=ghcr.io/kenzycodex/fable-access-web:<tag>
 #
 # Secrets are never written here. The team key comes from the `huawei-gateway`
 # secret the platform provisioned (as GATEWAY_KEY); Fable's own settings come
-# from a `fable-env` secret you create once (docs/DEPLOY-FORGE.md).
+# from a `fable-env` secret created once (docs/DEPLOY-FORGE.md).
+# Quota check: requests 200m / 512Mi of 400m / 768Mi, limits 1 core / 1Gi of
+# 2 cores / 2Gi, 2 pods of 10, 2 Services of 5.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -23,7 +28,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: app
+  name: api
 spec:
   replicas: 1
   # One pod at a time: the database is a SQLite file on a volume only one pod
@@ -31,10 +36,10 @@ spec:
   strategy:
     type: Recreate
   selector:
-    matchLabels: { app: app }
+    matchLabels: { app: api }
   template:
     metadata:
-      labels: { app: app }
+      labels: { app: api }
     spec:
       imagePullSecrets:
         - name: regcred
@@ -45,9 +50,8 @@ spec:
         runAsGroup: 10001
         fsGroup: 10001
       containers:
-        - name: app
-          # Replace the tag with the git sha the image workflow pushed.
-          image: ghcr.io/kenzycodex/fable-access-api:REPLACE_WITH_GIT_SHA
+        - name: api
+          image: ghcr.io/kenzycodex/fable-access-api:REPLACE_WITH_TAG
           ports:
             - containerPort: 8010
           env:
@@ -68,7 +72,6 @@ spec:
             httpGet: { path: /healthz, port: 8010 }
             initialDelaySeconds: 20
             periodSeconds: 20
-          # Namespace quota: 400m / 768Mi requested, 2 cores / 2Gi limit.
           resources:
             requests: { cpu: 100m, memory: 256Mi }
             limits: { cpu: 500m, memory: 512Mi }
@@ -80,9 +83,53 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: api
+spec:
+  selector: { app: api }
+  ports:
+    - port: 80
+      targetPort: 8010
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: app }
+  template:
+    metadata:
+      labels: { app: app }
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: app
+          image: ghcr.io/kenzycodex/fable-access-web:REPLACE_WITH_TAG
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: app
 spec:
   selector: { app: app }
   ports:
     - port: 80
-      targetPort: 8010
+      targetPort: 8080
