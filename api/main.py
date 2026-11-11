@@ -88,7 +88,9 @@ async def lifespan(_app: FastAPI):
 
         forge_seed.ensure_from_env()  # the Forge demo puts itself back after a restart
     except Exception as exc:  # noqa: BLE001 - never block startup on this
-        logger.warning("Could not set up the Forge demo at startup: %s", type(exc).__name__)
+        # A ValueError carries a fixed setup message (never a secret), so show it.
+        reason = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
+        logger.warning("Could not set up the Forge demo at startup: %s", reason)
     from services import scheduler
 
     register_jobs()
