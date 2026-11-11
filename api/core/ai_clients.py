@@ -8,6 +8,7 @@ provider or to their built-in answer.
 """
 from __future__ import annotations
 
+import os
 import threading
 
 from core import secrets
@@ -53,6 +54,26 @@ def anthropic(timeout: float = 30):
     return _cached("anthropic", secrets.get("ANTHROPIC_API_KEY"), timeout, build)
 
 
+def huawei(timeout: float = 30):
+    """Huawei MaaS through the Forge gateway: OpenAI-compatible, with the team
+    key in an `apikey` header. Only set up where FORGE_MAAS_BASE_URL is."""
+    base = os.getenv("FORGE_MAAS_BASE_URL", "").strip()
+    key = os.getenv("GATEWAY_KEY", "").strip()
+    if not base:
+        return None
+
+    def build(k, t):
+        from openai import OpenAI
+
+        return OpenAI(base_url=base, api_key="unused", default_headers={"apikey": k}, timeout=t)
+
+    return _cached("huawei", key, timeout, build)
+
+
+def huawei_model() -> str:
+    return os.getenv("FORGE_MAAS_MODEL", "").strip() or "glm-5.2"
+
+
 def openai_model() -> str:
     return secrets.get("OPENAI_MODEL")
 
@@ -64,6 +85,7 @@ def anthropic_model() -> str:
 def configured() -> bool:
     """Whether any AI provider key is in force (for /health). Never raises."""
     try:
-        return bool(secrets.get("ANTHROPIC_API_KEY") or secrets.get("OPENAI_API_KEY"))
+        return bool(secrets.get("ANTHROPIC_API_KEY") or secrets.get("OPENAI_API_KEY")
+                    or (os.getenv("FORGE_MAAS_BASE_URL") and os.getenv("GATEWAY_KEY")))
     except Exception:  # noqa: BLE001
         return False
