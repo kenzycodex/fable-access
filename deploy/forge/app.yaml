@@ -1,0 +1,88 @@
+# Fable API on the Access Youth Tech Forge cluster, namespace team11.
+#
+# The platform publishes exactly one Service per team: it must be called
+# `app` and listen on port 80. TLS ends upstream, so the pod serves plain HTTP.
+#
+#   kubectl apply -f deploy/forge/app.yaml
+#   kubectl set image deployment/app app=ghcr.io/kenzycodex/fable-access-api:<git sha>
+#   kubectl rollout status deployment/app
+#
+# Secrets are never written here. The team key comes from the `huawei-gateway`
+# secret the platform provisioned (as GATEWAY_KEY); Fable's own settings come
+# from a `fable-env` secret you create once (docs/DEPLOY-FORGE.md).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fable-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+spec:
+  replicas: 1
+  # One pod at a time: the database is a SQLite file on a volume only one pod
+  # can mount, so the old pod must stop before the new one starts.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: app }
+  template:
+    metadata:
+      labels: { app: app }
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      # The image runs as uid 10001; fsGroup makes the volume writable by it.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: app
+          # Replace the tag with the git sha the image workflow pushed.
+          image: ghcr.io/kenzycodex/fable-access-api:REPLACE_WITH_GIT_SHA
+          ports:
+            - containerPort: 8010
+          env:
+            - { name: PORT, value: "8010" }
+            - { name: ENVIRONMENT, value: production }
+            - { name: FABLE_DB_PATH, value: /data/fable.db }
+            - { name: FORGE_BANK_BASE_URL, value: "http://bank-api.ingress-apisix.svc.cluster.local/v1" }
+            - { name: FORGE_MAAS_BASE_URL, value: "http://huawei-maas.ingress-apisix.svc.cluster.local/openai/v1" }
+          envFrom:
+            - secretRef: { name: huawei-gateway, optional: true }
+            - secretRef: { name: fable-env, optional: true }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8010 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8010 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          # Namespace quota: 400m / 768Mi requested, 2 cores / 2Gi limit.
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: fable-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+spec:
+  selector: { app: app }
+  ports:
+    - port: 80
+      targetPort: 8010

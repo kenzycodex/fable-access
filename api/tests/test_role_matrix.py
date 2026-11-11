@@ -22,7 +22,7 @@ ROLES = ("owner", "analyst", "viewer")
 # Reachable with no credential: health, docs, sign-in flows and the public
 # face of a bank (its name and branding, for the sandbox app's own page).
 PUBLIC = {
-    ("GET", "/"), ("GET", "/health"),
+    ("GET", "/"), ("GET", "/health"), ("GET", "/healthz"),
     ("POST", "/auth/login"), ("POST", "/auth/forgot-password"), ("POST", "/auth/reset-password"),
     ("POST", "/operator/auth/login"), ("POST", "/operator/auth/verify"), ("POST", "/operator/auth/accept-invite"),
     ("GET", "/v1/branding/{institution_id}"), ("GET", "/v1/branding/resolve/{slug}"),

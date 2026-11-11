@@ -30,7 +30,7 @@ def limits() -> tuple[int, int]:
     except Exception:  # noqa: BLE001 - a settings failure must never open or close the API
         return config.RATE_LIMIT_MAX, config.RATE_LIMIT_WINDOW
 
-EXEMPT_PATHS = ("/", "/health", "/docs", "/redoc", "/openapi.json", "/favicon.ico")
+EXEMPT_PATHS = ("/", "/health", "/healthz", "/docs", "/redoc", "/openapi.json", "/favicon.ico")
 
 # Only sweep once the dict is big enough to be worth sweeping, so the common
 # case stays a single dict lookup.

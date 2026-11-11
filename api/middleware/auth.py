@@ -12,7 +12,7 @@ from core.config import API_KEYS
 from core.db import get_conn
 from core.errors import body
 
-PUBLIC_PATHS = ("/", "/health", "/docs", "/redoc", "/openapi.json", "/favicon.ico")
+PUBLIC_PATHS = ("/", "/health", "/healthz", "/docs", "/redoc", "/openapi.json", "/favicon.ico")
 # Signing in, recovering a password and accepting an invite happen before the
 # caller has any credential, so they can never require one.
 PUBLIC_PREFIXES = ("/auth/login", "/auth/forgot-password", "/auth/reset-password",
