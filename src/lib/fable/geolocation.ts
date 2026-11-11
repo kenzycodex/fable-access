@@ -1,5 +1,6 @@
 "use client";
 
+import { API_BASE } from "./base";
 import { authHeaders } from "./tenant";
 
 // Fable SDK: geolocation collector. GPS first (the browser's permission
@@ -106,7 +107,6 @@ interface ReverseGeocode {
 
 // Same base the API client uses. Not imported from api.ts, which imports this
 // module; a cycle between the two is not worth one line.
-const API_BASE = (process.env.NEXT_PUBLIC_FABLE_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
 
 function timedFetch(url: string, headers: Record<string, string> = {}): Promise<Response> {
   const controller = new AbortController();
