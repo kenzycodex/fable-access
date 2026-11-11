@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+api
+docs
+e2e
+deploy
+playwright-report
+test-results
+*.md
+.env*

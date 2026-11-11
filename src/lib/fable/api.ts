@@ -5,6 +5,7 @@
 // Point NEXT_PUBLIC_FABLE_API_URL at the deployed API in production; it
 // defaults to the local FastAPI dev server.
 
+import { API_BASE } from "./base";
 import type { BehavioralProfile } from "./biometrics";
 import type { DeviceFingerprint } from "./fingerprint";
 import { TRUSTED_CITY_M, type GeoLocation } from "./geolocation";
@@ -13,7 +14,7 @@ import type { SessionContext } from "./session";
 import { activeInstitution, activeUserId, authHeaders } from "./tenant";
 import type { Channel, ReviewOutcome, ReviewState, RiskAction, ScoreResult, Signal, Transaction, TransactionInput } from "./types";
 
-export const API_BASE = (process.env.NEXT_PUBLIC_FABLE_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
+export { API_BASE };
 /** Legacy single-tenant user id. Still the fallback for dashboard reads that
  * predate multi-tenancy; live demo transfers use the customer picked in the
  * demo bank (see tenant.ts). */
