@@ -254,6 +254,12 @@ def _try_openai(user_prompt: str) -> str | None:
 
 
 def _local_pass_explanation(signals: list[str]) -> str:
+    # "Matches your usual habits" is only true when there are habits to match.
+    # With no history yet (the cold start signal fired) the honest reason is
+    # that the amount is small, and the customer is still being learned.
+    if any(str(s).startswith("cold_start") for s in signals):
+        return ("This is a small transfer and there is not enough history yet to compare it with, "
+                "so it went through with no extra checks while Fable learns your habits.")
     return "This transfer matches your usual habits, so it went through instantly with no extra checks."
 
 
