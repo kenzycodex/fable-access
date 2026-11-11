@@ -1,0 +1,42 @@
+# Fallback demo on one laptop, for when the team11 cluster cannot be reached.
+# Same API, sandbox app, console and bank bridge as the cluster; the Xtradot
+# Bank is replaced by a local stand-in (api/scripts/mock_bank.py) that follows
+# the platform guide's rules. The bank panel is labelled "simulated".
+#
+#   docker compose -f deploy/local/docker-compose.yml up --build
+#   open http://localhost:8080/dashboard/login  (team11@fable.ng / see FORGE_CONSOLE_PASSWORD)
+services:
+  mock-bank:
+    build: ../../api
+    command: ["python", "scripts/mock_bank.py"]
+    environment:
+      MOCK_BANK_PORT: "9000"
+    healthcheck:
+      disable: true  # the image's check is for the API port
+
+  api:
+    build: ../../api
+    depends_on: [mock-bank]
+    environment:
+      PORT: "8010"
+      ENVIRONMENT: development
+      FABLE_SESSION_SECRET: local-demo-only-not-a-secret
+      FABLE_DB_PATH: /tmp/fable.db
+      FORGE_BANK_BASE_URL: http://mock-bank:9000/v1
+      GATEWAY_KEY: local
+      FORGE_BRIDGE_INSTITUTION: xtradot
+      FORGE_CONSOLE_EMAIL: team11@fable.ng
+      FORGE_CONSOLE_PASSWORD: ${FORGE_CONSOLE_PASSWORD:-fable-demo-2026}
+
+  web:
+    build:
+      context: ../..
+      args:
+        FABLE_INTERNAL_API_URL: http://api:8010
+        NEXT_PUBLIC_FORGE_BANK_LABEL: Xtradot Bank (simulated)
+    depends_on: [api]
+    environment:
+      FORGE_BRIDGE: "1"
+      FABLE_INTERNAL_API_URL: http://api:8010
+    ports:
+      - "8080:8080"
