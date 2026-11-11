@@ -80,8 +80,12 @@ def _bank_http(exc: BankError) -> HTTPException:
 
 def _view(row: dict) -> dict:
     """What the caller sees of a transfer: its state and the bank's own charges."""
-    return {k: row[k] for k in ("id", "reference", "state", "amount", "recipient_name", "destination_account",
+    from core.db import loads
+
+    view = {k: row[k] for k in ("id", "reference", "state", "amount", "recipient_name", "destination_account",
                                 "fee", "vat", "stamp_duty", "total_debit", "last_error", "updated_at")}
+    view["trail"] = loads(row.get("trail"), []) or []
+    return view
 
 
 @router.post("/enquiry", dependencies=[Depends(scoring_guard)])

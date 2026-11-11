@@ -432,6 +432,7 @@ CREATE TABLE IF NOT EXISTS forge_transfers (
     stamp_duty REAL,
     total_debit REAL,
     last_error TEXT,
+    trail TEXT,                                -- JSON: every state it passed through, with the reason
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
