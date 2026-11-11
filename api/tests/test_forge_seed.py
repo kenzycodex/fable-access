@@ -83,3 +83,16 @@ def test_a_random_key_is_issued_once_when_none_is_configured():
     out = forge_seed.ensure_demo(None)
     assert out["issued_key"] and out["issued_key"].startswith("fbl_live_")
     assert forge_seed.ensure_demo(None)["issued_key"] is None
+
+
+def test_a_bad_demo_key_does_not_stop_the_bank_being_set_up(monkeypatch):
+    from services import forge_seed
+
+    calls = []
+    monkeypatch.setenv("FORGE_DEMO_API_KEY", "not-a-valid-key")
+    monkeypatch.setenv("FORGE_BRIDGE_INSTITUTION", "xtradot")
+    monkeypatch.setenv("FORGE_CONSOLE_EMAIL", "team11@fable.ng")
+    monkeypatch.setenv("FORGE_CONSOLE_PASSWORD", "long-enough-password")
+    monkeypatch.setattr(forge_seed, "ensure_bank", lambda *a: calls.append(a) or {"customers": 5, "history": 0})
+    assert forge_seed.ensure_from_env() is True
+    assert calls == [("xtradot", "team11@fable.ng", "long-enough-password")]
