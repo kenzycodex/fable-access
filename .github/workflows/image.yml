@@ -1,13 +1,15 @@
-# Builds the API image for the Forge cluster (linux/amd64) and pushes it to
-# GHCR, tagged with the commit it was built from. Deploying it is a separate,
-# manual step with kubectl (docs/DEPLOY-FORGE.md): the cluster is not reachable
-# from here, and its kubeconfig is never stored in this repository.
-name: API image
+# Builds the two images for the Forge cluster (linux/amd64) and pushes them to
+# GHCR, tagged with the commit they were built from:
+#   fable-access-api  the FastAPI backend (api/)
+#   fable-access-web  the website (the Dockerfile at the repository root)
+# Deploying them is a separate, manual step with kubectl (docs/DEPLOY-FORGE.md):
+# the cluster is not reachable from here, and its kubeconfig is never stored in
+# this repository.
+name: Images
 
 on:
   push:
     branches: [main]
-    paths: ["api/**", ".github/workflows/image.yml"]
   workflow_dispatch:
 
 permissions:
@@ -16,17 +18,24 @@ permissions:
 
 jobs:
   image:
-    name: Build and push
+    name: Build and push ${{ matrix.name }}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: api, context: api }
+          - { name: web, context: . }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Build for the cluster's architecture and push
         env:
-          IMAGE: ghcr.io/${{ github.repository_owner }}/fable-access-api
+          IMAGE: ghcr.io/${{ github.repository_owner }}/fable-access-${{ matrix.name }}
+          CONTEXT: ${{ matrix.context }}
         run: |
           tag="${GITHUB_SHA::12}"
-          docker build --platform linux/amd64 -t "$IMAGE:$tag" api
+          docker build --platform linux/amd64 -t "$IMAGE:$tag" "$CONTEXT"
           docker push "$IMAGE:$tag"
           echo "::notice::Pushed $IMAGE:$tag"
