@@ -80,8 +80,17 @@ def _set(transfer_id: str, **fields) -> None:
 
 def _apply_bank_reply(transfer_id: str, data: dict) -> dict:
     state = _BANK_STATES.get(str(data.get("status", "")).lower(), "pending")
-    _set(transfer_id, state=state, fee=data.get("fee"), vat=data.get("vat"),
-         stamp_duty=data.get("stamp_duty"), total_debit=data.get("total_debit"), last_error=None)
+    row = get(transfer_id) or {}
+    if state in FINAL and data.get("fee") is None and row.get("reference"):
+        # The requery reply carries the status only; the transfer record has
+        # the charges, so read them from there rather than show none.
+        try:
+            data = {**forge_bank.transfer_status(row["reference"]), **{"status": data.get("status")}}
+        except Exception:  # noqa: BLE001 - the charges are shown later, never block the state
+            logger.warning("Could not read the charges for %s", row["reference"])
+    # A reply without charges never wipes the ones already recorded.
+    charges = {k: data[k] for k in ("fee", "vat", "stamp_duty", "total_debit") if data.get(k) is not None}
+    _set(transfer_id, state=state, last_error=None, **charges)
     _teach_baseline(transfer_id, state)
     return get(transfer_id)
 
@@ -177,9 +186,7 @@ def apply_event(event: str, data: dict) -> dict | None:
     # A final state is never walked back to pending by a late or replayed event.
     if row["state"] in FINAL and mapped == "pending":
         return row
-    _set(row["id"], state=mapped,
-         fee=data.get("fee", row["fee"]), vat=data.get("vat", row["vat"]),
-         stamp_duty=data.get("stamp_duty", row["stamp_duty"]),
-         total_debit=data.get("total_debit", row["total_debit"]))
+    charges = {k: data[k] for k in ("fee", "vat", "stamp_duty", "total_debit") if data.get(k) is not None}
+    _set(row["id"], state=mapped, **charges)
     _teach_baseline(row["id"], mapped)
     return get(row["id"])

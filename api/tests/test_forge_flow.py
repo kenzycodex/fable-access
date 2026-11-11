@@ -26,6 +26,7 @@ class FakeBank:
     def __init__(self):
         self.calls = []
         self.send_mode = "pending"  # pending | timeout
+        self.requery_has_charges = True  # the real sandbox's requery reply carries the status only
 
     def posts_to(self, suffix):
         return [c for c in self.calls if c["method"] == "POST" and c["url"].endswith(suffix)]
@@ -44,8 +45,13 @@ class FakeBank:
                 raise socket.timeout("timed out")
             return ok({"status": "pending", "reference": payload["reference"]}, 202)
         if url.endswith("/requery"):
+            if not self.requery_has_charges:
+                return ok({"status": "successful", "reference": payload["reference"]})
             return ok({"status": "successful", "reference": payload["reference"], "fee": 50.0, "vat": 3.75,
                        "stamp_duty": 50.0, "total_debit": payload.get("amount", 0)})
+        if method == "GET" and "/transfers/" in url:
+            return ok({"status": "successful", "reference": url.rsplit("/", 1)[-1], "fee": 10.0, "vat": 0.75,
+                       "stamp_duty": 0.0, "total_debit": 5010.75})
         raise AssertionError(f"unexpected bank call {method} {url}")
 
 
@@ -251,3 +257,13 @@ def test_the_webhook_needs_a_configured_secret(world, monkeypatch):
     monkeypatch.delenv("FORGE_WEBHOOK_SECRET", raising=False)
     raw, headers = _signed({"event": "transfer.successful", "event_id": "evt_x", "data": {}})
     assert world[0].post("/v1/forge/hooks/bank", content=raw, headers=headers).status_code == 503
+
+
+def test_charges_come_from_the_transfer_record_when_the_requery_has_none(world, bank):
+    client, headers = world
+    bank.requery_has_charges = False
+    res = client.post("/v1/forge/transfer", json=_transfer(5_000), headers=headers)
+    assert res.status_code == 200, res.text
+    t = res.json()["transfer"]
+    assert t["state"] == "successful"
+    assert (t["fee"], t["vat"], t["total_debit"]) == (10.0, 0.75, 5010.75)
