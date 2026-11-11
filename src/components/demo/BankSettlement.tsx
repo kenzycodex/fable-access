@@ -6,6 +6,9 @@ import { Badge, Card, DetailRow, Eyebrow, Notice } from "@/components/app-kit";
 import { API_BASE } from "@/lib/fable/base";
 import { authHeaders } from "@/lib/fable/tenant";
 
+// "Xtradot Bank (simulated)" when the local stand-in bank is used instead of the real sandbox.
+const BANK_LABEL = process.env.NEXT_PUBLIC_FORGE_BANK_LABEL || "Xtradot Bank";
+
 /**
  * What the bank did with a transfer Fable let through.
  *
@@ -94,7 +97,7 @@ export function BankSettlement({
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Bank size={18} weight="fill" className="text-brand" />
-          <Eyebrow>Xtradot Bank</Eyebrow>
+          <Eyebrow>{BANK_LABEL}</Eyebrow>
         </div>
         <Badge tone={TONE[data.state] ?? "neutral"}>{LABEL[data.state] ?? data.state}</Badge>
       </div>
