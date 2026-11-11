@@ -8,7 +8,8 @@
 // Vercel, per function instance), which slows abuse rather than making it
 // impossible; the session requirement is the real gate.
 
-const API_BASE = (process.env.NEXT_PUBLIC_FABLE_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
+import { API_BASE } from "@/lib/fable/base";
+
 const SESSION_CACHE_MS = 60_000;
 const PER_SESSION_PER_MINUTE = 30;
 const PER_ADDRESS_PER_MINUTE = 60;
