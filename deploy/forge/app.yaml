@@ -56,6 +56,17 @@ spec:
             - name: FORGE_DEMO_API_KEY
               valueFrom:
                 secretKeyRef: { name: forge-demo, key: api-key, optional: true }
+            # The bank connected to the Xtradot sandbox: the sandbox app's
+            # transfers for this institution also go to the bank. Its console
+            # login comes from the `forge-console` secret; with it set, the API
+            # sets the bank up (customers and history imported) at every start.
+            - { name: FORGE_BRIDGE_INSTITUTION, value: xtradot }
+            - name: FORGE_CONSOLE_EMAIL
+              valueFrom:
+                secretKeyRef: { name: forge-console, key: email, optional: true }
+            - name: FORGE_CONSOLE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: forge-console, key: password, optional: true }
           envFrom:
             - secretRef: { name: huawei-gateway, optional: true }
             - secretRef: { name: fable-env, optional: true }
@@ -121,6 +132,8 @@ spec:
             - name: FORGE_DEMO_API_KEY
               valueFrom:
                 secretKeyRef: { name: forge-demo, key: api-key, optional: true }
+            # The sandbox app uses the Xtradot sandbox's banks and its name enquiry.
+            - { name: FORGE_BRIDGE, value: "1" }
           readinessProbe:
             httpGet: { path: /healthz, port: 8080 }
             periodSeconds: 5
