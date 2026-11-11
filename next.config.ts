@@ -70,12 +70,24 @@ const SECURITY_HEADERS = [
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
 ];
 
+// Running in the Forge cluster, the site is the one published Service and the
+// API is an internal one. The browser calls /fable-api on the site's own
+// address and the site forwards it to the API inside the cluster, so nothing
+// outside ever needs to reach the API. The destination is fixed at build time.
+const INTERNAL_API = (process.env.FABLE_INTERNAL_API_URL ?? "").replace(/\/+$/, "");
+
 const nextConfig: NextConfig = {
+  // A small self-contained server for the container image. Off elsewhere
+  // (Vercel and local development build as before).
+  output: process.env.FABLE_STANDALONE ? "standalone" : undefined,
   experimental: {
     // Keep a visited dynamic screen in the client cache for three minutes, so
     // going back to it is instant. Safe here: the demo and console screens
     // fetch their data in the browser, so the cached part holds no live data.
     staleTimes: { dynamic: 180 },
+  },
+  async rewrites() {
+    return INTERNAL_API ? [{ source: "/fable-api/:path*", destination: `${INTERNAL_API}/:path*` }] : [];
   },
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS }];
