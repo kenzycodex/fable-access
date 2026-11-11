@@ -66,12 +66,53 @@ def ensure_demo(raw_key: str | None = None, *, new_key: bool = False) -> dict:
     return {"customers": made, "issued_key": issued}
 
 
+def ensure_bank(institution_id: str, email: str, password: str) -> dict:
+    """The bank connected to the Xtradot sandbox, set up as a bank would be:
+    a sandbox institution with an owner who signs in to the console, and its
+    customers and their past transfers brought in through the console's own
+    import. Safe to run again: the import skips what it already has."""
+    from core.utils import hash_password
+    from services import forge_history, imports
+
+    if not email or "@" not in email or len(password) < 12:
+        raise ValueError("The console login needs an email and a password of at least 12 characters.")
+    register_institution(institution_id, "Xtradot Bank", email)
+    with cursor() as cur:
+        cur.execute("UPDATE institutions SET mode = 'sandbox' WHERE institution_id = ?", (institution_id,))
+        cur.execute("SELECT 1 FROM admins WHERE email = ?", (email.lower(),))
+        if cur.fetchone() is None:
+            cur.execute("INSERT INTO admins (email, institution_id, hashed_password, role, name, active) "
+                        "VALUES (?, ?, ?, 'owner', 'Team Fable', 1)",
+                        (email.lower(), institution_id, hash_password(password)))
+    made = imports.import_batch(institution_id, "customers", forge_history.customer_rows(),
+                                sandbox=True, actor="forge-seed")
+    history = forge_history.transaction_rows()
+    inserted = 0
+    for start in range(0, len(history), imports.MAX_ROWS_PER_BATCH):
+        inserted += imports.import_batch(institution_id, "transactions", history[start:start + imports.MAX_ROWS_PER_BATCH],
+                                         sandbox=True, actor="forge-seed")["inserted"]
+    for account in forge_history.HABITS:
+        customer = customers.get(institution_id, account)
+        if customer and not security.status(customer["id"]).get("pin_set"):
+            security.set_pin(customer["id"], DEMO_PIN, institution_id=institution_id)
+    return {"customers": made["inserted"], "history": inserted}
+
+
 def ensure_from_env() -> bool:
-    """At startup: set the demo up when its key is configured. Does nothing
-    otherwise, so only the Forge deployment ever creates this institution."""
+    """At startup: set the demo up when it is configured. Does nothing
+    otherwise, so only the Forge deployment ever creates these institutions."""
+    did = False
     raw = os.getenv("FORGE_DEMO_API_KEY", "").strip()
-    if not raw:
-        return False
-    ensure_demo(raw)
-    logger.info("The Forge demo institution is ready.")
-    return True
+    if raw:
+        ensure_demo(raw)
+        logger.info("The Forge demo institution is ready.")
+        did = True
+    bank = os.getenv("FORGE_BRIDGE_INSTITUTION", "").strip()
+    email = os.getenv("FORGE_CONSOLE_EMAIL", "").strip()
+    password = os.getenv("FORGE_CONSOLE_PASSWORD", "")
+    if bank and email and password:
+        result = ensure_bank(bank, email, password)
+        logger.info("The bank connected to the Xtradot sandbox is ready: %s customers and %s past transfers "
+                    "imported.", result["customers"], result["history"])
+        did = True
+    return did

@@ -222,7 +222,7 @@ export default function TransferPage() {
         // The lookup needs the signed-in session (src/lib/routeGuard.ts).
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ accountNumber: acct, bankCode }),
+        body: JSON.stringify({ accountNumber: acct, bankCode, userId: customer?.user_id }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -431,7 +431,7 @@ export default function TransferPage() {
                       <span className="font-semibold">{contact.name}</span> · {contact.bank}
                     </span>
                     {mode === "new" &&
-                      (resolveSource === "paystack" ? (
+                      (resolveSource === "paystack" || resolveSource === "xtradot" ? (
                         <span className="shrink-0 rounded-md bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
                           Verified
                         </span>
